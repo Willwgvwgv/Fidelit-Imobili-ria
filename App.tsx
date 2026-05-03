@@ -1,6 +1,5 @@
-
-import React, { useState, useEffect, useMemo } from 'react';
-import type { Session } from '@supabase/supabase-js';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import Layout from './components/Layout';
 import Login from './components/Login';
@@ -19,6 +18,19 @@ import { updateCommissionStatus, updateForecastDate } from './src/lib/supabaseHo
 import { AuthProvider, useAuth } from './src/hooks/useAuth';
 import { useSales, useTeam } from './src/hooks/useQueries';
 
+// ─── QueryClient configurado para NÃO fazer refresh automático ────────────────
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      staleTime: 1000 * 60 * 5,
+      gcTime: 1000 * 60 * 10,
+      retry: 1,
+    },
+  },
+});
+
 const round2 = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
 
 const AppContent: React.FC = () => {
@@ -26,9 +38,9 @@ const AppContent: React.FC = () => {
   const { data: sales = [], refetch: refetchSales } = useSales();
   const { data: team = [], refetch: refetchTeam } = useTeam();
 
-  const fetchInitialData = async () => {
+  const fetchInitialData = useCallback(async () => {
     await Promise.all([refetchSales(), refetchTeam()]);
-  };
+  }, [refetchSales, refetchTeam]);
 
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('comissone_theme') || 'light';
@@ -71,7 +83,7 @@ const AppContent: React.FC = () => {
             brokerName: split.broker_name,
             value: split.calculated_value,
             saleId: sale.id,
-            date: split.forecast_date || sale.sale_date
+            date: split.forecast_date || sale.sale_date,
           });
         }
       });
@@ -79,11 +91,13 @@ const AppContent: React.FC = () => {
     return notifications.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [sales, currentUser, dismissedNotificationIds]);
 
-  const handleClearNotifications = () => {
-    setDismissedNotificationIds(prev => Array.from(new Set([...prev, ...requestedNotifications.map(n => n.id)])));
-  };
+  const handleClearNotifications = useCallback(() => {
+    setDismissedNotificationIds(prev =>
+      Array.from(new Set([...prev, ...requestedNotifications.map(n => n.id)]))
+    );
+  }, [requestedNotifications]);
 
-  const handleUpdateCommissionStatus = async (
+  const handleUpdateCommissionStatus = useCallback(async (
     saleId: string, brokerId: string, newStatus: CommissionStatus,
     receiptData?: string, paymentAmount?: number, remainingAmount?: number,
     installmentNumber?: number, remainingForecastDate?: string,
@@ -93,12 +107,15 @@ const AppContent: React.FC = () => {
       await updateCommissionStatus(saleId, brokerId, newStatus, receiptData, paymentAmount, remainingAmount, installmentNumber, remainingForecastDate, notes, discountValue, id);
       await fetchInitialData();
     } catch (error: any) {
-      console.error('Erro detalhado ao atualizar status:', error);
+      console.error('Erro ao atualizar status:', error);
       alert(`Erro ao atualizar status: ${error?.message || 'Erro desconhecido'}`);
     }
-  };
+  }, [fetchInitialData]);
 
-  const handleUpdateForecast = async (saleId: string, brokerId: string, newForecastDate: string, installmentNumber?: number, id?: string) => {
+  const handleUpdateForecast = useCallback(async (
+    saleId: string, brokerId: string, newForecastDate: string,
+    installmentNumber?: number, id?: string
+  ) => {
     try {
       await updateForecastDate(saleId, brokerId, newForecastDate, installmentNumber, id);
       await fetchInitialData();
@@ -106,11 +123,13 @@ const AppContent: React.FC = () => {
       console.error('Erro ao atualizar previsão:', error);
       alert('Erro ao atualizar previsão. Tente novamente.');
     }
-  };
+  }, [fetchInitialData]);
 
-  const handleBrokerRequestPayment = async (saleId: string, brokerId: string, installmentNumber?: number) => {
+  const handleBrokerRequestPayment = useCallback(async (
+    saleId: string, brokerId: string, installmentNumber?: number
+  ) => {
     await handleUpdateCommissionStatus(saleId, brokerId, CommissionStatus.REQUESTED, undefined, undefined, undefined, installmentNumber);
-  };
+  }, [handleUpdateCommissionStatus]);
 
   if (loading) {
     return (
@@ -181,7 +200,13 @@ const AppContent: React.FC = () => {
       </div>
 
       <div className={activeView === 'sales' ? 'block' : 'hidden'}>
-        <Sales sales={sales} setSales={() => { }} currentUser={currentUser} team={team} onRefetch={fetchInitialData} />
+        <Sales
+          sales={sales}
+          setSales={() => {}}
+          currentUser={currentUser}
+          team={team}
+          onRefetch={fetchInitialData}
+        />
       </div>
 
       <div className={activeView === 'commissions' ? 'block' : 'hidden'}>
@@ -213,9 +238,10 @@ const AppContent: React.FC = () => {
           }}
         />
       </div>
+
       <div className={(activeView === 'profile' || activeView === 'settings') ? 'block' : 'hidden'}>
-        <ProfileSettings 
-          currentUser={currentUser} 
+        <ProfileSettings
+          currentUser={currentUser}
           activeView={activeView as 'profile' | 'settings'}
           theme={theme}
           setTheme={setTheme}
@@ -227,9 +253,11 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </QueryClientProvider>
   );
 };
 
