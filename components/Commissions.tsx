@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import {
   Search,
@@ -155,9 +154,18 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, currentUser, onUpdateS
         (comm.property || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (comm.brokerName || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-      const forecastDateStr = comm.forecastDate || '';
-      const matchesDate = (!startDate || forecastDateStr >= startDate) &&
-        (!endDate || forecastDateStr <= endDate);
+      const matchesDate = (() => {
+        if (!startDate && !endDate) return true;
+        const dateStr = comm.forecastDate || comm.date || '';
+        if (!dateStr) return true;
+        const txDate = new Date(dateStr + 'T00:00:00');
+        if (isNaN(txDate.getTime())) return true;
+        const start = startDate ? new Date(startDate + 'T00:00:00') : null;
+        const end = endDate ? new Date(endDate + 'T23:59:59') : null;
+        if (start && txDate < start) return false;
+        if (end && txDate > end) return false;
+        return true;
+      })();
 
       if (!matchesSearch || !matchesDate) return;
 
@@ -221,9 +229,18 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, currentUser, onUpdateS
         (comm.property || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (comm.brokerName || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-      const forecastDateStr = comm.forecastDate || '';
-      const matchesDate = (!startDate || forecastDateStr >= startDate) &&
-        (!endDate || forecastDateStr <= endDate);
+      const matchesDate = (() => {
+        if (!startDate && !endDate) return true;
+        const dateStr = comm.forecastDate || comm.date || '';
+        if (!dateStr) return true;
+        const txDate = new Date(dateStr + 'T00:00:00');
+        if (isNaN(txDate.getTime())) return true;
+        const start = startDate ? new Date(startDate + 'T00:00:00') : null;
+        const end = endDate ? new Date(endDate + 'T23:59:59') : null;
+        if (start && txDate < start) return false;
+        if (end && txDate > end) return false;
+        return true;
+      })();
 
       return matchesStatus && matchesSearch && matchesDate;
     });
@@ -416,9 +433,18 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, currentUser, onUpdateS
         (comm.property || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (comm.brokerName || '').toLowerCase().includes(searchTerm.toLowerCase());
 
-      const forecastDateStr = comm.forecastDate || '';
-      const matchesDate = (!startDate || forecastDateStr >= startDate) &&
-        (!endDate || forecastDateStr <= endDate);
+      const matchesDate = (() => {
+        if (!startDate && !endDate) return true;
+        const dateStr = comm.forecastDate || comm.date || '';
+        if (!dateStr) return true;
+        const txDate = new Date(dateStr + 'T00:00:00');
+        if (isNaN(txDate.getTime())) return true;
+        const start = startDate ? new Date(startDate + 'T00:00:00') : null;
+        const end = endDate ? new Date(endDate + 'T23:59:59') : null;
+        if (start && txDate < start) return false;
+        if (end && txDate > end) return false;
+        return true;
+      })();
 
       if (!matchesSearch || !matchesDate || !matchesStatus) return;
 
