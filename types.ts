@@ -7,19 +7,118 @@ export enum UserRole {
 export enum CommissionStatus {
   PENDING = 'PENDING',
   PAID = 'PAID',
-  PARTIAL = 'PARTIAL',
-  OVERDUE = 'OVERDUE',
-  REQUESTED = 'REQUESTED',
-  CANCELED = 'CANCELED'
+  OVERDUE = 'OVERDUE'
+}
+
+export enum SplitRole {
+  BROKER = 'Corretor',
+  CAPTURER = 'Captador',
+  PARTNER = 'Sócio',
+  AGENCY = 'Agência',
+  MANAGER = 'Gerente'
 }
 
 export interface User {
   id: string;
   name: string;
   email: string;
-  phone?: string;
   role: UserRole;
+  agencyId: string;
+  phone?: string;
+  created_at?: string;
+}
+
+export interface BrokerSplit {
+  id?: string;
+  sale_id?: string;
+  brokerId: string; // Map to broker_id
+  brokerName: string; // Map to broker_name
+  percentage: number;
+  calculatedValue: number; // Map to calculated_value
+  status: CommissionStatus;
+  role?: SplitRole;
+  paymentDate?: string; // Map to payment_date
+  paymentMethod?: string; // Map to payment_method
+  forecastDate?: string; // Map to forecast_date
+  receiptData?: string; // Map to receipt_data
+  installment_number?: number;
+  total_installments?: number;
+  notes?: string;
+  discount_value?: number;
+}
+
+export interface Sale {
+  id: string;
+  agencyId: string; // Map to agency_id
+  saleDate: string; // Map to sale_date
+  propertyAddress: string; // Map to property_address
+  buyerName: string; // Map to buyer_name
+  sellerName: string; // Map to seller_name
+  vgv: number;
+  commissionPercentage: number; // Map to commission_percentage
+  totalCommissionValue: number; // Map to total_commission_value
+  invoiceIssued: boolean; // Map to invoice_issued
+  invoiceNumber?: string; // Map to invoice_number
+  notes?: string;
+  status?: string;
+  buyer_cpf?: string;
+  seller_cpf?: string;
+  is_installment?: boolean;
+  installments?: any;
+  splits: BrokerSplit[];
+  created_at?: string;
+}
+
+export enum TransactionType {
+  INCOME = 'INCOME',
+  EXPENSE = 'EXPENSE',
+  TRANSFER = 'TRANSFER'
+}
+
+export enum TransactionStatus {
+  PAID = 'PAID',
+  PENDING = 'PENDING'
+}
+
+export interface FinancialAccount {
+  id: string;
   agency_id: string;
+  name: string;
+  initial_balance: number;
+  current_balance: number;
+  color?: string;
+  is_default: boolean;
+  type?: string;
+  credit_limit?: number;
+  is_active: boolean;
+}
+
+export interface FinancialCategory {
+  id: string;
+  agency_id: string;
+  name: string;
+  type: TransactionType;
+  color?: string;
+}
+
+export interface FinancialTransaction {
+  id: string;
+  agency_id: string;
+  description: string;
+  amount: number;
+  type: TransactionType;
+  category_id?: string;
+  account_id?: string;
+  status: TransactionStatus;
+  due_date: string;
+  payment_date?: string;
+  notes?: string;
+  attachment_url?: string;
+  paid_amount?: number;
+  is_transfer?: boolean;
+  transfer_group_id?: string;
+  installment_number?: number;
+  total_installments?: number;
 }
 
 export interface Agency {
@@ -30,61 +129,6 @@ export interface Agency {
   created_at?: string;
 }
 
-export interface BrokerSplit {
-  id: string;
-  broker_id: string | null;
-  broker_name: string;
-  percentage: number;
-  calculated_value: number;
-  status: CommissionStatus;
-  payment_date?: string;
-  payment_method?: string;
-  forecast_date?: string;
-  receipt_data?: string;
-  installment_number?: number;
-  total_installments?: number;
-  notes?: string;
-  discount_value?: number;
-}
-
-export interface SaleInstallment {
-  installment_number: number;
-  due_date: string;
-  value: number;
-  status: 'PENDING' | 'PAID';
-}
-
-export enum SaleStatus {
-  ACTIVE = 'ACTIVE',
-  CANCELED = 'CANCELED'
-}
-
-export interface Sale {
-  id: string;
-  agency_id: string;
-  status?: SaleStatus;
-  sale_date: string;
-  property_address: string;
-  buyer_name: string;
-  buyer_cpf?: string;
-  seller_name: string;
-  seller_cpf?: string;
-  vgv: number;
-  commission_percentage: number;
-  total_commission_value: number;
-  invoice_issued: boolean;
-  invoice_number?: string;
-  notes?: string;
-  is_installment?: boolean;
-  installments?: SaleInstallment[];
-  splits: BrokerSplit[];
-  // Client contact — new field (nullable for backward compat)
-  client_contact_id?: string | null;
-  seller_contact_id?: string | null;
-  client_contact_name?: string | null; // Joined field, not stored in DB
-}
-
-
 export interface DashboardStats {
   totalVGV: number;
   totalCommission: number;
@@ -92,104 +136,4 @@ export interface DashboardStats {
   pendingCommission: number;
   overdueCommission: number;
   brokerPerformance: { name: string; vgv: number; commissions: number }[];
-}
-
-// Financial Module Types
-export type TransactionType = 'INCOME' | 'EXPENSE';
-export type TransactionStatus = 'PENDING' | 'PAID' | 'PARTIAL';
-export type FinancialContactType = 'CLIENT' | 'SUPPLIER' | 'BOTH';
-
-export interface FinancialContact {
-  id: string;
-  agency_id: string;
-  name: string;
-  document?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  type: FinancialContactType;
-  is_active: boolean;
-  created_at: string;
-}
-
-export interface FinancialCategory {
-  id: string;
-  agency_id: string;
-  name: string;
-  type: TransactionType;
-  color: string;
-}
-
-export interface FinancialAccount {
-  id: string;
-  agency_id: string;
-  name: string;
-  type: 'BANK' | 'CREDIT_CARD';
-  initial_balance: number;
-  current_balance: number;
-  color: string;
-  is_default: boolean;
-  is_active?: boolean;  // false = arquivada (soft delete)
-  credit_limit?: number; // Only for CREDIT_CARD
-  closing_day?: number; // Only for CREDIT_CARD
-  due_day?: number;     // Only for CREDIT_CARD
-  linked_account_id?: string; // Bank account used to pay this card
-  last_four_digits?: string; // Only for CREDIT_CARD
-}
-
-export interface BankImportLog {
-  id: string;
-  agency_id: string;
-  account_id: string;
-  filename: string;
-  file_size: number;
-  import_date: string;
-  period_start: string;
-  period_end: string;
-  transaction_count: number;
-  entries_sum: number;
-  exits_sum: number;
-  file_hash: string;
-  reconciled_count?: number;
-  reconciled_sum?: number;
-  created_count?: number;
-  created_sum?: number;
-}
-
-export interface ImportTransaction {
-  id: string;
-  date: string;
-  description: string;
-  amount: number;
-  type: 'INCOME' | 'EXPENSE';
-  fitid?: string;
-  memo?: string;
-  hash?: string;
-}
-
-export interface FinancialTransaction {
-  id: string;
-  agency_id: string;
-  description: string;
-  amount: number;
-  type: TransactionType;
-  category_id: string;
-  category_name?: string; // Joined field
-  category_color?: string; // Joined field
-  account_id: string;
-  account_name?: string; // Joined field
-  status: TransactionStatus;
-  due_date: string;
-  payment_date?: string | null;
-  paid_amount?: number;
-  notes?: string;
-  attachment_url?: string;
-  is_transfer?: boolean;
-  transfer_group_id?: string;
-  provider?: string; // Fornecedor
-  installment_number?: number;
-  total_installments?: number;
-  import_id?: string;    // Reference to bank_import_logs
-  bank_txn_id?: string;  // Unique ID from the bank (FITID) or hash
-  contact_id?: string | null;
-  contact_name?: string; // Joined field
 }

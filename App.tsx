@@ -1,235 +1,299 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
-import type { Session } from '@supabase/supabase-js';
-
+import React, { useState, useEffect } from 'react';
 import Layout from './components/Layout';
-import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import Sales from './components/Sales';
 import Commissions from './components/Commissions';
-import Financial, { FinancialTab } from './components/Financial';
 import Team from './components/Team';
 import Reports from './components/Reports';
-import BrokerPortal from './components/broker/BrokerPortal';
-import ProfileSettings from './components/ProfileSettings';
-import Register from './components/Register';
-import { UserRole, CommissionStatus } from './types';
-import { supabase } from './src/lib/supabaseClient';
-import { updateCommissionStatus, updateForecastDate } from './src/lib/supabaseHooks';
-import { AuthProvider, useAuth } from './src/hooks/useAuth';
-import { useSales, useTeam } from './src/hooks/useQueries';
+import Financial from './components/Financial';
+import { User, Sale, UserRole, CommissionStatus, SplitRole } from './types';
+import { LogIn, Key, Loader2 } from 'lucide-react';
+import { supabaseService } from './services/supabaseService';
 
-const round2 = (num: number) => Math.round((num + Number.EPSILON) * 100) / 100;
+const App: React.FC = () => {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeView, setActiveView] = useState('dashboard');
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [team, setTeam] = useState<User[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-const AppContent: React.FC = () => {
-  const { currentUser, currentAgency, loading, isRegistering, setIsRegistering, logout } = useAuth();
-  const { data: sales = [], refetch: refetchSales } = useSales();
-  const { data: team = [], refetch: refetchTeam } = useTeam();
-
-  const fetchInitialData = async () => {
-    await Promise.all([refetchSales(), refetchTeam()]);
-  };
-
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('comissone_theme') || 'light';
-  });
-
-  useEffect(() => {
-    localStorage.setItem('comissone_theme', theme);
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [theme]);
-
-  const [activeView, setActiveView] = useState(() => {
-    return localStorage.getItem('comissone_active_view') || 'dashboard';
-  });
-
-  useEffect(() => {
-    localStorage.setItem('comissone_active_view', activeView);
-  }, [activeView]);
-
-  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<string[]>(() => {
-    const saved = localStorage.getItem('dismissed_notifications');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  useEffect(() => {
-    localStorage.setItem('dismissed_notifications', JSON.stringify(dismissedNotificationIds));
-  }, [dismissedNotificationIds]);
-
-  const requestedNotifications = useMemo(() => {
-    if (currentUser?.role !== UserRole.ADMIN) return [];
-    const notifications: any[] = [];
-    sales.forEach(sale => {
-      sale.splits?.forEach(split => {
-        if (split.status === CommissionStatus.REQUESTED && !dismissedNotificationIds.includes(split.id)) {
-          notifications.push({
-            id: split.id,
-            brokerName: split.broker_name,
-            value: split.calculated_value,
-            saleId: sale.id,
-            date: split.forecast_date || sale.sale_date
-          });
-        }
-      });
-    });
-    return notifications.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [sales, currentUser, dismissedNotificationIds]);
-
-  const handleClearNotifications = () => {
-    setDismissedNotificationIds(prev => Array.from(new Set([...prev, ...requestedNotifications.map(n => n.id)])));
-  };
-
-  const handleUpdateCommissionStatus = async (
-    saleId: string, brokerId: string, newStatus: CommissionStatus,
-    receiptData?: string, paymentAmount?: number, remainingAmount?: number,
-    installmentNumber?: number, remainingForecastDate?: string,
-    notes?: string, discountValue?: number, id?: string
-  ) => {
+  // Supabase Data Fetching
+  const loadData = async () => {
+    setIsLoading(true);
     try {
-      await updateCommissionStatus(saleId, brokerId, newStatus, receiptData, paymentAmount, remainingAmount, installmentNumber, remainingForecastDate, notes, discountValue, id);
-      await fetchInitialData();
-    } catch (error: any) {
-      console.error('Erro detalhado ao atualizar status:', error);
-      alert(`Erro ao atualizar status: ${error?.message || 'Erro desconhecido'}`);
-    }
-  };
+      const fetchedUsers = await supabaseService.getUsers();
+      const fetchedSales = await supabaseService.getSales();
+      
+      let finalUsers = fetchedUsers || [];
+      if (finalUsers.length === 0) {
+        finalUsers = [
+          {
+            id: 'admin-1',
+            name: 'Williangyn (Administrador)',
+            email: 'williangyn10@gmail.com',
+            role: UserRole.ADMIN,
+            agencyId: 'agency-1',
+            phone: '62999999999'
+          },
+          {
+            id: 'broker-1',
+            name: 'Ana Silva (Corretor)',
+            email: 'ana.silva@comissone.com.br',
+            role: UserRole.BROKER,
+            agencyId: 'agency-1',
+            phone: '62988888888'
+          },
+          {
+            id: 'broker-2',
+            name: 'Carlos Oliveira (Corretor)',
+            email: 'carlos.oliveira@comissone.com.br',
+            role: UserRole.BROKER,
+            agencyId: 'agency-1',
+            phone: '62977777777'
+          }
+        ];
+      }
 
-  const handleUpdateForecast = async (saleId: string, brokerId: string, newForecastDate: string, installmentNumber?: number, id?: string) => {
-    try {
-      await updateForecastDate(saleId, brokerId, newForecastDate, installmentNumber, id);
-      await fetchInitialData();
+      let finalSales = fetchedSales || [];
+      if (finalSales.length === 0) {
+        finalSales = [
+          {
+            id: 'sale-1',
+            agencyId: 'agency-1',
+            saleDate: '2026-05-10',
+            propertyAddress: 'Av. T-10, Ed. Metropolitan, Ap 1502',
+            buyerName: 'Marcos Souza',
+            sellerName: 'Roberto Alves',
+            vgv: 850000,
+            commissionPercentage: 5,
+            totalCommissionValue: 42500,
+            invoiceIssued: true,
+            invoiceNumber: '00124',
+            notes: 'Venda de apartamento de alto padrão no Setor Bueno.',
+            status: 'APPROVED' as any,
+            splits: [
+              {
+                id: 'split-1',
+                sale_id: 'sale-1',
+                brokerId: 'broker-1',
+                brokerName: 'Ana Silva',
+                percentage: 40,
+                calculatedValue: 17000,
+                status: CommissionStatus.PAID,
+                role: SplitRole.BROKER,
+                paymentDate: '2026-05-15',
+                paymentMethod: 'PIX',
+                forecastDate: '2026-05-15'
+              },
+              {
+                id: 'split-2',
+                sale_id: 'sale-1',
+                brokerId: 'broker-2',
+                brokerName: 'Carlos Oliveira',
+                percentage: 40,
+                calculatedValue: 17000,
+                status: CommissionStatus.PENDING,
+                role: SplitRole.BROKER,
+                forecastDate: '2026-06-30'
+              }
+            ]
+          },
+          {
+            id: 'sale-2',
+            agencyId: 'agency-1',
+            saleDate: '2026-06-01',
+            propertyAddress: 'Rua 145, Qd 52, Casa 04, Setor Marista',
+            buyerName: 'Julia Pinheiro',
+            sellerName: 'Flavio Mendes',
+            vgv: 1200000,
+            commissionPercentage: 6,
+            totalCommissionValue: 72000,
+            invoiceIssued: false,
+            notes: 'Casa duplex, excelente localização.',
+            status: 'APPROVED' as any,
+            splits: [
+              {
+                id: 'split-3',
+                sale_id: 'sale-2',
+                brokerId: 'broker-1',
+                brokerName: 'Ana Silva',
+                percentage: 50,
+                calculatedValue: 36000,
+                status: CommissionStatus.PENDING,
+                role: SplitRole.BROKER,
+                forecastDate: '2026-07-15'
+              }
+            ]
+          }
+        ];
+      }
+      
+      setTeam(finalUsers);
+      setSales(finalSales);
+
+      // Check if there is a saved user for persistence (simple simulation)
+      const savedUserId = localStorage.getItem('comissone_current_user_id');
+      if (savedUserId && !currentUser) {
+        const user = finalUsers.find(u => u.id === savedUserId);
+        if (user) setCurrentUser(user);
+      }
     } catch (error) {
-      console.error('Erro ao atualizar previsão:', error);
-      alert('Erro ao atualizar previsão. Tente novamente.');
+      console.error('Failed to load data from Supabase:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleBrokerRequestPayment = async (saleId: string, brokerId: string, installmentNumber?: number) => {
-    await handleUpdateCommissionStatus(saleId, brokerId, CommissionStatus.REQUESTED, undefined, undefined, undefined, installmentNumber);
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('comissone_current_user_id', currentUser.id);
+    } else {
+      localStorage.removeItem('comissone_current_user_id');
+    }
+  }, [currentUser]);
+
+  const handleUpdateCommissionStatus = async (saleId: string, brokerId: string, newStatus: CommissionStatus, receiptData?: string) => {
+    // Find the split in state to get its actual DB id
+    const sale = sales.find(s => s.id === saleId);
+    const split = sale?.splits.find(sp => sp.brokerId === brokerId);
+
+    if (split?.id) {
+      const paymentData = newStatus === CommissionStatus.PAID ? {
+        date: new Date().toISOString().split('T')[0],
+        method: 'PIX',
+        receipt: receiptData
+      } : undefined;
+
+      const success = await supabaseService.updateSplitStatus(split.id, newStatus, paymentData);
+      if (success) {
+        // Optimistic update or refetch
+        loadData();
+      }
+    }
   };
 
-  if (loading) {
+  const handleUpdateForecast = async (saleId: string, brokerId: string, newForecastDate: string) => {
+    const sale = sales.find(s => s.id === saleId);
+    const split = sale?.splits.find(sp => sp.brokerId === brokerId);
+
+    if (split?.id) {
+      const success = await supabaseService.updateForecastDate(split.id, newForecastDate);
+      if (success) {
+        loadData();
+      }
+    }
+  };
+
+  const renderContent = () => {
+    if (isLoading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="animate-spin text-blue-600" size={48} />
+            <p className="text-slate-500 font-medium">Carregando inteligência de comissões...</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (!currentUser) return null;
+
+    switch (activeView) {
+      case 'dashboard':
+        return <Dashboard sales={sales} team={team} currentUser={currentUser} />;
+      case 'sales':
+        return <Sales sales={sales} onRefresh={loadData} currentUser={currentUser} team={team} />;
+      case 'commissions':
+        return (
+          <Commissions 
+            sales={sales} 
+            team={team}
+            currentUser={currentUser} 
+            onUpdateStatus={handleUpdateCommissionStatus}
+            onUpdateForecast={handleUpdateForecast}
+          />
+        );
+      case 'reports':
+        return <Reports sales={sales} team={team} currentUser={currentUser} />;
+      case 'financial':
+      case 'financial-extrato':
+      case 'financial-fluxo':
+      case 'financial-cartoes':
+      case 'financial-contas':
+      case 'financial-conciliacao':
+      case 'financial-categorias':
+        return <Financial currentUser={currentUser} activeView={activeView} />;
+      case 'team':
+        return <Team team={team} setTeam={setTeam} currentUser={currentUser} />;
+      default:
+        return <Dashboard sales={sales} team={team} currentUser={currentUser} />;
+    }
+  };
+
+  if (!currentUser) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f8fafc] flex-col p-6 relative overflow-hidden">
-        <div className="text-center relative z-10">
-          <div className="w-16 h-16 border-4 border-[#1e3a5f]/10 border-t-[#1e3a5f] rounded-full animate-spin mx-auto mb-6" />
-          <img src="/logo.png" alt="ComissOne" className="h-8 w-auto opacity-50 grayscale mb-4 mx-auto" />
-          <p className="text-[#1e3a5f] font-bold text-sm tracking-widest uppercase">Carregando Sistema...</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+        <div className="w-full max-w-md">
+          <div className="text-center mb-10">
+            <div className="inline-flex items-center justify-center p-3 bg-blue-600 rounded-2xl shadow-xl shadow-blue-200 mb-6">
+              <LogIn className="text-white" size={32} />
+            </div>
+            <h1 className="text-3xl font-extrabold text-slate-800">ComissOne</h1>
+            <p className="text-slate-500 mt-2">Gestão de Inteligência em Comissões</p>
+          </div>
+          
+          <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-2xl shadow-slate-200/60">
+            <div className="space-y-6">
+              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                <Key size={20} className="text-blue-500" /> Escolha seu Perfil
+              </h2>
+              <div className="grid grid-cols-1 gap-4">
+                {team.map((user) => (
+                  <button
+                    key={user.id}
+                    onClick={() => setCurrentUser(user)}
+                    className="w-full group flex items-center justify-between p-5 bg-slate-50 border border-slate-100 rounded-2xl hover:border-blue-400 hover:bg-white hover:shadow-lg transition-all text-left"
+                  >
+                    <div>
+                      <p className="font-bold text-slate-800 group-hover:text-blue-600 transition-colors">{user.name}</p>
+                      <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{user.role}</p>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-slate-100 group-hover:bg-blue-600 group-hover:border-blue-600 transition-all">
+                      <LogIn size={18} className="text-slate-400 group-hover:text-white transition-colors" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className="pt-6 border-t border-slate-100">
+                <p className="text-xs text-center text-slate-400">
+                  Ambiente de demonstração multi-tenant.<br/>
+                  Dados isolados por agência.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
   }
 
-  if (!currentUser) {
-    if (isRegistering) {
-      return <Register agency={currentAgency} onBackToLogin={() => setIsRegistering(false)} />;
-    }
-    return (
-      <Login
-        agency={currentAgency}
-        onLogin={() => {}}
-        onRegister={() => setIsRegistering(true)}
-      />
-    );
-  }
-
-  if (currentUser.role === UserRole.BROKER) {
-    return (
-      <BrokerPortal
-        currentUser={currentUser}
-        sales={sales}
-        onRequestPayment={handleBrokerRequestPayment}
-        onLogout={logout}
-      />
-    );
-  }
-
-  const financialTabMap: Record<string, FinancialTab> = {
-    'financial-transactions': 'transactions',
-    'financial-overview': 'overview',
-    'financial-cards': 'cards',
-    'financial-accounts': 'accounts',
-    'financial-contacts': 'contacts',
-    'financial-categories': 'categories',
-    'financial-reconciliation': 'reconciliation',
-  };
-
-  const isFinancial = activeView === 'financial' || activeView.startsWith('financial-');
-  const financialTab = isFinancial ? (financialTabMap[activeView] || 'transactions') : 'transactions';
-
   return (
-    <Layout
-      currentUser={currentUser}
-      activeView={activeView}
+    <Layout 
+      currentUser={currentUser} 
+      activeView={activeView} 
       setActiveView={setActiveView}
-      notifications={requestedNotifications}
-      onClearNotifications={handleClearNotifications}
-      onLogout={logout}
-      theme={theme}
-      setTheme={setTheme}
+      onLogout={() => {
+        setCurrentUser(null);
+        setActiveView('dashboard');
+      }}
     >
-      <div className={activeView === 'dashboard' ? 'block' : 'hidden'}>
-        <Dashboard sales={sales} currentUser={currentUser} />
-      </div>
-
-      <div className={isFinancial ? 'block' : 'hidden'}>
-        <Financial currentUser={currentUser} initialTab={financialTab} />
-      </div>
-
-      <div className={activeView === 'sales' ? 'block' : 'hidden'}>
-        <Sales sales={sales} setSales={() => { }} currentUser={currentUser} team={team} onRefetch={fetchInitialData} />
-      </div>
-
-      <div className={activeView === 'commissions' ? 'block' : 'hidden'}>
-        <Commissions
-          sales={sales}
-          currentUser={currentUser}
-          onUpdateStatus={handleUpdateCommissionStatus}
-          onUpdateForecast={handleUpdateForecast}
-        />
-      </div>
-
-      <div className={activeView === 'reports' ? 'block' : 'hidden'}>
-        <Reports sales={sales} team={team} currentUser={currentUser} />
-      </div>
-
-      <div className={activeView === 'team' ? 'block' : 'hidden'}>
-        <Team
-          team={team}
-          currentUser={currentUser}
-          onRefetch={fetchInitialData}
-          onRemoveUser={async (userId) => {
-            try {
-              await supabase.from('users').delete().eq('id', userId);
-              await fetchInitialData();
-            } catch (error) {
-              console.error('Erro ao remover usuário:', error);
-              alert('Erro ao remover usuário. Tente novamente.');
-            }
-          }}
-        />
-      </div>
-      <div className={(activeView === 'profile' || activeView === 'settings') ? 'block' : 'hidden'}>
-        <ProfileSettings 
-          currentUser={currentUser} 
-          activeView={activeView as 'profile' | 'settings'}
-          theme={theme}
-          setTheme={setTheme}
-        />
-      </div>
+      {renderContent()}
     </Layout>
-  );
-};
-
-const App: React.FC = () => {
-  return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
   );
 };
 
