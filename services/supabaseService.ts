@@ -144,6 +144,79 @@ export const supabaseService = {
     return { ...sale, id: saleId, splits: splits as BrokerSplit[] };
   },
 
+  // Update sale and its splits
+  async updateSale(saleId: string, sale: Partial<Sale>, splits: Omit<BrokerSplit, 'id' | 'sale_id'>[]): Promise<boolean> {
+    if (!supabase) return false;
+
+    // Update sale main fields
+    const { error: saleError } = await supabase
+      .from('sales')
+      .update({
+        sale_date: sale.saleDate,
+        property_address: sale.propertyAddress,
+        buyer_name: sale.buyerName,
+        seller_name: sale.sellerName,
+        vgv: sale.vgv,
+        commission_percentage: sale.commissionPercentage,
+        total_commission_value: sale.totalCommissionValue,
+        invoice_issued: sale.invoiceIssued,
+        invoice_number: sale.invoiceNumber,
+        notes: sale.notes,
+        status: sale.status,
+        buyer_cpf: sale.buyer_cpf,
+        seller_cpf: sale.seller_cpf,
+        is_installment: sale.is_installment,
+        installments: sale.installments
+      })
+      .eq('id', saleId);
+
+    if (saleError) {
+      console.error('Error updating sale:', saleError);
+      return false;
+    }
+
+    // Delete existing splits for this sale
+    const { error: deleteError } = await supabase
+      .from('broker_splits')
+      .delete()
+      .eq('sale_id', saleId);
+
+    if (deleteError) {
+      console.error('Error deleting old splits:', deleteError);
+      return false;
+    }
+
+    // Insert new splits
+    const splitsToInsert = splits.map(split => ({
+      sale_id: saleId,
+      broker_id: split.brokerId,
+      broker_name: split.brokerName,
+      percentage: split.percentage,
+      calculated_value: split.calculatedValue,
+      status: split.status || 'PENDING',
+      role: split.role,
+      payment_date: split.paymentDate,
+      payment_method: split.paymentMethod,
+      forecast_date: split.forecastDate,
+      receipt_data: split.receiptData,
+      installment_number: split.installment_number,
+      total_installments: split.total_installments,
+      notes: split.notes,
+      discount_value: split.discount_value
+    }));
+
+    const { error: splitError } = await supabase
+      .from('broker_splits')
+      .insert(splitsToInsert);
+
+    if (splitError) {
+      console.error('Error creating splits during edit:', splitError);
+      return false;
+    }
+
+    return true;
+  },
+
   // Update commission status
   async updateSplitStatus(
     splitId: string, 

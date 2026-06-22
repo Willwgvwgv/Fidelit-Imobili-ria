@@ -2,7 +2,7 @@
 import React from 'react';
 import { 
   LayoutDashboard, 
-  ShoppingCart, 
+  Handshake, 
   Wallet, 
   BarChart3, 
   Users, 
@@ -114,7 +114,7 @@ export const MOCK_SALES: Sale[] = [
 
 export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={20} />, roles: [UserRole.ADMIN, UserRole.BROKER] },
-  { id: 'sales', label: 'Vendas', icon: <ShoppingCart size={20} />, roles: [UserRole.ADMIN] },
+  { id: 'sales', label: 'Vendas', icon: <Handshake size={20} />, roles: [UserRole.ADMIN] },
   { id: 'commissions', label: 'Comissões', icon: <Wallet size={20} />, roles: [UserRole.ADMIN, UserRole.BROKER] },
   { id: 'reports', label: 'Relatórios', icon: <BarChart3 size={20} />, roles: [UserRole.ADMIN] },
   { 

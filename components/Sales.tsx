@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Sale, User, UserRole, CommissionStatus, BrokerSplit, SplitRole } from '../types';
 import { supabaseService } from '../services/supabaseService';
+import { SaleForm } from './SaleForm';
 
 interface SalesProps {
   sales: Sale[];
@@ -194,40 +195,10 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
     setCurrentSplit({ brokerId: '', percentage: 100, role: SplitRole.BROKER });
   };
 
-  const handleSaveSale = async () => {
-    if (!newSale.propertyAddress || !newSale.vgv) {
-      alert("Por favor, preencha o endereço e o valor da venda.");
-      return;
-    }
-
-    const vgv = Number(newSale.vgv) || 0;
-    const commPerc = Number(newSale.commissionPercentage) || 0;
-    const totalComm = (vgv * commPerc) / 100;
-
+  const handleSaveSale = async (saleData: Omit<Sale, 'id' | 'splits'>, splitsData: Omit<BrokerSplit, 'id' | 'sale_id'>[]) => {
     setIsSaving(true);
     try {
-      if (editingSale) {
-        // Implementation for editing can be added if needed, focusing on creation for now 
-        // as per supabaseService logic
-        alert("Edição via Supabase ainda não implementada. Focando na criação de novas vendas.");
-      } else {
-        const saleToAdd: Omit<Sale, 'id' | 'splits'> = {
-          agencyId: currentUser.agencyId,
-          saleDate: newSale.saleDate || '',
-          propertyAddress: newSale.propertyAddress || '',
-          buyerName: newSale.buyerName || 'Não informado',
-          sellerName: newSale.sellerName || 'Não informado',
-          vgv,
-          commissionPercentage: commPerc,
-          totalCommissionValue: totalComm,
-          invoiceIssued: newSale.invoiceIssued || false,
-          invoiceNumber: newSale.invoiceNumber || '',
-          notes: newSale.notes,
-          status: 'ACTIVE'
-        };
-        
-        await supabaseService.createSale(saleToAdd, (newSale.splits || []) as any);
-      }
+      await supabaseService.createSale(saleData as any, splitsData as any);
       await onRefresh();
       closeModal();
     } catch (error) {
@@ -238,16 +209,32 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
     }
   };
 
+  const handleUpdateSale = async (saleId: string, saleData: Partial<Sale>, splitsData: Omit<BrokerSplit, 'id' | 'sale_id'>[]) => {
+    setIsSaving(true);
+    try {
+      const success = await supabaseService.updateSale(saleId, saleData, splitsData as any);
+      if (success) {
+        await onRefresh();
+        closeModal();
+      } else {
+        alert('Erro ao atualizar venda no banco de dados.');
+      }
+    } catch (error) {
+      console.error('Error updating sale:', error);
+      alert('Erro ao atualizar venda no banco de dados.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const openEditModal = (sale: Sale) => {
     setEditingSale(sale);
-    setNewSale(sale);
     setIsModalOpen(true);
   };
 
   const closeModal = () => {
     setIsModalOpen(false);
     setEditingSale(null);
-    setNewSale({ saleDate: new Date().toISOString().split('T')[0], commissionPercentage: 6, splits: [], invoiceIssued: false, invoiceNumber: '' });
   };
 
   const confirmDeleteSale = () => {
@@ -576,201 +563,17 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
 
       {/* Modal de Cadastro/Edição de Venda */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-4xl rounded-[40px] shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in zoom-in duration-200">
-            <div className="p-8 border-b border-slate-50 flex items-center justify-between sticky top-0 bg-white z-10">
-              <div>
-                <h3 className="text-2xl font-black text-slate-800">{editingSale ? 'Editar Venda' : 'Nova Venda'}</h3>
-                <p className="text-sm text-slate-400 font-medium">Cadastre os detalhes do imóvel e o rateio de comissões.</p>
-              </div>
-              <button onClick={closeModal} className="bg-slate-50 p-2 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
-                <X size={24} />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-10">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
-                <div className="space-y-8">
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-black uppercase text-blue-600 tracking-widest">Informações Básicas</h4>
-                    
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Imóvel (Endereço / Unidade)</label>
-                      <input 
-                        type="text" 
-                        value={newSale.propertyAddress || ''}
-                        placeholder="Ex: Av. Paulista, 1000 - Apto 42"
-                        className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 outline-none text-sm font-semibold"
-                        onChange={e => setNewSale({...newSale, propertyAddress: e.target.value})}
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">VGV (Valor de Venda)</label>
-                        <input 
-                          type="number" 
-                          value={newSale.vgv || ''}
-                          placeholder="R$ 0,00"
-                          className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 outline-none text-sm font-bold"
-                          onChange={e => setNewSale({...newSale, vgv: Number(e.target.value)})}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">% Comissão</label>
-                        <input 
-                          type="number" 
-                          value={newSale.commissionPercentage || 6}
-                          className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 outline-none text-sm font-bold"
-                          onChange={e => setNewSale({...newSale, commissionPercentage: Number(e.target.value)})}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Data da Venda</label>
-                      <input 
-                        type="date" 
-                        value={newSale.saleDate}
-                        className="w-full px-5 py-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-blue-100 outline-none text-sm font-semibold text-slate-600"
-                        onChange={e => setNewSale({...newSale, saleDate: e.target.value})}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-black uppercase text-blue-600 tracking-widest">Participantes</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <input type="text" value={newSale.buyerName || ''} placeholder="Nome do Comprador" className="w-full px-5 py-3 bg-slate-50 border-none rounded-2xl text-sm" onChange={e => setNewSale({...newSale, buyerName: e.target.value})} />
-                      <input type="text" value={newSale.sellerName || ''} placeholder="Nome do Vendedor" className="w-full px-5 py-3 bg-slate-50 border-none rounded-2xl text-sm" onChange={e => setNewSale({...newSale, sellerName: e.target.value})} />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-4 p-5 bg-blue-50/30 rounded-[32px] border border-blue-50">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-12 h-7 rounded-full relative transition-colors cursor-pointer ${newSale.invoiceIssued ? 'bg-blue-600' : 'bg-slate-200'}`} onClick={() => setNewSale({...newSale, invoiceIssued: !newSale.invoiceIssued})}>
-                        <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all shadow-sm ${newSale.invoiceIssued ? 'left-6' : 'left-1'}`} />
-                      </div>
-                      <span className="text-sm font-bold text-slate-600">NF já emitida?</span>
-                    </div>
-                    
-                    {newSale.invoiceIssued && (
-                      <div className="animate-in fade-in slide-in-from-top-2 duration-300 w-full">
-                        <input 
-                          type="text" 
-                          value={newSale.invoiceNumber || ''}
-                          placeholder="Digite o número da Nota Fiscal..."
-                          className="w-full px-5 py-3 bg-white border border-blue-100 rounded-2xl outline-none focus:ring-2 focus:ring-blue-200 text-sm font-semibold shadow-sm"
-                          onChange={e => setNewSale({...newSale, invoiceNumber: e.target.value})}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="bg-slate-50/50 p-8 rounded-[32px] border border-slate-100 space-y-6">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Split className="text-blue-500" size={20} />
-                    <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest">Rateio de Comissão</h4>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    <div className="flex gap-2">
-                      <select 
-                        className="flex-1 px-4 py-3 bg-white border border-slate-100 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-blue-100"
-                        value={currentSplit.brokerId}
-                        onChange={e => setCurrentSplit({...currentSplit, brokerId: e.target.value})}
-                      >
-                        <option value="">Selecionar Beneficiário</option>
-                        <option value="AGENCY" className="font-bold text-blue-600">Agência (Imobiliária)</option>
-                        <hr />
-                        {team.map(u => (
-                          <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-                        ))}
-                      </select>
-                      <select 
-                        className="w-32 px-4 py-3 bg-white border border-slate-100 rounded-xl text-xs font-semibold outline-none focus:ring-2 focus:ring-blue-100"
-                        value={currentSplit.role}
-                        onChange={e => setCurrentSplit({...currentSplit, role: e.target.value as SplitRole})}
-                      >
-                        {Object.entries(SplitRole).map(([key, value]) => (
-                          <option key={key} value={value}>{value}</option>
-                        ))}
-                      </select>
-                      <input 
-                        type="number" 
-                        className="w-20 px-4 py-3 bg-white border border-slate-100 rounded-xl text-xs font-bold text-center outline-none focus:ring-2 focus:ring-blue-100"
-                        value={currentSplit.percentage}
-                        onChange={e => setCurrentSplit({...currentSplit, percentage: Number(e.target.value)})}
-                        placeholder="%"
-                      />
-                      <button 
-                        onClick={handleAddSplit}
-                        className="bg-blue-600 text-white p-3 rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-100"
-                      >
-                        <Plus size={20} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3 max-h-[250px] overflow-y-auto pr-2">
-                    {(newSale.splits || []).map((split, idx) => (
-                      <div key={idx} className="bg-white p-4 rounded-2xl flex items-center justify-between border border-slate-100 animate-in slide-in-from-bottom-2 duration-300">
-                        <div className="flex items-center gap-3">
-                          {split.brokerId === 'AGENCY' ? (
-                             <Building2 className="text-blue-500" size={16} />
-                          ) : (
-                             <UserIcon className="text-slate-400" size={16} />
-                          )}
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <p className="text-xs font-black text-slate-800">{split.brokerName}</p>
-                              {split.role && (
-                                <span className="text-[9px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded uppercase font-bold tracking-tighter">
-                                  {split.role}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[10px] text-blue-600 font-bold uppercase">{split.percentage}% — {formatCurrency(split.calculatedValue)}</p>
-                          </div>
-                        </div>
-                        <button 
-                          onClick={() => setNewSale({...newSale, splits: newSale.splits?.filter((_, i) => i !== idx)})}
-                          className="text-slate-300 hover:text-red-500 transition-colors"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="pt-6 border-t border-slate-100 space-y-2">
-                     <div className="flex justify-between text-[10px] font-black uppercase text-slate-400">
-                        <span>Soma do Rateio</span>
-                        <span className={(newSale.splits?.reduce((a,b)=>a+b.percentage, 0) || 0) === 100 ? 'text-emerald-500' : 'text-amber-500'}>
-                          {(newSale.splits?.reduce((a,b)=>a+b.percentage, 0) || 0)}%
-                        </span>
-                     </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-8 border-t border-slate-50 bg-slate-50/50 flex justify-end gap-4 sticky bottom-0 z-10">
-              <button 
-                onClick={closeModal}
-                className="px-8 py-3 text-slate-400 font-bold hover:text-slate-600 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={handleSaveSale}
-                disabled={isSaving}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-12 py-3 rounded-2xl font-black transition-all shadow-xl shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {isSaving && <Loader2 className="animate-spin" size={20} />}
-                {editingSale ? 'Salvar Alterações' : 'Salvar Venda'}
-              </button>
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm overflow-y-auto">
+          <div className="min-h-full flex items-start justify-center p-4 py-8 animate-in fade-in duration-200">
+            <div className="w-full max-w-4xl">
+              <SaleForm
+                agencyId={currentUser.agencyId}
+                team={team}
+                onSave={handleSaveSale}
+                onCancel={closeModal}
+                editingSale={editingSale}
+                onUpdate={handleUpdateSale}
+              />
             </div>
           </div>
         </div>
