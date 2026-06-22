@@ -211,21 +211,21 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   return (
     <div className="space-y-6">
       {/* Filters Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex flex-col gap-4">
+      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-4">
         <div className="flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
             <div className="relative flex-1 md:flex-none">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
               <input 
                 type="text" 
                 placeholder="Buscar comissão..." 
-                className="pl-9 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 w-full md:w-64"
+                className="h-[38px] pl-9 pr-4 py-2 text-sm bg-white border border-gray-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all w-full md:w-64"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
             <select 
-              className="px-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none cursor-pointer hover:bg-slate-100 transition-colors"
+              className="h-[38px] px-4 py-2 text-sm bg-white border border-gray-200 rounded-lg outline-none cursor-pointer hover:bg-gray-50 transition-colors"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
@@ -237,31 +237,31 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
             {isAdmin && (
               <button 
                 onClick={() => setIsAdvancedFiltersOpen(!isAdvancedFiltersOpen)}
-                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl transition-all ${
+                className={`flex items-center gap-2 h-[38px] px-4 py-2 text-sm font-semibold rounded-lg transition-all border ${
                   isAdvancedFiltersOpen || brokerFilter !== 'ALL' || startDate || endDate 
-                    ? 'bg-blue-50 text-blue-600 border border-blue-100' 
-                    : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200' 
+                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
                 }`}
               >
-                <Filter size={16} /> Filtros Avançados
+                <Filter size={15} /> Filtros Avançados
               </button>
             )}
           </div>
           <button 
             onClick={handleExportCSV}
-            className="flex items-center gap-2 px-6 py-2.5 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 w-full md:w-auto justify-center"
+            className="flex items-center gap-2 h-[38px] px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition-all"
           >
-            <Download size={18} /> Exportar CSV
+            <Download size={16} /> Exportar CSV
           </button>
         </div>
 
         {/* Barra de Filtros Avançados */}
         {isAdvancedFiltersOpen && (
-          <div className="pt-4 border-t border-slate-50 grid grid-cols-1 md:grid-cols-4 gap-4 animate-in slide-in-from-top-2 duration-200">
+          <div className="pt-4 border-t border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4 animate-in slide-in-from-top-2 duration-200">
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Corretor</label>
+              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Corretor</label>
               <select 
-                className="w-full px-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none hover:bg-slate-100 transition-colors"
+                className="w-full h-[38px] px-4 py-2 text-sm bg-white border border-gray-200 rounded-lg outline-none hover:bg-gray-50 transition-colors"
                 value={brokerFilter}
                 onChange={(e) => setBrokerFilter(e.target.value)}
               >
@@ -272,19 +272,19 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
               </select>
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Data Início</label>
+              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Data Início</label>
               <input 
                 type="date" 
-                className="w-full px-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none hover:bg-slate-100 transition-colors"
+                className="w-full h-[38px] px-4 py-2 text-sm bg-white border border-gray-200 rounded-lg outline-none hover:bg-gray-50 transition-colors"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Data Fim</label>
+              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Data Fim</label>
               <input 
                 type="date" 
-                className="w-full px-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none hover:bg-slate-100 transition-colors"
+                className="w-full h-[38px] px-4 py-2 text-sm bg-white border border-gray-200 rounded-lg outline-none hover:bg-gray-50 transition-colors"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
               />
@@ -298,7 +298,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
                   setStatusFilter('ALL');
                   setSearchTerm('');
                 }}
-                className="w-full px-4 py-2 text-sm text-slate-500 font-bold hover:bg-slate-50 rounded-xl transition-colors flex items-center justify-center gap-2"
+                className="w-full h-[38px] px-4 py-2 text-sm text-gray-500 font-semibold hover:bg-gray-50 rounded-lg border border-gray-200 transition-colors flex items-center justify-center gap-2"
               >
                 Limpar Filtros
               </button>
@@ -308,104 +308,104 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
       </div>
 
       {/* Commission Table */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-slate-50 text-xs font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100">
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Venda / Imóvel</th>
-                <th className="px-6 py-4">Corretor</th>
-                <th className="px-6 py-4">Valor Devido</th>
-                <th className="px-6 py-4">Data Pagto / Previsão</th>
-                <th className="px-6 py-4 text-right">Ações</th>
+              <tr className="border-b border-gray-200">
+                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Venda / Imóvel</th>
+                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Corretor</th>
+                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Valor Devido</th>
+                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Data Pagto / Previsão</th>
+                <th className="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-gray-100">
               {filteredCommissions.map((comm, idx) => (
-                <tr key={`${comm.saleId}-${comm.brokerId}-${idx}`} className="hover:bg-slate-50/50 transition-colors group">
-                  <td className="px-6 py-4">{getStatusBadge(comm.status)}</td>
-                  <td className="px-6 py-4">
+                <tr key={`${comm.saleId}-${comm.brokerId}-${idx}`} className="hover:bg-gray-50/50 transition-colors group">
+                  <td className="px-5 py-4">{getStatusBadge(comm.status)}</td>
+                  <td className="px-5 py-4">
                     <div className="flex flex-col">
-                      <span className="text-sm font-semibold text-slate-800">{comm.property}</span>
-                      <span className="text-[10px] text-slate-400 uppercase tracking-tight font-medium">Ref: {comm.saleId} • {new Date(comm.date).toLocaleDateString('pt-BR')}</span>
+                      <span className="text-sm font-semibold text-gray-950">{comm.property}</span>
+                      <span className="text-[10px] text-gray-400 uppercase tracking-tight font-medium">Ref: {comm.saleId} • {new Date(comm.date).toLocaleDateString('pt-BR')}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2 text-sm font-medium text-slate-700">
-                      <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] text-blue-600 font-bold">
+                  <td className="px-5 py-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                      <div className="w-6 h-6 rounded-full bg-indigo-50 flex items-center justify-center text-[10px] text-indigo-600 font-bold">
                         {comm.brokerName.charAt(0)}
                       </div>
-                      <div className="flex flex-col">
-                        <span className="font-bold">{comm.brokerName}</span>
+                      <div className="flex flex-col ml-1">
+                        <span className="font-semibold text-gray-900 leading-none">{comm.brokerName}</span>
                         {comm.role && (
-                          <span className="text-[10px] text-slate-400 font-medium">{comm.role}</span>
+                          <span className="text-[10px] text-gray-400 font-medium mt-0.5">{comm.role}</span>
                         )}
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 font-bold text-slate-800">{formatCurrency(comm.value)}</td>
-                  <td className="px-6 py-4">
+                  <td className="px-5 py-4 font-semibold text-gray-950">{formatCurrency(comm.value)}</td>
+                  <td className="px-5 py-4">
                     {comm.paymentDate ? (
                       <div className="flex flex-col">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-sm text-slate-700">{new Date(comm.paymentDate).toLocaleDateString('pt-BR')}</span>
+                          <span className="text-sm text-gray-700">{new Date(comm.paymentDate).toLocaleDateString('pt-BR')}</span>
                           {comm.receiptData && (
                             <button 
                               onClick={() => setViewingReceipt(comm.receiptData)}
-                              className="text-emerald-500 hover:text-emerald-600 transition-colors"
+                              className="text-emerald-600 hover:text-emerald-700 transition-colors"
                               title="Ver Comprovante"
                             >
                               <FileText size={14} />
                             </button>
                           )}
                         </div>
-                        <span className="text-[10px] text-emerald-500 font-bold uppercase">{comm.paymentMethod}</span>
+                        <span className="text-[10px] text-emerald-600 font-bold uppercase">{comm.paymentMethod}</span>
                       </div>
                     ) : comm.forecastDate ? (
                       <div className="flex flex-col">
-                        <span className="text-sm text-amber-600 font-bold">{new Date(comm.forecastDate).toLocaleDateString('pt-BR')}</span>
-                        <span className="text-[10px] text-amber-500 font-bold uppercase flex items-center gap-1">
+                        <span className="text-sm text-indigo-600 font-bold">{new Date(comm.forecastDate).toLocaleDateString('pt-BR')}</span>
+                        <span className="text-[10px] text-gray-400 font-bold uppercase flex items-center gap-1 mt-0.5">
                           <Clock size={10} /> Previsão
                         </span>
                       </div>
                     ) : (
-                      <span className="text-sm text-slate-400">---</span>
+                      <span className="text-sm text-gray-400">---</span>
                     )}
                   </td>
-                  <td className="px-6 py-4 text-right">
+                  <td className="px-5 py-4 text-right">
                     <div className="flex items-center justify-end gap-1">
                       {isAdmin && comm.status !== CommissionStatus.PAID && (
                         <button 
                           onClick={() => handleOpenForecastModal(comm)}
-                          className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors group relative"
+                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
                           title="Editar Previsão"
                         >
-                          <Calendar size={18} />
+                          <Calendar size={15} />
                         </button>
                       )}
                       
                       {isAdmin && comm.status !== CommissionStatus.PAID ? (
                         <button 
                           onClick={() => handleOpenPaymentModal(comm)}
-                          className="p-2 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors group relative"
+                          className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
                           title="Concretizar Pagamento"
                         >
-                          <DollarSign size={18} />
+                          <DollarSign size={15} />
                         </button>
                       ) : (
-                        <div className="flex gap-1">
+                        <div className="flex items-center justify-end gap-1">
                            {comm.receiptData && (
                             <button 
                               onClick={() => setViewingReceipt(comm.receiptData)}
-                              className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                              className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all animate-none"
                               title="Visualizar Comprovante"
                             >
-                              <Eye size={18} />
+                              <Eye size={15} />
                             </button>
                            )}
-                           <button className={`p-2 transition-colors ${comm.status === CommissionStatus.PAID ? 'text-slate-300' : 'text-slate-300 cursor-not-allowed'}`}>
-                             <ArrowUpRight size={18} />
+                           <button className={`p-1.5 transition-all text-gray-300 ${comm.status === CommissionStatus.PAID ? 'hover:text-gray-500 hover:bg-gray-50 rounded-lg' : 'cursor-not-allowed'}`}>
+                             <ArrowUpRight size={15} />
                            </button>
                         </div>
                       )}
@@ -417,11 +417,11 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
           </table>
           {filteredCommissions.length === 0 && (
             <div className="p-16 text-center">
-              <div className="bg-slate-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Wallet className="text-slate-200" size={40} />
+              <div className="bg-gray-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Wallet className="text-gray-300" size={40} />
               </div>
-              <h3 className="text-lg font-bold text-slate-800 mb-2">Nenhuma comissão aqui</h3>
-              <p className="text-slate-500 max-w-sm mx-auto">Ajuste os filtros ou verifique se as vendas registradas possuem corretores vinculados.</p>
+              <h3 className="text-base font-bold text-gray-900 mb-2">Nenhuma comissão aqui</h3>
+              <p className="text-sm text-gray-500 max-w-sm mx-auto">Ajuste os filtros ou verifique se as vendas registradas possuem corretores vinculados.</p>
             </div>
           )}
         </div>
@@ -430,49 +430,49 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
       {/* Modal Editar Previsão */}
       {isForecastModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
-            <div className="p-6 border-b border-slate-50 flex items-center justify-between">
+          <div className="bg-white w-full max-w-sm rounded-xl border border-gray-200 shadow-xl overflow-hidden animate-in zoom-in duration-200">
+            <div className="p-5 border-b border-gray-200 flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-bold text-slate-800">Previsão de Pagto</h3>
-                <p className="text-xs text-slate-400">Ajuste a data esperada para o recebimento.</p>
+                <h3 className="text-base font-bold text-gray-900">Previsão de Pagto</h3>
+                <p className="text-xs text-gray-500">Ajuste a data esperada para o recebimento.</p>
               </div>
               <button 
                 onClick={() => setIsForecastModalOpen(false)} 
-                className="bg-slate-50 p-2 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                className="bg-gray-50 p-1.5 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
 
-            <div className="p-8 space-y-6">
-              <div className="bg-blue-50/50 p-4 rounded-2xl border border-blue-50">
-                <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1">Imóvel</p>
-                <p className="text-sm font-bold text-slate-700 truncate">{selectedComm?.property}</p>
+            <div className="p-6 space-y-4">
+              <div className="bg-indigo-50/50 p-4 rounded-lg border border-indigo-100">
+                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-1">Imóvel</p>
+                <p className="text-sm font-bold text-gray-800 truncate">{selectedComm?.property}</p>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1 flex items-center gap-1">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1 flex items-center gap-1">
                   <CalendarDays size={12} /> Selecione a Nova Data
                 </label>
                 <input 
                   type="date" 
                   value={tempForecastDate}
-                  className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none text-sm font-bold transition-all"
+                  className="w-full px-4 h-[38px] bg-white border border-gray-200 rounded-lg outline-none text-sm font-semibold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
                   onChange={e => setTempForecastDate(e.target.value)}
                 />
               </div>
             </div>
 
-            <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex gap-3">
               <button 
                 onClick={() => setIsForecastModalOpen(false)}
-                className="flex-1 px-4 py-3 text-slate-500 font-bold hover:text-slate-700 transition-colors text-sm"
+                className="flex-1 h-[38px] text-gray-500 font-semibold hover:text-gray-700 transition-colors text-sm"
               >
                 Cancelar
               </button>
               <button 
                 onClick={handleSaveForecast}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-xl font-bold transition-all shadow-lg shadow-blue-100 text-sm"
+                className="flex-1 h-[38px] bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-all text-sm"
               >
                 Salvar Previsão
               </button>
@@ -484,72 +484,72 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
       {/* Modal de Concretizar Pagamento */}
       {isPaymentModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in duration-200">
-            <div className="p-6 border-b border-slate-50 flex items-center justify-between">
+          <div className="bg-white w-full max-w-md rounded-xl border border-gray-200 shadow-xl overflow-hidden animate-in zoom-in duration-200">
+            <div className="p-5 border-b border-gray-200 flex items-center justify-between">
               <div>
-                <h3 className="text-xl font-bold text-slate-800">Concretizar Pagamento</h3>
-                <p className="text-xs text-slate-400">Anexe o comprovante para finalizar.</p>
+                <h3 className="text-base font-bold text-gray-900">Concretizar Pagamento</h3>
+                <p className="text-xs text-gray-500">Anexe o comprovante para finalizar.</p>
               </div>
               <button 
                 onClick={() => setIsPaymentModalOpen(false)} 
-                className="bg-slate-50 p-2 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
+                className="bg-gray-50 p-1.5 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
 
-            <div className="p-8 space-y-6">
-              <div className="bg-emerald-50/50 p-5 rounded-3xl border border-emerald-100">
-                 <div className="flex justify-between items-start mb-4">
-                    <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Valor a Pagar</p>
-                    <div className="bg-emerald-100 p-1.5 rounded-full text-emerald-600">
-                       <Check size={16} />
+            <div className="p-6 space-y-4">
+              <div className="bg-emerald-50/50 p-4 rounded-lg border border-emerald-100">
+                 <div className="flex justify-between items-start mb-2">
+                    <p className="text-[10px] font-bold text-emerald-650 uppercase tracking-widest">Valor a Pagar</p>
+                    <div className="bg-emerald-100 p-1 rounded-full text-emerald-650">
+                       <Check size={14} />
                     </div>
                  </div>
-                 <p className="text-3xl font-black text-slate-800">{formatCurrency(selectedPayment?.value)}</p>
-                 <p className="text-xs text-slate-500 mt-2 font-medium">Beneficiário: <span className="text-slate-700 font-bold">{selectedPayment?.brokerName}</span></p>
+                 <p className="text-2xl font-bold text-gray-900">{formatCurrency(selectedPayment?.value)}</p>
+                 <p className="text-xs text-slate-500 mt-1 font-medium">Beneficiário: <span className="text-slate-700 font-bold">{selectedPayment?.brokerName}</span></p>
               </div>
 
-              <div className="space-y-3">
-                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1 flex items-center gap-1">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1 flex items-center gap-1">
                   <Upload size={12} /> Comprovante de Pagamento
                 </label>
                 
                 {!paymentReceipt ? (
-                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-200 rounded-[24px] cursor-pointer hover:bg-slate-50 transition-all group">
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <FileText className="text-slate-300 group-hover:text-emerald-500 transition-colors mb-2" size={32} />
-                      <p className="text-xs font-bold text-slate-400">Clique para anexar comprovante</p>
+                  <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-all group">
+                    <div className="flex flex-col items-center justify-center pt-2">
+                      <FileText className="text-gray-300 group-hover:text-emerald-500 transition-colors mb-1.5" size={24} />
+                      <p className="text-xs font-semibold text-gray-500">Clique para anexar comprovante</p>
                     </div>
                     <input type="file" className="hidden" accept="image/*,.pdf" onChange={handleFileChange} />
                   </label>
                 ) : (
-                  <div className="relative bg-slate-50 p-4 rounded-2xl border border-slate-200 flex items-center gap-3 animate-in slide-in-from-bottom-2">
-                    <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center shadow-sm">
-                      <CheckCircle2 size={24} />
+                  <div className="relative bg-gray-50 p-3 rounded-lg border border-gray-200 flex items-center gap-3">
+                    <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center">
+                      <CheckCircle2 size={20} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-slate-800 truncate">Comprovante Anexado</p>
-                      <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">Pronto para salvar</p>
+                      <p className="text-xs font-semibold text-gray-950 truncate">Comprovante Anexado</p>
+                      <p className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">Pronto para salvar</p>
                     </div>
-                    <button onClick={() => setPaymentReceipt(null)} className="text-red-400 hover:text-red-600 transition-colors">
-                      <X size={18} />
+                    <button onClick={() => setPaymentReceipt(null)} className="text-gray-400 hover:text-red-500 transition-colors">
+                      <X size={16} />
                     </button>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex gap-3">
               <button 
                 onClick={() => setIsPaymentModalOpen(false)}
-                className="flex-1 px-4 py-3 text-slate-500 font-bold hover:text-slate-700 transition-colors text-sm"
+                className="flex-1 h-[38px] text-gray-500 font-semibold hover:text-gray-700 transition-colors text-sm"
               >
                 Cancelar
               </button>
               <button 
                 onClick={handleConfirmPayment}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-3 rounded-xl font-bold transition-all shadow-lg shadow-emerald-100 text-sm flex items-center justify-center gap-2"
+                className="flex-1 h-[38px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition-all text-sm flex items-center justify-center gap-2"
               >
                 Confirmar Pagamento
               </button>
@@ -558,49 +558,42 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
         </div>
       )}
 
-      {/* Modal de Visualização do Comprovante (Fiel ao design solicitado) */}
+      {/* Modal de Visualização do Comprovante */}
       {viewingReceipt && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
-          <div className="relative bg-white p-2 rounded-[48px] max-w-md w-full shadow-2xl animate-in zoom-in duration-300">
-            {/* Botão fechar (X em círculo escuro no canto superior direito fora do card) */}
+          <div className="relative bg-white p-2 rounded-2xl max-w-md w-full shadow-2xl overflow-hidden">
             <button 
               onClick={() => setViewingReceipt(null)}
-              className="absolute -top-4 -right-4 bg-slate-800/80 p-2.5 rounded-full text-white hover:bg-slate-900 transition-all shadow-lg border border-white/20 z-[120]"
+              className="absolute top-4 right-4 bg-gray-800/80 p-1.5 rounded-lg text-white hover:bg-slate-900 transition-all z-[120]"
             >
-              <X size={20} />
+              <X size={16} />
             </button>
             
-            <div className="bg-white rounded-[40px] overflow-hidden">
+            <div className="bg-white rounded-lg overflow-hidden">
                {viewingReceipt.startsWith('data:image') ? (
-                 <div className="p-4">
-                   <img src={viewingReceipt} alt="Comprovante" className="w-full h-auto object-contain max-h-[70vh] rounded-[32px]" />
+                 <div className="p-2">
+                   <img src={viewingReceipt} alt="Comprovante" className="w-full h-auto object-contain max-h-[60vh] rounded-lg" />
                  </div>
                ) : (
-                 <div className="p-16 text-center space-y-6">
-                    <div className="w-20 h-20 bg-blue-50 text-blue-600 rounded-3xl flex items-center justify-center mx-auto shadow-sm">
-                      <FileText size={44} />
-                    </div>
-                    <div className="space-y-2">
-                      <h4 className="text-2xl font-black text-slate-800 tracking-tight">Comprovante PDF</h4>
-                      <p className="text-slate-400 text-sm font-medium leading-relaxed px-4">
-                        Este é um documento PDF. Em um ambiente real, ele seria aberto no navegador.
-                      </p>
-                    </div>
-                    <button 
-                      onClick={handleDownloadReceipt}
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-2xl font-bold transition-all shadow-xl shadow-blue-100 flex items-center justify-center gap-2"
-                    >
-                      <Download size={20} />
-                      Download Comprovante
-                    </button>
-                 </div>
+                  <div className="p-12 text-center space-y-4">
+                     <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center mx-auto shadow-sm">
+                       <FileText size={32} />
+                     </div>
+                     <div className="space-y-1">
+                       <h4 className="text-lg font-bold text-gray-900 tracking-tight">Comprovante PDF</h4>
+                       <p className="text-gray-500 text-xs font-medium leading-relaxed px-4">
+                         Este é um documento PDF. Em um ambiente real, ele seria aberto no seu navegador.
+                       </p>
+                     </div>
+                     <button 
+                       onClick={handleDownloadReceipt}
+                       className="w-full h-[38px] bg-indigo-600 hover:bg-indigo-700 text-white px-6 rounded-lg font-semibold transition-all flex items-center justify-center gap-2 text-sm"
+                     >
+                       <Download size={16} />
+                       Download Comprovante
+                     </button>
+                  </div>
                )}
-            </div>
-            
-            <div className="p-8 text-center pt-2">
-              <p className="text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">
-                Visualização Segura • ComissOne Intel
-              </p>
             </div>
           </div>
         </div>

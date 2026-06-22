@@ -143,11 +143,26 @@ const App: React.FC = () => {
       setTeam(finalUsers);
       setSales(finalSales);
 
-      // Check if there is a saved user for persistence (simple simulation)
+      // Check if there is a saved user for persistence (simple simulation) or auto-login William (owner)
       const savedUserId = localStorage.getItem('comissone_current_user_id');
-      if (savedUserId && !currentUser) {
-        const user = finalUsers.find(u => u.id === savedUserId);
-        if (user) setCurrentUser(user);
+      let userToLogin: User | undefined = undefined;
+
+      if (savedUserId) {
+        userToLogin = finalUsers.find(u => u.id === savedUserId);
+      }
+
+      // If no saved user, or the saved user didn't exist in team, auto-login William (ADMIN)
+      if (!userToLogin) {
+        userToLogin = finalUsers.find(u => u.email === 'williangyn10@gmail.com');
+      }
+
+      // Second fallback: Auto-login any admin if present
+      if (!userToLogin) {
+        userToLogin = finalUsers.find(u => u.role === UserRole.ADMIN);
+      }
+
+      if (userToLogin && !currentUser) {
+        setCurrentUser(userToLogin);
       }
     } catch (error) {
       console.error('Failed to load data from Supabase:', error);

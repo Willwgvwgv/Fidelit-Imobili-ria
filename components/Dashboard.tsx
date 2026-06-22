@@ -131,15 +131,39 @@ const Dashboard: React.FC<DashboardProps> = ({ sales, team, currentUser }) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
   };
 
-  const chartData = [
-    { name: 'Jan', vgv: 400000, comm: 24000 },
-    { name: 'Fev', vgv: 300000, comm: 18000 },
-    { name: 'Mar', vgv: 600000, comm: 36000 },
-    { name: 'Abr', vgv: 800000, comm: 48000 },
-    { name: 'Mai', vgv: 500000, comm: 30000 },
-    { name: 'Jun', vgv: 900000, comm: 54000 },
-    { name: 'Jul', vgv: 1200000, comm: 72000 },
-  ];
+  const chartData = useMemo(() => {
+    const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    const monthlyData: Record<number, { vgv: number; comm: number }> = {};
+    for (let i = 0; i < 12; i++) {
+      monthlyData[i] = { vgv: 0, comm: 0 };
+    }
+
+    filteredSales.forEach(sale => {
+      const saleDate = new Date(sale.saleDate + 'T00:00:00');
+      if (isNaN(saleDate.getTime())) return;
+      const monthIdx = saleDate.getMonth();
+      
+      monthlyData[monthIdx].vgv += sale.vgv;
+      
+      sale.splits.forEach(split => {
+        const isTargetBroker = isAdmin 
+          ? (selectedBroker === 'all' || split.brokerId === selectedBroker)
+          : split.brokerId === currentUser.id;
+
+        if (isTargetBroker) {
+          monthlyData[monthIdx].comm += split.calculatedValue;
+        }
+      });
+    });
+
+    // Return the months. Usually, we can slice it to the current month or show everything.
+    // Let's show all 12 months for a complete year overview.
+    return months.map((month, idx) => ({
+      name: month,
+      vgv: monthlyData[idx].vgv,
+      comm: monthlyData[idx].comm
+    }));
+  }, [filteredSales, isAdmin, selectedBroker, currentUser.id]);
 
   const statusData = [
     { name: 'Pago', value: stats.paidComm, color: '#10b981' },

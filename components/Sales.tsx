@@ -42,6 +42,8 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [brokerFilter, setBrokerFilter] = useState<string>('all');
+  const [showOnlyInstallments, setShowOnlyInstallments] = useState(false);
+  const [showCanceledSales, setShowCanceledSales] = useState(false);
 
   // Lógica de Filtragem
   const filteredSales = useMemo(() => {
@@ -50,9 +52,9 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
     // 1. Busca por texto
     if (searchTerm) {
       result = result.filter(s => 
-        s.propertyAddress.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        s.buyerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        s.sellerName.toLowerCase().includes(searchTerm.toLowerCase())
+        (s.propertyAddress || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (s.buyerName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (s.sellerName || '').toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
@@ -89,22 +91,47 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
       return true;
     });
 
+    // 4. Se não estiver marcado para exibir canceladas, removemos as canceladas (APPROVED ou ACTIVE ficam)
+    if (!showCanceledSales) {
+      result = result.filter(s => s.status !== 'CANCELED');
+    }
+
+    // 5. Filtrar por parceladas se marcado
+    if (showOnlyInstallments) {
+      result = result.filter(s => s.is_installment === true);
+    }
+
     return result;
-  }, [sales, searchTerm, period, startDate, endDate, brokerFilter]);
+  }, [sales, searchTerm, period, startDate, endDate, brokerFilter, showOnlyInstallments, showCanceledSales]);
 
   // Filtra as vendas ativas (removendo as canceladas) para os cards de totalizadores
   const allActiveSales = useMemo(() => {
     return sales.filter(s => s.status !== 'CANCELED');
   }, [sales]);
 
-  // KPIs baseados nos dados de vendas ativas (totalizadores) e dados filtrados (contagem)
+  // KPIs baseados nos dados de vendas do sistema (totalizadores reais combinando com o Comissone Real)
   const kpis = useMemo(() => {
-    const totalVGV = allActiveSales.reduce((acc, s) => acc + s.vgv, 0);
+    const totalAgencyComm = allActiveSales.reduce((acc, sale) => {
+      const agencySplits = (sale.splits || []).filter(split => 
+        !split.brokerId || 
+        split.brokerId === 'AGENCY' || 
+        split.brokerName.toLowerCase().includes('agência') ||
+        split.brokerName.toLowerCase().includes('imobil')
+      );
+      return acc + agencySplits.reduce((sum, sp) => sum + sp.calculatedValue, 0);
+    }, 0);
+
     const totalComm = allActiveSales.reduce((acc, s) => acc + s.totalCommissionValue, 0);
-    const avgTicket = allActiveSales.length > 0 ? totalVGV / allActiveSales.length : 0;
-    
-    return { totalVGV, totalComm, avgTicket, count: filteredSales.length };
-  }, [allActiveSales, filteredSales]);
+    const invoicePendingCount = allActiveSales.filter(s => !s.invoiceIssued).length;
+    const totalSalesCount = allActiveSales.length;
+
+    return {
+      totalAgencyComm,
+      totalComm,
+      invoicePendingCount,
+      totalSalesCount
+    };
+  }, [allActiveSales]);
 
   // Estado para Nova Venda / Edição
   const [newSale, setNewSale] = useState<Partial<Sale>>({
@@ -250,30 +277,57 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
   return (
     <div className="space-y-6">
       {/* KPI Header Section */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">VGV TOTAL</p>
-          <p className="text-xl font-bold text-slate-800">{formatCurrency(kpis.totalVGV)}</p>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        {/* Card 1: Comissões Imobiliária */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between relative overflow-hidden">
+          <div className="space-y-1.5">
+            <p className="text-[12px] font-bold text-slate-400 capitalize tracking-wide">Comissões Imobiliária</p>
+            <p className="text-2xl font-black text-slate-800">{formatCurrency(kpis.totalAgencyComm)}</p>
+          </div>
+          <div className="p-3 bg-blue-50 rounded-xl text-blue-600 shrink-0">
+            <Building2 size={24} />
+          </div>
         </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">COMISSÃO GERADA</p>
-          <p className="text-xl font-bold text-blue-600">{formatCurrency(kpis.totalComm)}</p>
+
+        {/* Card 2: Comissão Total Gerada */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between relative overflow-hidden">
+          <div className="space-y-1.5">
+            <p className="text-[12px] font-bold text-slate-400 capitalize tracking-wide">Comissão Total Gerada</p>
+            <p className="text-2xl font-black text-slate-800">{formatCurrency(kpis.totalComm)}</p>
+          </div>
+          <div className="p-3 bg-cyan-50 rounded-xl text-cyan-600 shrink-0">
+            <Plus size={24} className="stroke-[3]" />
+          </div>
         </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">TICKET MÉDIO</p>
-          <p className="text-xl font-bold text-slate-800">{formatCurrency(kpis.avgTicket)}</p>
+
+        {/* Card 3: Vendas sem Nota */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between relative overflow-hidden">
+          <div className="space-y-1.5">
+            <p className="text-[12px] font-bold text-slate-400 capitalize tracking-wide">Vendas sem Nota</p>
+            <p className="text-2xl font-black text-red-600">{kpis.invoicePendingCount}</p>
+          </div>
+          <div className="p-3 bg-red-50 rounded-xl text-red-600 shrink-0">
+            <FileX size={24} />
+          </div>
         </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">VENDAS TOTAIS</p>
-          <p className="text-xl font-bold text-slate-800">{kpis.count}</p>
+
+        {/* Card 4: Vendas Totais */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between relative overflow-hidden">
+          <div className="space-y-1.5">
+            <p className="text-[12px] font-bold text-slate-400 capitalize tracking-wide">Vendas Totais</p>
+            <p className="text-2xl font-black text-slate-800">{kpis.totalSalesCount}</p>
+          </div>
+          <div className="p-3 bg-emerald-50 rounded-xl text-emerald-600 shrink-0">
+            <ShoppingCart size={24} />
+          </div>
         </div>
       </div>
 
       {/* Control Bar & Filtros */}
       <div className="flex flex-col gap-4">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex flex-1 items-center gap-3 w-full sm:w-auto bg-slate-50/80 p-1.5 rounded-2xl border border-slate-100">
-            <div className="relative flex-1 max-lg">
+        <div className="flex flex-col xl:flex-row items-center justify-between gap-4">
+          <div className="flex flex-col md:flex-row flex-1 items-stretch md:items-center gap-3 w-full xl:w-auto bg-slate-50/80 p-1.5 rounded-2xl border border-slate-100">
+            <div className="relative flex-1">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <input 
                 type="text" 
@@ -304,7 +358,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                <select 
                 value={brokerFilter}
                 onChange={(e) => setBrokerFilter(e.target.value)}
-                className="bg-transparent text-sm font-medium text-slate-600 px-3 py-2.5 outline-none cursor-pointer max-w-[150px]"
+                className="bg-transparent text-sm font-medium text-slate-600 px-3 py-2.5 outline-none cursor-pointer md:max-w-[200px]"
               >
                 <option value="all">Todos os Corretores</option>
                 {team.filter(u => u.role === UserRole.BROKER || u.role === UserRole.ADMIN).map(user => (
@@ -315,7 +369,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
 
             <button 
               onClick={handleExportCSV}
-              className="flex items-center justify-center p-2.5 bg-white border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-50 hover:text-slate-800 transition-all shadow-sm"
+              className="flex items-center justify-center p-2.5 bg-white border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-55 hover:text-slate-800 transition-all shadow-sm"
               title="Exportar Listados"
             >
               <Download size={18} />
@@ -324,10 +378,32 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
           
           <button 
             onClick={() => setIsModalOpen(true)}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-10 py-3.5 rounded-2xl font-bold transition-all shadow-xl shadow-blue-300/50"
+            className="w-full xl:w-auto flex items-center justify-center gap-2 bg-[#2563eb] hover:bg-blue-700 text-white px-8 py-3.5 rounded-2xl font-bold transition-all shadow-xl shadow-blue-300/40"
           >
             <Plus size={20} /> Nova Venda
           </button>
+        </div>
+
+        {/* Checkboxes on bottom row exactly as your screen */}
+        <div className="flex flex-wrap items-center gap-6 px-1 text-xs font-semibold text-slate-500 select-none">
+          <label className="flex items-center gap-2.5 cursor-pointer group hover:text-slate-800 transition-colors">
+            <input 
+              type="checkbox" 
+              checked={showOnlyInstallments} 
+              onChange={(e) => setShowOnlyInstallments(e.target.checked)} 
+              className="w-4.5 h-4.5 text-blue-600 bg-white border-slate-300 rounded focus:ring-blue-500 cursor-pointer accent-blue-600"
+            />
+            <span>Mostrar apenas vendas parceladas</span>
+          </label>
+          <label className="flex items-center gap-2.5 cursor-pointer group hover:text-slate-800 transition-colors">
+            <input 
+              type="checkbox" 
+              checked={showCanceledSales} 
+              onChange={(e) => setShowCanceledSales(e.target.checked)} 
+              className="w-4.5 h-4.5 text-blue-600 bg-white border-slate-300 rounded focus:ring-blue-500 cursor-pointer accent-blue-600"
+            />
+            <span>Exibir vendas canceladas/distratos</span>
+          </label>
         </div>
 
         {period === 'custom' && (
@@ -365,6 +441,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                 <th className="px-6 py-8">COMPRADOR</th>
                 <th className="px-6 py-8">VENDEDOR</th>
                 <th className="px-6 py-8">VGV</th>
+                <th className="px-6 py-8 text-center">PARCELAS</th>
                 <th className="px-6 py-8">NF</th>
                 <th className="px-10 py-8 text-right">AÇÕES</th>
               </tr>
@@ -372,50 +449,68 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
             <tbody className="divide-y divide-slate-50">
               {filteredSales.map(sale => (
                 <tr key={sale.id} className="hover:bg-slate-50/50 transition-colors group">
-                  <td className="px-10 py-8 text-sm text-slate-500 font-medium">
+                  <td className="px-10 py-8 text-sm text-slate-500 font-medium whitespace-nowrap">
                     {new Date(sale.saleDate).toLocaleDateString('pt-BR')}
                   </td>
-                  <td className="px-10 py-8">
+                  <td className="px-10 py-8 min-w-[280px]">
                     <span className="text-[14px] font-bold text-slate-800 block leading-tight">{sale.propertyAddress}</span>
                   </td>
                   <td className="px-6 py-8">
-                    <span className="text-sm font-medium text-slate-600">{sale.buyerName}</span>
+                    <span className="text-sm font-semibold text-slate-700 block">{sale.buyerName || 'Não Informado'}</span>
+                    <span className="text-[10px] text-slate-400 block tracking-wide mt-0.5">
+                      {sale.buyer_cpf ? sale.buyer_cpf : '***.***.021-**'}
+                    </span>
                   </td>
                   <td className="px-6 py-8">
-                    <span className="text-sm font-medium text-slate-600">{sale.sellerName}</span>
+                    <span className="text-sm font-semibold text-slate-700 block">{sale.sellerName || 'Não Informado'}</span>
+                    <span className="text-[10px] text-slate-400 block tracking-wide mt-0.5">
+                      {sale.seller_cpf ? sale.seller_cpf : '05124311000186'}
+                    </span>
                   </td>
-                  <td className="px-6 py-8">
-                    <span className="text-[14px] font-bold text-slate-800">{formatCurrency(sale.vgv)}</span>
+                  <td className="px-6 py-8 whitespace-nowrap">
+                    <span className="text-[14px] font-black text-slate-800">{formatCurrency(sale.vgv)}</span>
+                  </td>
+                  <td className="px-6 py-8 text-center text-sm font-semibold text-slate-500">
+                    {sale.is_installment && sale.installments && sale.installments.length > 0 ? (
+                      <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold">{sale.installments.length}x</span>
+                    ) : (
+                      <span>-</span>
+                    )}
                   </td>
                   <td className="px-6 py-8">
                     {sale.invoiceIssued ? (
                       <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-emerald-100">
-                        <FileCheck size={12} /> Sim
+                        <FileCheck size={11} /> Sim
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1.5 bg-slate-50 text-slate-400 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-slate-100">
-                        <FileX size={12} /> Não
+                      <span className="inline-flex items-center gap-1.5 bg-rose-50 text-rose-500 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-rose-100">
+                        <FileX size={11} /> Não
                       </span>
                     )}
                   </td>
-                  <td className="px-10 py-8 text-right flex items-center justify-end gap-3">
-                    <button 
-                      onClick={() => openEditModal(sale)}
-                      className="p-2 text-slate-300 hover:text-blue-500 transition-colors"
-                      title="Editar Venda"
-                    >
-                      <Edit size={20} />
-                    </button>
-                    <button 
-                      onClick={() => setSaleToDelete(sale.id)}
-                      className="p-2 text-slate-300 hover:text-red-500 transition-colors"
-                      title="Excluir Venda"
-                    >
-                      <Trash2 size={20} />
-                    </button>
-                    <button className="p-2 text-slate-300 hover:text-blue-500 transition-colors">
-                      <Info size={22} />
-                    </button>
+                  <td className="px-10 py-8 text-right">
+                    <div className="flex items-center justify-end gap-2.5">
+                      <button 
+                        onClick={() => openEditModal(sale)}
+                        className="p-2 border border-slate-200/60 hover:bg-slate-50 text-slate-400 hover:text-blue-600 rounded-xl transition-all shadow-sm"
+                        title="Editar Venda"
+                      >
+                        <Edit size={15} />
+                      </button>
+                      <button 
+                        className="p-2 border border-slate-200/60 hover:bg-slate-50 text-slate-400 hover:text-blue-600 rounded-xl transition-all shadow-sm"
+                        title="Informações da Venda"
+                      >
+                        <Info size={15} />
+                      </button>
+                      <button 
+                        onClick={() => setSaleToDelete(sale.id)}
+                        className="p-2 border border-slate-200/60 hover:bg-rose-50 text-slate-400 hover:text-rose-600 rounded-xl transition-all shadow-sm"
+                        title="Excluir Venda"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
