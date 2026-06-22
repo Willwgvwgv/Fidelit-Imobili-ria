@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { LogOut, User as UserIcon, Building2, Bell, ChevronDown, ChevronUp } from 'lucide-react';
+import { LogOut, User as UserIcon, Building2, Bell, ChevronDown, ChevronUp, Database, Wifi, WifiOff } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { NAV_ITEMS } from '../constants';
 
@@ -10,6 +10,8 @@ interface LayoutProps {
   activeView: string;
   setActiveView: (view: string) => void;
   onLogout: () => void;
+  dbStatus?: 'connected' | 'error' | 'disconnected';
+  isDemoData?: boolean;
 }
 
 const Layout: React.FC<LayoutProps> = ({ 
@@ -17,7 +19,9 @@ const Layout: React.FC<LayoutProps> = ({
   currentUser, 
   activeView, 
   setActiveView,
-  onLogout 
+  onLogout,
+  dbStatus = 'connected',
+  isDemoData = false
 }) => {
   const [expandedItems, setExpandedItems] = useState<string[]>(['financial']);
 
@@ -121,6 +125,26 @@ const Layout: React.FC<LayoutProps> = ({
                  return subItem ? subItem.label : mainItem?.label || 'Dashboard';
                })()}
             </h2>
+            <div className="flex items-center gap-1.5 ml-2">
+              {dbStatus === 'connected' && !isDemoData && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse animate-duration-1000"></span>
+                  Supabase Real
+                </span>
+              )}
+              {dbStatus === 'connected' && isDemoData && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200/60 shadow-sm" title="Conectado ao Supabase, mas exibindo fallbacks de demonstração pois o banco de dados não tem dados cadastrados">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                  Banco Vazio (Demo)
+                </span>
+              )}
+              {dbStatus === 'error' && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200/60 shadow-sm">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                  Erro Conexão
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-8">
             <button className="relative text-slate-400 hover:text-slate-600 transition-colors bg-slate-50 p-2 rounded-xl">

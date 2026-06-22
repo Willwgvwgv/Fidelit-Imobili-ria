@@ -276,5 +276,133 @@ export const supabaseService = {
       return false;
     }
     return true;
+  },
+
+  // Seed default data into Supabase if empty
+  async seedDefaultData(): Promise<{ success: boolean; message: string }> {
+    if (!supabase) return { success: false, message: 'Supabase client is not initialized.' };
+
+    try {
+      // 1. Seed Users
+      const usersToInsert = [
+        { id: 'admin-1', name: 'Williangyn (Administrador)', email: 'williangyn10@gmail.com', role: 'ADMIN', agency_id: 'agency-1', phone: '62999999999' },
+        { id: 'broker-1', name: 'Ana Silva (Corretor)', email: 'ana.silva@comissone.com.br', role: 'BROKER', agency_id: 'agency-1', phone: '62988888888' },
+        { id: 'broker-2', name: 'Carlos Oliveira (Corretor)', email: 'carlos.oliveira@comissone.com.br', role: 'BROKER', agency_id: 'agency-1', phone: '62977777777' }
+      ];
+
+      // Insert users. We use upsert to prevent unique constraint failures.
+      const { error: userError } = await supabase.from('users').upsert(usersToInsert);
+      if (userError) console.warn('User seeding note:', userError.message);
+
+      // 2. Seed Financial Accounts
+      const accountsToInsert = [
+        { id: 'acc-1', agency_id: 'agency-1', bank_name: 'Banco do Brasil', account_type: 'Checking', account_number: '12345-6', current_balance: 50000.00, is_active: true },
+        { id: 'acc-2', agency_id: 'agency-1', bank_name: 'Caixa Econômica', account_type: 'Savings', account_number: '98765-4', current_balance: 120000.00, is_active: true },
+        { id: 'acc-3', agency_id: 'agency-1', bank_name: 'Itaú Unibanco', account_type: 'Checking', account_number: '55443-2', current_balance: 8500.00, is_active: true }
+      ];
+      await supabase.from('financial_accounts').upsert(accountsToInsert);
+
+      // 3. Seed Financial Categories
+      const categoriesToInsert = [
+        { id: 'cat-1', agency_id: 'agency-1', name: 'Comissão Imobiliária', type: 'INCOME', color: '#10b981' },
+        { id: 'cat-2', agency_id: 'agency-1', name: 'Aluguel Comercial', type: 'INCOME', color: '#34d399' },
+         { id: 'cat-3', agency_id: 'agency-1', name: 'Salários e Prolabore', type: 'EXPENSE', color: '#f43f5e' },
+        { id: 'cat-4', agency_id: 'agency-1', name: 'Marketing e Tráfego pago', type: 'EXPENSE', color: '#ec4899' },
+        { id: 'cat-5', agency_id: 'agency-1', name: 'Manutenção / Infraestrutura', type: 'EXPENSE', color: '#f59e0b' }
+      ];
+      await supabase.from('financial_categories').upsert(categoriesToInsert);
+
+      // 4. Seed Financial Transactions
+      const transactionsToInsert = [
+        { id: 'tx-1', agency_id: 'agency-1', description: 'Comissão Venda Loteamento Sol', amount: 35000, type: 'INCOME', category_id: 'cat-1', account_id: 'acc-1', status: 'PAID', due_date: '2026-04-10', payment_date: '2026-04-10' },
+        { id: 'tx-2', agency_id: 'agency-1', description: 'Serviços Marketing Abril', amount: 4800, type: 'EXPENSE', category_id: 'cat-4', account_id: 'acc-2', status: 'PAID', due_date: '2026-04-15', payment_date: '2026-04-15' },
+        { id: 'tx-a1', agency_id: 'agency-1', description: 'Comissão Venda Apt 402 Ed. Royal', amount: 18500, type: 'INCOME', category_id: 'cat-1', account_id: 'acc-1', status: 'PENDING', due_date: '2026-04-28' },
+        { id: 'tx-3', agency_id: 'agency-1', description: 'Aluguel Sede Comercial', amount: 6200, type: 'EXPENSE', category_id: 'cat-5', account_id: 'acc-1', status: 'PENDING', due_date: new Date().toISOString().split('T')[0] },
+        { id: 'tx-4', agency_id: 'agency-1', description: 'Plataformas SaaS e Licenças', amount: 1250, type: 'EXPENSE', category_id: 'cat-5', account_id: 'acc-3', status: 'PENDING', due_date: '2026-04-20' },
+        { id: 'tx-5', agency_id: 'agency-1', description: 'Prolabore Sócios Integrados', amount: 15000, type: 'EXPENSE', category_id: 'cat-3', account_id: 'acc-3', status: 'PENDING', due_date: '2026-04-05' }
+      ];
+      await supabase.from('financial_transactions').upsert(transactionsToInsert);
+
+      // 5. Seed Sales
+      const salesToInsert = [
+        {
+          id: 'sale-1',
+          agency_id: 'agency-1',
+          sale_date: '2026-05-10',
+          property_address: 'Av. T-10, Ed. Metropolitan, Ap 1502',
+          buyer_name: 'Marcos Souza',
+          seller_name: 'Roberto Alves',
+          vgv: 850000,
+          commission_percentage: 5,
+          total_commission_value: 42500,
+          invoice_issued: true,
+          invoice_number: '00124',
+          notes: 'Venda de apartamento de alto padrão no Setor Bueno.',
+          status: 'APPROVED'
+        },
+        {
+          id: 'sale-2',
+          agency_id: 'agency-1',
+          sale_date: '2026-06-01',
+          property_address: 'Rua 145, Qd 52, Casa 04, Setor Marista',
+          buyer_name: 'Julia Pinheiro',
+          seller_name: 'Flavio Mendes',
+          vgv: 1200000,
+          commission_percentage: 6,
+          total_commission_value: 72000,
+          invoice_issued: false,
+          notes: 'Casa duplex, excelente localização.',
+          status: 'APPROVED'
+        }
+      ];
+      const { error: saleSeedError } = await supabase.from('sales').upsert(salesToInsert);
+      if (saleSeedError) console.warn('Sales seeding note:', saleSeedError.message);
+
+      // 6. Seed Broker Splits
+      const splitsToInsert = [
+        {
+          id: 'split-1',
+          sale_id: 'sale-1',
+          broker_id: 'broker-1',
+          broker_name: 'Ana Silva',
+          percentage: 40,
+          calculated_value: 17000,
+          status: 'PAID',
+          role: 'BROKER',
+          payment_date: '2026-05-15',
+          payment_method: 'PIX',
+          forecast_date: '2026-05-15'
+        },
+        {
+          id: 'split-2',
+          sale_id: 'sale-1',
+          broker_id: 'broker-2',
+          broker_name: 'Carlos Oliveira',
+          percentage: 40,
+          calculated_value: 17000,
+          status: 'PENDING',
+          role: 'BROKER',
+          forecast_date: '2026-06-30'
+        },
+        {
+          id: 'split-3',
+          sale_id: 'sale-2',
+          broker_id: 'broker-1',
+          broker_name: 'Ana Silva',
+          percentage: 50,
+          calculated_value: 36000,
+          status: 'PENDING',
+          role: 'BROKER',
+          forecast_date: '2026-07-15'
+        }
+      ];
+      const { error: splitSeedError } = await supabase.from('broker_splits').upsert(splitsToInsert);
+      if (splitSeedError) console.warn('Splits seeding note:', splitSeedError.message);
+
+      return { success: true, message: 'Dados padrão inseridos com sucesso no Supabase!' };
+    } catch (e: any) {
+      console.error('Falha geral no semeador do Supabase:', e);
+      return { success: false, message: e.message || 'Falha ao semear banco.' };
+    }
   }
 };

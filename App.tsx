@@ -8,7 +8,7 @@ import Team from './components/Team';
 import Reports from './components/Reports';
 import Financial from './components/Financial';
 import { User, Sale, UserRole, CommissionStatus, SplitRole } from './types';
-import { LogIn, Key, Loader2 } from 'lucide-react';
+import { LogIn, Key, Loader2, Database, AlertTriangle, Check } from 'lucide-react';
 import { supabaseService } from './services/supabaseService';
 
 const App: React.FC = () => {
@@ -17,6 +17,10 @@ const App: React.FC = () => {
   const [sales, setSales] = useState<Sale[]>([]);
   const [team, setTeam] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDemoData, setIsDemoData] = useState(false);
+  const [isSeeding, setIsSeeding] = useState(false);
+  const [seedMessage, setSeedMessage] = useState<string | null>(null);
+  const [dbStatus, setDbStatus] = useState<'connected' | 'error' | 'disconnected'>('disconnected');
 
   // Supabase Data Fetching
   const loadData = async () => {
@@ -26,7 +30,11 @@ const App: React.FC = () => {
       const fetchedSales = await supabaseService.getSales();
       
       let finalUsers = fetchedUsers || [];
-      if (finalUsers.length === 0) {
+      const hasRealUsers = finalUsers.length > 0;
+
+      if (!hasRealUsers) {
+        setIsDemoData(true);
+        setDbStatus('connected');
         finalUsers = [
           {
             id: 'admin-1',
@@ -53,6 +61,9 @@ const App: React.FC = () => {
             phone: '62977777777'
           }
         ];
+      } else {
+        setIsDemoData(false);
+        setDbStatus('connected');
       }
 
       let finalSales = fetchedSales || [];
@@ -140,8 +151,28 @@ const App: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to load data from Supabase:', error);
+      setDbStatus('error');
+      setIsDemoData(true);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSeedDatabase = async () => {
+    setIsSeeding(true);
+    setSeedMessage(null);
+    try {
+      const result = await supabaseService.seedDefaultData();
+      if (result.success) {
+        setSeedMessage('Sucesso! Dados inseridos com êxito no Supabase.');
+        await loadData();
+      } else {
+        setSeedMessage('Ocorreu um erro ao popular: ' + result.message);
+      }
+    } catch (e: any) {
+      setSeedMessage('Erro na operação: ' + e.message);
+    } finally {
+      setIsSeeding(false);
     }
   };
 
@@ -269,7 +300,70 @@ const App: React.FC = () => {
                   </button>
                 ))}
               </div>
-              <div className="pt-6 border-t border-slate-100">
+
+              {/* Database Status Alert Box in Login */}
+              {isDemoData && dbStatus === 'connected' && (
+                <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200/70 text-amber-900 text-xs space-y-3">
+                  <div className="flex items-start gap-2.5">
+                    <Database size={16} className="text-amber-600 shrink-0 mt-0.5 animate-pulse" />
+                    <div>
+                      <h4 className="font-bold text-amber-900">Banco de Dados Supabase Pronto!</h4>
+                      <p className="text-amber-700/90 mt-1 leading-relaxed">
+                        Conectado com êxito à base do comissone, mas as tabelas estão vazias. Ative o painel real populando registros iniciais (usuários, vendas e splits) agora mesmo:
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={handleSeedDatabase}
+                    disabled={isSeeding}
+                    className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2"
+                  >
+                    {isSeeding ? (
+                      <>
+                        <Loader2 className="animate-spin" size={14} />
+                        Inserindo registros...
+                      </>
+                    ) : (
+                      <>
+                        Popular Supabase com Dados Padrão
+                      </>
+                    )}
+                  </button>
+                  
+                  {seedMessage && (
+                    <p className="text-center font-bold text-[10px] uppercase tracking-wide text-emerald-600 animate-pulse mt-1">
+                      {seedMessage}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {!isDemoData && dbStatus === 'connected' && (
+                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200/70 text-emerald-950 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <Check size={16} className="text-emerald-600 shrink-0" />
+                    <div>
+                      <p className="font-bold text-emerald-950">Ambiente de Produção Ativo</p>
+                      <p className="text-emerald-700 text-[10px]">Lendo e persistindo dados diretamente de sua conta Supabase.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {dbStatus === 'error' && (
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200/70 text-rose-950 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <AlertTriangle size={16} className="text-rose-600 shrink-0" />
+                    <div>
+                      <p className="font-bold text-rose-950">Aviso: Modo de Demonstração Local</p>
+                      <p className="text-rose-700 text-[10px]">Verifique suas credenciais em seu arquivo .env ou no painel de controle.</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 border-t border-slate-100">
                 <p className="text-xs text-center text-slate-400">
                   Ambiente de demonstração multi-tenant.<br/>
                   Dados isolados por agência.
@@ -291,6 +385,8 @@ const App: React.FC = () => {
         setCurrentUser(null);
         setActiveView('dashboard');
       }}
+      dbStatus={dbStatus}
+      isDemoData={isDemoData}
     >
       {renderContent()}
     </Layout>

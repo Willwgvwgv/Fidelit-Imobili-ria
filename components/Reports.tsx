@@ -66,12 +66,15 @@ const Reports: React.FC<ReportsProps> = ({ sales, team, currentUser }) => {
         const d = new Date(s.saleDate + 'T00:00:00');
         return d.getFullYear() === now.getFullYear();
       });
-    } else if (period === 'custom' && startDate && endDate) {
-      const start = new Date(startDate + 'T00:00:00');
-      const end = new Date(endDate + 'T23:59:59');
+    } else if (period === 'custom') {
+      const start = startDate ? new Date(startDate + 'T00:00:00') : null;
+      const end = endDate ? new Date(endDate + 'T23:59:59') : null;
       result = result.filter(s => {
         const d = new Date(s.saleDate + 'T00:00:00');
-        return d >= start && d <= end;
+        if (isNaN(d.getTime())) return true;
+        if (start && d < start) return false;
+        if (end && d > end) return false;
+        return true;
       });
     }
 

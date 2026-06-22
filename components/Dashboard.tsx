@@ -69,10 +69,14 @@ const Dashboard: React.FC<DashboardProps> = ({ sales, team, currentUser }) => {
       if (period === 'year') {
         return saleDate.getFullYear() === now.getFullYear();
       }
-      if (period === 'custom' && startDate && endDate) {
-        const start = new Date(startDate + 'T00:00:00');
-        const end = new Date(endDate + 'T23:59:59');
-        return saleDate >= start && saleDate <= end;
+      if (period === 'custom') {
+        if (!startDate && !endDate) return true;
+        if (isNaN(saleDate.getTime())) return true;
+        const start = startDate ? new Date(startDate + 'T00:00:00') : null;
+        const end = endDate ? new Date(endDate + 'T23:59:59') : null;
+        if (start && saleDate < start) return false;
+        if (end && saleDate > end) return false;
+        return true;
       }
       return true;
     });
