@@ -10,9 +10,13 @@ import Financial from './components/Financial';
 import { User, Sale, UserRole, CommissionStatus, SplitRole } from './types';
 import { LogIn, Key, Loader2, Database, AlertTriangle, Check } from 'lucide-react';
 import { supabaseService } from './services/supabaseService';
+import LoginScreen from './components/LoginScreen';
+import { supabase } from './supabase';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authSession, setAuthSession] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [activeView, setActiveView] = useState('dashboard');
   const [sales, setSales] = useState<Sale[]>([]);
   const [team, setTeam] = useState<User[]>([]);
@@ -143,26 +147,20 @@ const App: React.FC = () => {
       setTeam(finalUsers);
       setSales(finalSales);
 
-      // Check if there is a saved user for persistence (simple simulation) or auto-login William (owner)
-      const savedUserId = localStorage.getItem('comissone_current_user_id');
-      let userToLogin: User | undefined = undefined;
-
-      if (savedUserId) {
-        userToLogin = finalUsers.find(u => u.id === savedUserId);
-      }
-
-      // If no saved user, or the saved user didn't exist in team, auto-login William (ADMIN)
-      if (!userToLogin) {
-        userToLogin = finalUsers.find(u => u.email === 'williangyn10@gmail.com');
-      }
-
-      // Second fallback: Auto-login any admin if present
-      if (!userToLogin) {
-        userToLogin = finalUsers.find(u => u.role === UserRole.ADMIN);
-      }
-
-      if (userToLogin && !currentUser) {
-        setCurrentUser(userToLogin);
+      // Sincronizar currentUser baseado na sessão de Auth atual se existir
+      if (supabase) {
+        const { data: { session } } = await supabase.auth.getSession();
+        setAuthSession(session);
+        if (session?.user?.email) {
+          const userProfile = finalUsers.find(u => 
+            u.email?.toLowerCase() === session.user.email?.toLowerCase()
+          );
+          if (userProfile) {
+            setCurrentUser(userProfile);
+          } else {
+            setCurrentUser(null);
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to load data from Supabase:', error);
@@ -196,12 +194,46 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem('comissone_current_user_id', currentUser.id);
-    } else {
-      localStorage.removeItem('comissone_current_user_id');
+    if (!supabase) {
+      setAuthLoading(false);
+      return;
     }
-  }, [currentUser]);
+
+    // Verificar sessão inicial
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setAuthSession(session);
+      setAuthLoading(false);
+      if (session?.user?.email) {
+        const userProfile = team.find(u => 
+          u.email?.toLowerCase() === session.user.email?.toLowerCase()
+        );
+        if (userProfile) {
+          setCurrentUser(userProfile);
+        } else {
+          setCurrentUser(null);
+        }
+      }
+    });
+
+    // Ouvir mudanças de autenticação
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthSession(session);
+      if (session?.user?.email) {
+        const userProfile = team.find(u => 
+          u.email?.toLowerCase() === session.user.email?.toLowerCase()
+        );
+        if (userProfile) {
+          setCurrentUser(userProfile);
+        } else {
+          setCurrentUser(null);
+        }
+      } else {
+        setCurrentUser(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [team]);
 
   const handleUpdateCommissionStatus = async (saleId: string, brokerId: string, newStatus: CommissionStatus, receiptData?: string) => {
     // Find the split in state to get its actual DB id
@@ -281,113 +313,29 @@ const App: React.FC = () => {
     }
   };
 
-  if (!currentUser) {
+  if (authLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-        <div className="w-full max-w-md">
-          <div className="text-center mb-10">
-            <div className="inline-flex items-center justify-center p-3 bg-blue-600 rounded-2xl shadow-xl shadow-blue-200 mb-6">
-              <LogIn className="text-white" size={32} />
-            </div>
-            <h1 className="text-3xl font-extrabold text-slate-800">ComissOne</h1>
-            <p className="text-slate-500 mt-2">Gestão de Inteligência em Comissões</p>
-          </div>
-          
-          <div className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-2xl shadow-slate-200/60">
-            <div className="space-y-6">
-              <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                <Key size={20} className="text-blue-500" /> Escolha seu Perfil
-              </h2>
-              <div className="grid grid-cols-1 gap-4">
-                {team.map((user) => (
-                  <button
-                    key={user.id}
-                    onClick={() => setCurrentUser(user)}
-                    className="w-full group flex items-center justify-between p-5 bg-slate-50 border border-slate-100 rounded-2xl hover:border-blue-400 hover:bg-white hover:shadow-lg transition-all text-left"
-                  >
-                    <div>
-                      <p className="font-bold text-slate-800 group-hover:text-blue-600 transition-colors">{user.name}</p>
-                      <p className="text-xs text-slate-400 font-medium uppercase tracking-wider">{user.role}</p>
-                    </div>
-                    <div className="bg-white p-2 rounded-xl border border-slate-100 group-hover:bg-blue-600 group-hover:border-blue-600 transition-all">
-                      <LogIn size={18} className="text-slate-400 group-hover:text-white transition-colors" />
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              {/* Database Status Alert Box in Login */}
-              {isDemoData && dbStatus === 'connected' && (
-                <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200/70 text-amber-900 text-xs space-y-3">
-                  <div className="flex items-start gap-2.5">
-                    <Database size={16} className="text-amber-600 shrink-0 mt-0.5 animate-pulse" />
-                    <div>
-                      <h4 className="font-bold text-amber-900">Banco de Dados Supabase Pronto!</h4>
-                      <p className="text-amber-700/90 mt-1 leading-relaxed">
-                        Conectado com êxito à base do comissone, mas as tabelas estão vazias. Ative o painel real populando registros iniciais (usuários, vendas e splits) agora mesmo:
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <button
-                    onClick={handleSeedDatabase}
-                    disabled={isSeeding}
-                    className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 px-4 rounded-xl shadow-sm transition-all flex items-center justify-center gap-2"
-                  >
-                    {isSeeding ? (
-                      <>
-                        <Loader2 className="animate-spin" size={14} />
-                        Inserindo registros...
-                      </>
-                    ) : (
-                      <>
-                        Popular Supabase com Dados Padrão
-                      </>
-                    )}
-                  </button>
-                  
-                  {seedMessage && (
-                    <p className="text-center font-bold text-[10px] uppercase tracking-wide text-emerald-600 animate-pulse mt-1">
-                      {seedMessage}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {!isDemoData && dbStatus === 'connected' && (
-                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200/70 text-emerald-950 text-xs">
-                  <div className="flex items-center gap-2.5">
-                    <Check size={16} className="text-emerald-600 shrink-0" />
-                    <div>
-                      <p className="font-bold text-emerald-950">Ambiente de Produção Ativo</p>
-                      <p className="text-emerald-700 text-[10px]">Lendo e persistindo dados diretamente de sua conta Supabase.</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {dbStatus === 'error' && (
-                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200/70 text-rose-950 text-xs">
-                  <div className="flex items-center gap-2.5">
-                    <AlertTriangle size={16} className="text-rose-600 shrink-0" />
-                    <div>
-                      <p className="font-bold text-rose-950">Aviso: Modo de Demonstração Local</p>
-                      <p className="text-rose-700 text-[10px]">Verifique suas credenciais em seu arquivo .env ou no painel de controle.</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-4 border-t border-slate-100">
-                <p className="text-xs text-center text-slate-400">
-                  Ambiente de demonstração multi-tenant.<br/>
-                  Dados isolados por agência.
-                </p>
-              </div>
-            </div>
-          </div>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="text-center space-y-3">
+          <Loader2 className="animate-spin text-blue-600 mx-auto" size={40} />
+          <p className="text-sm text-slate-500 font-medium">Verificando credenciais...</p>
         </div>
       </div>
+    );
+  }
+
+  if (!authSession || !currentUser) {
+    return (
+      <LoginScreen 
+        onLoginSuccess={() => {}} 
+        team={team}
+        onSeedDatabase={handleSeedDatabase}
+        isDemoData={isDemoData}
+        dbStatus={dbStatus}
+        isSeeding={isSeeding}
+        seedMessage={seedMessage}
+        authSession={authSession}
+      />
     );
   }
 
@@ -396,8 +344,12 @@ const App: React.FC = () => {
       currentUser={currentUser} 
       activeView={activeView} 
       setActiveView={setActiveView}
-      onLogout={() => {
+      onLogout={async () => {
+        if (supabase) {
+          await supabase.auth.signOut();
+        }
         setCurrentUser(null);
+        setAuthSession(null);
         setActiveView('dashboard');
       }}
       dbStatus={dbStatus}
