@@ -5,7 +5,7 @@ import {
   Search, 
   Info, 
   Trash2, 
-  ShoppingCart, 
+  Handshake, 
   Download,
   Edit,
   X,
@@ -318,7 +318,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
             <p className="text-2xl font-black text-slate-800">{kpis.totalSalesCount}</p>
           </div>
           <div className="p-3 bg-emerald-50 rounded-xl text-emerald-600 shrink-0">
-            <ShoppingCart size={24} />
+            <Handshake size={24} />
           </div>
         </div>
       </div>
@@ -529,7 +529,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
           </table>
           {filteredSales.length === 0 && (
             <div className="p-24 text-center text-slate-300">
-              <ShoppingCart className="mx-auto mb-4 opacity-10" size={64} />
+              <Handshake className="mx-auto mb-4 opacity-10" size={64} />
               <p className="font-medium text-slate-400">Nenhuma venda encontrada para os filtros aplicados</p>
             </div>
           )}
