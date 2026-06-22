@@ -44,6 +44,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
   const [brokerFilter, setBrokerFilter] = useState<string>('all');
   const [showOnlyInstallments, setShowOnlyInstallments] = useState(false);
   const [showCanceledSales, setShowCanceledSales] = useState(false);
+  const [sortDateDir, setSortDateDir] = useState<'desc' | 'asc'>('desc');
 
   // Lógica de Filtragem
   const filteredSales = useMemo(() => {
@@ -101,8 +102,15 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
       result = result.filter(s => s.is_installment === true);
     }
 
+    // 6. Ordenação por Data
+    result = [...result].sort((a, b) => {
+      const dateA = new Date(a.saleDate || '').getTime();
+      const dateB = new Date(b.saleDate || '').getTime();
+      return sortDateDir === 'desc' ? dateB - dateA : dateA - dateB;
+    });
+
     return result;
-  }, [sales, searchTerm, period, startDate, endDate, brokerFilter, showOnlyInstallments, showCanceledSales]);
+  }, [sales, searchTerm, period, startDate, endDate, brokerFilter, showOnlyInstallments, showCanceledSales, sortDateDir]);
 
   // Filtra as vendas ativas (removendo as canceladas) para os cards de totalizadores
   const allActiveSales = useMemo(() => {
@@ -436,7 +444,17 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
           <table className="w-full text-left">
             <thead>
               <tr className="bg-white text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em] border-b border-slate-50">
-                <th className="px-10 py-8">DATA</th>
+                <th 
+                  className="px-10 py-8 cursor-pointer select-none hover:text-indigo-600 transition-colors group text-left"
+                  onClick={() => setSortDateDir(prev => prev === 'desc' ? 'asc' : 'desc')}
+                >
+                  <div className="flex items-center gap-1.5">
+                    DATA
+                    <span className="text-gray-400 group-hover:text-indigo-500 transition-colors text-xs">
+                      {sortDateDir === 'desc' ? '↓' : '↑'}
+                    </span>
+                  </div>
+                </th>
                 <th className="px-10 py-8">IMÓVEL</th>
                 <th className="px-6 py-8">COMPRADOR</th>
                 <th className="px-6 py-8">VENDEDOR</th>

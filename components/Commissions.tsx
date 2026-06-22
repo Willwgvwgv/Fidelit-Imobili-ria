@@ -35,6 +35,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
+  const [sortDateDir, setSortDateDir] = useState<'desc' | 'asc'>('desc');
   
   // Estados para modal de previsão
   const [isForecastModalOpen, setIsForecastModalOpen] = useState(false);
@@ -87,8 +88,12 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
         }
       });
     });
-    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [sales, currentUser, isAdmin]);
+    return list.sort((a, b) => {
+      const dateA = new Date(a.date || '').getTime();
+      const dateB = new Date(b.date || '').getTime();
+      return sortDateDir === 'desc' ? dateB - dateA : dateA - dateB;
+    });
+  }, [sales, currentUser, isAdmin, sortDateDir]);
 
   const filteredCommissions = commissionList.filter(c => {
     const matchesStatus = statusFilter === 'ALL' || c.status === statusFilter;
@@ -314,7 +319,17 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
             <thead>
               <tr className="border-b border-gray-200">
                 <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Venda / Imóvel</th>
+                <th 
+                  className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer select-none hover:text-indigo-600 transition-colors group"
+                  onClick={() => setSortDateDir(prev => prev === 'desc' ? 'asc' : 'desc')}
+                >
+                  <div className="flex items-center gap-1.5">
+                    Venda / Imóvel
+                    <span className="text-gray-400 group-hover:text-indigo-500 transition-colors text-xs">
+                      {sortDateDir === 'desc' ? '↓' : '↑'}
+                    </span>
+                  </div>
+                </th>
                 <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Corretor</th>
                 <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Valor Devido</th>
                 <th className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Data Pagto / Previsão</th>
