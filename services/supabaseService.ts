@@ -1,6 +1,6 @@
 
 import { supabase } from '../supabase';
-import { Sale, User, BrokerSplit, CommissionStatus, SplitRole, FinancialAccount, FinancialCategory, FinancialTransaction, TransactionStatus } from '../types';
+import { Sale, User, BrokerSplit, CommissionStatus, SplitRole, FinancialAccount, FinancialCategory, FinancialTransaction, TransactionStatus, BrokerEntry } from '../types';
 
 export const supabaseService = {
   // Fetch all users
@@ -349,6 +349,47 @@ export const supabaseService = {
       return false;
     }
     return true;
+  },
+
+  // Buscar entradas do extrato de um corretor
+  async getBrokerEntries(agencyId: string, brokerId: string): Promise<BrokerEntry[]> {
+    if (!supabase) return [];
+    const { data, error } = await supabase
+      .from('broker_entries')
+      .select('*')
+      .eq('agency_id', agencyId)
+      .eq('broker_id', brokerId)
+      .order('date', { ascending: false });
+    if (error) {
+      console.error('Error fetching broker entries:', error);
+      return [];
+    }
+    return data || [];
+  },
+
+  // Criar nova entrada manual
+  async createBrokerEntry(entry: Omit<BrokerEntry, 'id' | 'created_at'>): Promise<BrokerEntry | null> {
+    if (!supabase) return null;
+    const { data, error } = await supabase
+      .from('broker_entries')
+      .insert([{ ...entry, created_at: new Date().toISOString() }])
+      .select()
+      .single();
+    if (error) {
+      console.error('Error creating broker entry:', error);
+      return null;
+    }
+    return data;
+  },
+
+  // Deletar entrada
+  async deleteBrokerEntry(id: string): Promise<boolean> {
+    if (!supabase) return false;
+    const { error } = await supabase
+      .from('broker_entries')
+      .delete()
+      .eq('id', id);
+    return !error;
   },
 
   // Seed default data into Supabase if empty

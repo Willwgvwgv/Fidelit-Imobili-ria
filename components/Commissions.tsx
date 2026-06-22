@@ -18,6 +18,7 @@ import {
   Check
 } from 'lucide-react';
 import { Sale, User, UserRole, CommissionStatus } from '../types';
+import BrokerStatement from './BrokerStatement';
 
 interface CommissionsProps {
   sales: Sale[];
@@ -48,6 +49,8 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
 
   // Estados para visualização de comprovante
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
+
+  const [statementBroker, setStatementBroker] = useState<User | null>(null);
 
   const isAdmin = currentUser.role === UserRole.ADMIN;
 
@@ -149,6 +152,13 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
 
     return matchesStatus && matchesSearch && matchesBroker && matchesDate && matchesPeriod;
   });
+
+  const brokerCommissionTotal = useMemo(() => {
+    if (!statementBroker) return 0;
+    return commissionList
+      .filter(c => c.brokerId === statementBroker.id)
+      .reduce((sum, c) => sum + c.value, 0);
+  }, [commissionList, statementBroker]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -302,6 +312,34 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
                 ))}
               </select>
             )}
+
+            {/* Botão Ver Extrato */}
+            {isAdmin ? (
+              brokerFilter !== 'ALL' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const broker = team.find(u => u.id === brokerFilter);
+                    if (broker) setStatementBroker(broker);
+                  }}
+                  className="h-[38px] px-3 text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-250 rounded-lg transition-all flex items-center gap-2 font-semibold"
+                >
+                  <Wallet size={15} />
+                  Ver Extrato
+                </button>
+              )
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setStatementBroker(currentUser);
+                }}
+                className="h-[38px] px-3 text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-250 rounded-lg transition-all flex items-center gap-2 font-semibold"
+              >
+                <Wallet size={15} />
+                Ver Extrato
+              </button>
+            )}
           </div>
 
           {/* Exportar */}
@@ -345,6 +383,17 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
           </div>
         )}
       </div>
+
+      {statementBroker && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4 animate-in slide-in-from-top-2 duration-200 shadow-sm">
+          <BrokerStatement
+            broker={statementBroker}
+            agencyId={currentUser.agencyId}
+            commissionTotal={brokerCommissionTotal}
+            onClose={() => setStatementBroker(null)}
+          />
+        </div>
+      )}
 
       {/* Commission Table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">

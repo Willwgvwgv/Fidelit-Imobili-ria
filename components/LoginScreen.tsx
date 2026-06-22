@@ -28,7 +28,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [mode, setMode] = useState<'login' | 'forgot'>('login');
+  const [success, setSuccess] = useState('');
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
   const [forgotSent, setForgotSent] = useState(false);
 
   const handleGoogleLogin = async () => {
@@ -62,10 +63,47 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
     }
     setLoading(true);
     setError('');
+    setSuccess('');
     
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setError('E-mail ou senha incorretos.');
+      setLoading(false);
+    }
+  };
+
+  const handleEmailSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supabase) {
+      setError('Supabase não configurado. Verifique as variáveis de ambiente.');
+      return;
+    }
+    if (!email || !password) {
+      setError('Preencha e-mail e senha.');
+      return;
+    }
+    if (password.length < 6) {
+      setError('A senha deve ter no mínimo 6 caracteres.');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    setSuccess('');
+
+    const { data, error } = await supabase.auth.signUp({ 
+      email, 
+      password,
+      options: {
+        emailRedirectTo: window.location.origin
+      }
+    });
+
+    if (error) {
+      setError(error.message || 'Erro ao realizar cadastro.');
+      setLoading(false);
+    } else {
+      setSuccess('Cadastro realizado! Se o Supabase exigir confirmação, verifique sua caixa de entrada. Caso contrário, você já pode fazer login abaixo.');
+      setMode('login');
       setLoading(false);
     }
   };
@@ -193,6 +231,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                 </div>
               )}
 
+              {/* Sucesso */}
+              {success && (
+                <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-sm text-emerald-700 font-medium font-sans">
+                  {success}
+                </div>
+              )}
+
               {/* Google */}
               <button
                 onClick={handleGoogleLogin}
@@ -207,6 +252,16 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                 </svg>
                 Entrar com Google
               </button>
+
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/50 text-[11px] text-amber-800 leading-normal space-y-1">
+                <p className="font-bold flex items-center gap-1 text-amber-900">
+                  <AlertCircle size={12} className="text-amber-600" /> Nota sobre Erro 403 (Google)
+                </p>
+                <p className="text-amber-700">
+                  Caso o Login do Google mostre "403: Acesso negado", significa que a API do Google está em modo restrito de desenvolvimento. 
+                  <strong> Utilize o botão "Cadastrar nova conta" abaixo</strong> para criar seu login com E-mail + Senha imediatamente!
+                </p>
+              </div>
 
               <div className="flex items-center gap-3">
                 <div className="flex-1 h-px bg-slate-100" />
@@ -233,7 +288,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                     placeholder="Sua senha"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full h-11 pl-10 pr-10 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 transition-all"
+                    className="w-full h-11 pl-10 pr-10 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 transition-all font-sans"
                     autoComplete="current-password"
                   />
                   <button
@@ -248,7 +303,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                 <div className="text-right">
                   <button
                     type="button"
-                    onClick={() => { setMode('forgot'); setError(''); }}
+                    onClick={() => { setMode('forgot'); setError(''); setSuccess(''); }}
                     className="text-xs text-blue-500 hover:text-blue-700 font-medium font-sans"
                   >
                     Esqueceu a senha?
@@ -265,6 +320,83 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                   ) : 'Acessar Sistema'}
                 </button>
               </form>
+
+              <div className="pt-2 text-center text-xs">
+                <span className="text-slate-500">Ainda não tem acesso? </span>
+                <button
+                  onClick={() => { setMode('register'); setError(''); setSuccess(''); }}
+                  className="text-blue-600 font-bold hover:underline"
+                >
+                  Cadastrar nova conta
+                </button>
+              </div>
+            </div>
+          ) : mode === 'register' ? (
+            /* Modo cadastro */
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">Cadastre sua conta</h2>
+                <p className="text-sm text-slate-500 mt-1">Crie seu login utilizando e-mail e senha.</p>
+              </div>
+
+              {/* Erro */}
+              {error && (
+                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-sm text-red-600 font-medium">
+                  <AlertCircle size={16} className="shrink-0" />
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={handleEmailSignUp} className="space-y-3">
+                <div className="relative">
+                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input
+                    type="email"
+                    placeholder="E-mail (ex: seu@email.com)"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full h-11 pl-10 pr-4 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-400 transition-all font-sans"
+                    required
+                  />
+                </div>
+                <div className="relative">
+                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Defina uma senha (mín. 6 carecteres)"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full h-11 pl-10 pr-10 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-400 transition-all font-sans"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+
+                <div className="p-3 bg-indigo-50 border border-indigo-150 rounded-xl text-[11px] text-indigo-900 leading-normal">
+                  <strong>ℹ️ Dica Pro:</strong> Após criar a conta, se o seu e-mail não estiver cadastrado no sistema (limbo), você poderá usar o botão especial "Criar Corretor William (williangyn10@gmail.com)" para cadastrar o corretor oficial correspondente ao seu e-mail.
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm transition-all disabled:opacity-50 flex items-center justify-center font-sans"
+                >
+                  {loading ? <RefreshCw className="animate-spin" size={16} /> : 'Finalizar Cadastro'}
+                </button>
+              </form>
+
+              <button
+                onClick={() => { setMode('login'); setError(''); setSuccess(''); }}
+                className="w-full text-xs text-slate-500 hover:text-slate-700 font-semibold"
+              >
+                ← Voltar para o login
+              </button>
             </div>
           ) : (
             /* Modo recuperação de senha */

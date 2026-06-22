@@ -137,3 +137,18 @@ export interface DashboardStats {
   overdueCommission: number;
   brokerPerformance: { name: string; vgv: number; commissions: number }[];
 }
+
+export type BrokerEntryType = 'COMMISSION' | 'CREDIT' | 'DEBIT' | 'PAYMENT';
+
+export interface BrokerEntry {
+  id: string;
+  agency_id: string;
+  broker_id: string;
+  broker_name: string;
+  type: BrokerEntryType;
+  description: string;
+  amount: number; // sempre positivo — o tipo define se é crédito ou débito
+  date: string;
+  created_at: string;
+  sale_id?: string | null; // referência à venda se for COMMISSION
+}
