@@ -73,6 +73,11 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
       if (period === 'month') {
         return saleDate.getMonth() === now.getMonth() && saleDate.getFullYear() === now.getFullYear();
       }
+      if (period === 'prev_month') {
+        const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        return saleDate.getMonth() === prevMonth.getMonth() && 
+               saleDate.getFullYear() === prevMonth.getFullYear();
+      }
       if (period === 'quarter') {
         const currentQuarter = Math.floor(now.getMonth() / 3);
         const saleQuarter = Math.floor(saleDate.getMonth() / 3);
@@ -342,6 +347,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
               >
                 <option value="all">Período Total</option>
                 <option value="month">Este Mês</option>
+                <option value="prev_month">Mês Anterior</option>
                 <option value="quarter">Este Trimestre</option>
                 <option value="year">Este Ano</option>
                 <option value="custom">Datas Customizadas</option>

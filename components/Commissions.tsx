@@ -2,7 +2,6 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Search, 
-  Filter, 
   Download, 
   ArrowUpRight, 
   DollarSign, 
@@ -34,7 +33,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   const [brokerFilter, setBrokerFilter] = useState<string>('ALL');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
-  const [isAdvancedFiltersOpen, setIsAdvancedFiltersOpen] = useState(false);
+  const [period, setPeriod] = useState<string>('all');
   const [sortDateDir, setSortDateDir] = useState<'desc' | 'asc'>('desc');
   
   // Estados para modal de previsão
@@ -115,7 +114,40 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
       return true;
     })();
 
-    return matchesStatus && matchesSearch && matchesBroker && matchesDate;
+    const matchesPeriod = (() => {
+      if (period === 'all') return true;
+      const dateStr = c.forecastDate || c.date || '';
+      if (!dateStr) return true;
+      const d = new Date(dateStr + 'T00:00:00');
+      if (isNaN(d.getTime())) return true;
+      const now = new Date();
+      
+      if (period === 'month') {
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+      }
+      if (period === 'prev_month') {
+        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        return d.getMonth() === prev.getMonth() && d.getFullYear() === prev.getFullYear();
+      }
+      if (period === 'quarter') {
+        const currentQ = Math.floor(now.getMonth() / 3);
+        return Math.floor(d.getMonth() / 3) === currentQ && d.getFullYear() === now.getFullYear();
+      }
+      if (period === 'year') {
+        return d.getFullYear() === now.getFullYear();
+      }
+      if (period === 'custom') {
+        if (!startDate && !endDate) return true;
+        const start = startDate ? new Date(startDate + 'T00:00:00') : null;
+        const end = endDate ? new Date(endDate + 'T23:59:59') : null;
+        if (start && d < start) return false;
+        if (end && d > end) return false;
+        return true;
+      }
+      return true;
+    })();
+
+    return matchesStatus && matchesSearch && matchesBroker && matchesDate && matchesPeriod;
   });
 
   const formatCurrency = (val: number) => {
@@ -215,58 +247,52 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
 
   return (
     <div className="space-y-6">
-      {/* Filters Bar */}
-      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-4">
-        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-            <div className="relative flex-1 md:flex-none">
+      {/* Barra de filtros */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4 space-y-3 shadow-sm">
+        <div className="flex flex-wrap gap-3 items-center justify-between">
+          <div className="flex flex-wrap gap-3 items-center flex-1">
+            {/* Busca */}
+            <div className="relative flex-1 min-w-[200px] max-w-xs">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
-              <input 
-                type="text" 
-                placeholder="Buscar comissão..." 
-                className="h-[38px] pl-9 pr-4 py-2 text-sm bg-white border border-gray-200 rounded-lg outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all w-full md:w-64"
+              <input
+                type="text"
+                placeholder="Buscar comissão..."
+                className="w-full h-[38px] pl-9 pr-4 text-sm bg-white border border-gray-200 rounded-lg outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 transition-colors"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <select 
-              className="h-[38px] px-4 py-2 text-sm bg-white border border-gray-200 rounded-lg outline-none cursor-pointer hover:bg-gray-50 transition-colors"
+
+            {/* Status */}
+            <select
+              className="h-[38px] px-3 text-sm bg-white border border-gray-200 rounded-lg outline-none hover:bg-gray-50 transition-colors"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
               <option value="ALL">Todos os Status</option>
+              <option value={CommissionStatus.PENDING}>A Receber</option>
               <option value={CommissionStatus.PAID}>Pagos</option>
-              <option value={CommissionStatus.PENDING}>Pendentes</option>
               <option value={CommissionStatus.OVERDUE}>Atrasados</option>
             </select>
-            {isAdmin && (
-              <button 
-                onClick={() => setIsAdvancedFiltersOpen(!isAdvancedFiltersOpen)}
-                className={`flex items-center gap-2 h-[38px] px-4 py-2 text-sm font-semibold rounded-lg transition-all border ${
-                  isAdvancedFiltersOpen || brokerFilter !== 'ALL' || startDate || endDate 
-                    ? 'bg-indigo-50 text-indigo-700 border-indigo-200' 
-                    : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                <Filter size={15} /> Filtros Avançados
-              </button>
-            )}
-          </div>
-          <button 
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 h-[38px] px-4 py-2 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition-all"
-          >
-            <Download size={16} /> Exportar CSV
-          </button>
-        </div>
 
-        {/* Barra de Filtros Avançados */}
-        {isAdvancedFiltersOpen && (
-          <div className="pt-4 border-t border-gray-200 grid grid-cols-1 md:grid-cols-4 gap-4 animate-in slide-in-from-top-2 duration-200">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Corretor</label>
-              <select 
-                className="w-full h-[38px] px-4 py-2 text-sm bg-white border border-gray-200 rounded-lg outline-none hover:bg-gray-50 transition-colors"
+            {/* Período */}
+            <select
+              className="h-[38px] px-3 text-sm bg-white border border-gray-200 rounded-lg outline-none hover:bg-gray-50 transition-colors"
+              value={period}
+              onChange={(e) => { setPeriod(e.target.value); setStartDate(''); setEndDate(''); }}
+            >
+              <option value="all">Período Total</option>
+              <option value="month">Este Mês</option>
+              <option value="prev_month">Mês Anterior</option>
+              <option value="quarter">Este Trimestre</option>
+              <option value="year">Este Ano</option>
+              <option value="custom">Datas Customizadas</option>
+            </select>
+
+            {/* Corretor (admin only) */}
+            {isAdmin && (
+              <select
+                className="h-[38px] px-3 text-sm bg-white border border-gray-200 rounded-lg outline-none hover:bg-gray-50 transition-colors"
                 value={brokerFilter}
                 onChange={(e) => setBrokerFilter(e.target.value)}
               >
@@ -275,39 +301,47 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
                   <option key={user.id} value={user.id}>{user.name}</option>
                 ))}
               </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Data Início</label>
-              <input 
-                type="date" 
-                className="w-full h-[38px] px-4 py-2 text-sm bg-white border border-gray-200 rounded-lg outline-none hover:bg-gray-50 transition-colors"
+            )}
+          </div>
+
+          {/* Exportar */}
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-2 h-[38px] px-4 text-sm bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-all"
+          >
+            <Download size={16} /> Exportar CSV
+          </button>
+        </div>
+
+        {/* Datas customizadas — aparece inline quando selecionado */}
+        {period === 'custom' && (
+          <div className="flex flex-wrap gap-3 items-center pt-2 border-t border-gray-100 animate-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">De</label>
+              <input
+                type="date"
+                className="h-[38px] px-3 text-sm bg-white border border-gray-200 rounded-lg outline-none focus:border-indigo-400 transition-colors"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
               />
             </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">Data Fim</label>
-              <input 
-                type="date" 
-                className="w-full h-[38px] px-4 py-2 text-sm bg-white border border-gray-200 rounded-lg outline-none hover:bg-gray-50 transition-colors"
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Até</label>
+              <input
+                type="date"
+                className="h-[38px] px-3 text-sm bg-white border border-gray-200 rounded-lg outline-none focus:border-indigo-400 transition-colors"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
               />
             </div>
-            <div className="flex items-end gap-2">
-              <button 
-                onClick={() => {
-                  setBrokerFilter('ALL');
-                  setStartDate('');
-                  setEndDate('');
-                  setStatusFilter('ALL');
-                  setSearchTerm('');
-                }}
-                className="w-full h-[38px] px-4 py-2 text-sm text-gray-500 font-semibold hover:bg-gray-50 rounded-lg border border-gray-200 transition-colors flex items-center justify-center gap-2"
+            {(startDate || endDate) && (
+              <button
+                onClick={() => { setStartDate(''); setEndDate(''); }}
+                className="text-xs font-semibold text-red-400 hover:text-red-600 transition-colors"
               >
-                Limpar Filtros
+                Limpar datas
               </button>
-            </div>
+            )}
           </div>
         )}
       </div>
