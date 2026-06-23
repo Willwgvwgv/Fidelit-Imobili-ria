@@ -497,12 +497,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <span className="text-xs font-black uppercase tracking-wider text-slate-800 px-2 min-w-[120px] text-center">Abril de 2026</span>
               <button className="p-1 px-2 text-slate-400 hover:text-slate-600"><ChevronRight size={16} /></button>
             </div>
-
-            <div className="flex items-center gap-2 text-slate-400 font-bold text-xs">
-              <input type="text" placeholder="DD/MM/AAAA" className="w-28 bg-slate-100 border-none rounded-lg p-2 text-center outline-none font-semibold text-slate-700" value="01/04/2026" readOnly />
-              <span className="uppercase text-[10px] tracking-widest text-slate-300">até</span>
-              <input type="text" placeholder="DD/MM/AAAA" className="w-28 bg-slate-100 border-none rounded-lg p-2 text-center outline-none font-semibold text-slate-700" value="30/04/2026" readOnly />
-            </div>
           </div>
           
           <button className="flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors bg-white font-bold text-sm px-4 py-2 border border-slate-100 rounded-xl shadow-sm">
@@ -511,13 +505,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           </button>
         </div>
 
-        {/* Active Status Badge */}
-        <div className="px-6 py-3 border-b border-slate-50 flex items-center justify-between">
-           <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold border border-blue-100 flex items-center gap-2 w-fit">
-              Status: Todos os Lançamentos do Mês
-           </span>
-           <span className="text-xs text-slate-400 font-bold">Total: {filteredTransactions.length} registros</span>
-        </div>
+
 
         {/* Transactions Table */}
         <div className="overflow-x-auto">
