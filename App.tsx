@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
 import Sales from './components/Sales';
@@ -20,6 +20,7 @@ const App: React.FC = () => {
   const [activeView, setActiveView] = useState('dashboard');
   const [sales, setSales] = useState<Sale[]>([]);
   const [team, setTeam] = useState<User[]>([]);
+  const teamRef = useRef<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDemoData, setIsDemoData] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
@@ -145,6 +146,7 @@ const App: React.FC = () => {
       }
       
       setTeam(finalUsers);
+      teamRef.current = finalUsers;
       setSales(finalSales);
 
       // Sincronizar currentUser baseado na sessão de Auth atual se existir
@@ -206,7 +208,7 @@ const App: React.FC = () => {
       setAuthSession(session);
       setAuthLoading(false);
       if (session?.user?.email) {
-        const userProfile = team.find(u => 
+        const userProfile = teamRef.current.find(u => 
           u.email?.toLowerCase() === session.user.email?.toLowerCase()
         );
         if (userProfile) {
@@ -221,7 +223,7 @@ const App: React.FC = () => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setAuthSession(session);
       if (session?.user?.email) {
-        const userProfile = team.find(u => 
+        const userProfile = teamRef.current.find(u => 
           u.email?.toLowerCase() === session.user.email?.toLowerCase()
         );
         if (userProfile) {
@@ -235,7 +237,7 @@ const App: React.FC = () => {
     });
 
     return () => subscription.unsubscribe();
-  }, [team]);
+  }, []);
 
   const handleUpdateCommissionStatus = async (saleId: string, brokerId: string, newStatus: CommissionStatus, receiptData?: string) => {
     // Find the split in state to get its actual DB id
