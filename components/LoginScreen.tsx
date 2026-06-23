@@ -253,16 +253,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({
                 Entrar com Google
               </button>
 
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/50 text-[11px] text-amber-800 leading-normal space-y-1">
-                <p className="font-bold flex items-center gap-1 text-amber-900">
-                  <AlertCircle size={12} className="text-amber-600" /> Nota sobre Erro 403 (Google)
-                </p>
-                <p className="text-amber-700">
-                  Caso o Login do Google mostre "403: Acesso negado", significa que a API do Google está em modo restrito de desenvolvimento. 
-                  <strong> Utilize o botão "Cadastrar nova conta" abaixo</strong> para criar seu login com E-mail + Senha imediatamente!
-                </p>
-              </div>
-
               <div className="flex items-center gap-3">
                 <div className="flex-1 h-px bg-slate-100" />
                 <span className="text-xs text-slate-400 font-medium">ou</span>
