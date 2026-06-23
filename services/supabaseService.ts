@@ -175,43 +175,130 @@ export const supabaseService = {
       return false;
     }
 
-    // Delete existing splits for this sale
-    const { error: deleteError } = await supabase
+    // Fetch currently existing splits for this sale
+    const { data: existingSplitsData, error: fetchError } = await supabase
       .from('broker_splits')
-      .delete()
+      .select('*')
       .eq('sale_id', saleId);
 
-    if (deleteError) {
-      console.error('Error deleting old splits:', deleteError);
+    if (fetchError) {
+      console.error('Error fetching existing splits during update:', fetchError);
       return false;
     }
 
-    // Insert new splits
-    const splitsToInsert = splits.map(split => ({
-      sale_id: saleId,
-      broker_id: split.brokerId,
-      broker_name: split.brokerName,
-      percentage: split.percentage,
-      calculated_value: split.calculatedValue,
-      status: split.status || 'PENDING',
-      role: split.role,
-      payment_date: split.paymentDate,
-      payment_method: split.paymentMethod,
-      forecast_date: split.forecastDate,
-      receipt_data: split.receiptData,
-      installment_number: split.installment_number,
-      total_installments: split.total_installments,
-      notes: split.notes,
-      discount_value: split.discount_value
-    }));
+    const existingSplits = existingSplitsData || [];
 
-    const { error: splitError } = await supabase
-      .from('broker_splits')
-      .insert(splitsToInsert);
+    // Map incoming splits by the composite key: brokerId + role + installment_number
+    const incomingMap = new Map<string, Omit<BrokerSplit, 'id' | 'sale_id'>>();
+    splits.forEach(s => {
+      const key = `${s.brokerId || ''}::${s.role || ''}::${s.installment_number ?? 1}`;
+      incomingMap.set(key, s);
+    });
 
-    if (splitError) {
-      console.error('Error creating splits during edit:', splitError);
-      return false;
+    // Map existing splits by the same composite key
+    const existingMap = new Map<string, any>();
+    existingSplits.forEach(s => {
+      const key = `${s.broker_id || ''}::${s.role || ''}::${s.installment_number ?? 1}`;
+      existingMap.set(key, s);
+    });
+
+    // Helper to identify if a split is paid or has any payment history
+    const isPaidOrHasPayment = (s: any) => {
+      return s.status === 'PAID' || 
+             (s.payment_date !== null && s.payment_date !== undefined && s.payment_date !== '') ||
+             (s.payment_method !== null && s.payment_method !== undefined && s.payment_method !== '') ||
+             (s.receipt_data !== null && s.receipt_data !== undefined && s.receipt_data !== '');
+    };
+
+    // 1. Identify splits to be deleted (removed from editor, and they do NOT have payment history)
+    const idsToDelete = existingSplits
+      .filter(s => {
+        const key = `${s.broker_id || ''}::${s.role || ''}::${s.installment_number ?? 1}`;
+        const hasIncomingMatch = incomingMap.has(key);
+        const hasPayment = isPaidOrHasPayment(s);
+        return !hasIncomingMatch && !hasPayment;
+      })
+      .map(s => s.id);
+
+    if (idsToDelete.length > 0) {
+      const { error: deleteError } = await supabase
+        .from('broker_splits')
+        .delete()
+        .in('id', idsToDelete);
+
+      if (deleteError) {
+        console.error('Error deleting unused unpaid splits:', deleteError);
+        return false;
+      }
+    }
+
+    // 2. Insert new incoming splits (key does not exist in db)
+    const splitsToInsert = splits
+      .filter(incoming => {
+        const key = `${incoming.brokerId || ''}::${incoming.role || ''}::${incoming.installment_number ?? 1}`;
+        return !existingMap.has(key);
+      })
+      .map(incoming => ({
+        sale_id: saleId,
+        broker_id: incoming.brokerId,
+        broker_name: incoming.brokerName,
+        percentage: incoming.percentage,
+        calculated_value: incoming.calculatedValue,
+        status: incoming.status || 'PENDING',
+        role: incoming.role,
+        payment_date: incoming.paymentDate || null,
+        payment_method: incoming.paymentMethod || null,
+        forecast_date: incoming.forecastDate || null,
+        receipt_data: incoming.receiptData || null,
+        installment_number: incoming.installment_number || 1,
+        total_installments: incoming.total_installments,
+        notes: incoming.notes,
+        discount_value: incoming.discount_value
+      }));
+
+    if (splitsToInsert.length > 0) {
+      const { error: insertError } = await supabase
+        .from('broker_splits')
+        .insert(splitsToInsert);
+
+      if (insertError) {
+        console.error('Error inserting new splits:', insertError);
+        return false;
+      }
+    }
+
+    // 3. Update existing matched splits (preserving payment history if existing has it)
+    for (const existing of existingSplits) {
+      const key = `${existing.broker_id || ''}::${existing.role || ''}::${existing.installment_number ?? 1}`;
+      const incoming = incomingMap.get(key);
+
+      if (incoming) {
+        const hasPayment = isPaidOrHasPayment(existing);
+
+        const updatedFields = {
+          broker_name: incoming.brokerName,
+          percentage: incoming.percentage,
+          calculated_value: incoming.calculatedValue,
+          total_installments: incoming.total_installments,
+          forecast_date: incoming.forecastDate || null,
+          notes: incoming.notes,
+          discount_value: incoming.discount_value,
+          status: hasPayment ? existing.status : (incoming.status || 'PENDING'),
+          payment_date: hasPayment ? existing.payment_date : (incoming.paymentDate || null),
+          payment_method: hasPayment ? existing.payment_method : (incoming.paymentMethod || null),
+          receipt_data: hasPayment ? existing.receipt_data : (incoming.receiptData || null)
+        };
+
+        const { error: updateError } = await supabase
+          .from('broker_splits')
+          .update(updatedFields)
+          .eq('id', existing.id);
+
+        if (updateError) {
+          console.error(`Error updating split ${existing.id}:`, updateError);
+          return false;
+        }
+      }
     }
 
     return true;
