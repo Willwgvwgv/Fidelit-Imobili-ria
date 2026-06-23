@@ -252,10 +252,10 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
   const handleExportCSV = () => {
     const headers = ["Data", "Imóvel", "Vendedor", "Comprador", "VGV", "Comissão Total", "NF Nº"];
     const rows = filteredSales.map(s => [
-      s.saleDate,
-      s.propertyAddress.replace(/,/g, ' '),
-      s.sellerName.replace(/,/g, ' '),
-      s.buyerName.replace(/,/g, ' '),
+      s.saleDate || '',
+      (s.propertyAddress || '').replace(/,/g, ' '),
+      (s.sellerName || '').replace(/,/g, ' '),
+      (s.buyerName || '').replace(/,/g, ' '),
       s.vgv.toString(),
       s.totalCommissionValue.toString(),
       s.invoiceNumber || (s.invoiceIssued ? 'Emitida' : 'Não emitida')
