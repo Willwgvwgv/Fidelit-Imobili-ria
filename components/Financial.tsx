@@ -34,7 +34,8 @@ import {
   Sliders,
   DollarSign,
   ShieldCheck,
-  Star
+  Star,
+  Pencil
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -104,6 +105,65 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [selectedImportedIndex, setSelectedImportedIndex] = useState<number | null>(null);
   const [selectedSystemTxId, setSelectedSystemTxId] = useState<string | null>(null);
   const [matchedPairs, setMatchedPairs] = useState<Array<{ importedIdx: number, systemId: string }>>([]);
+
+  const [editingAccount, setEditingAccount] = useState<FinancialAccount | null>(null);
+  const [editingCategory, setEditingCategory] = useState<FinancialCategory | null>(null);
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setEditingAccount(null);
+    setEditingCategory(null);
+    setNewAccount({
+      name: '',
+      initial_balance: 0,
+      type: 'Corrente',
+      color: '#2563eb',
+      is_default: false,
+      credit_limit: 0
+    });
+    setNewCategory({
+      name: '',
+      type: TransactionType.EXPENSE,
+      color: '#f43f5e'
+    });
+  };
+
+  const handleEditAccountClick = (account: FinancialAccount) => {
+    setEditingAccount(account);
+    setNewAccount({
+      name: account.name,
+      initial_balance: account.initial_balance,
+      type: account.type || 'Corrente',
+      color: account.color || '#2563eb',
+      is_default: account.is_default || false,
+      credit_limit: account.credit_limit || 0
+    });
+    setModalType('account');
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteAccount = (accountId: string) => {
+    if (window.confirm('Tem certeza que deseja excluir esta conta?')) {
+      setAccounts(prev => prev.filter(acc => acc.id !== accountId));
+    }
+  };
+
+  const handleEditCategoryClick = (category: FinancialCategory) => {
+    setEditingCategory(category);
+    setNewCategory({
+      name: category.name,
+      type: category.type,
+      color: category.color || '#f43f5e'
+    });
+    setModalType('category');
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteCategory = (categoryId: string) => {
+    if (window.confirm('Tem certeza que deseja excluir esta categoria?')) {
+      setCategories(prev => prev.filter(c => c.id !== categoryId));
+    }
+  };
 
   // Load finance datasets from DB with visual fallbacks if null
   const loadFinancialData = async () => {
@@ -235,10 +295,28 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   const handleCreateAccount = async () => {
-    if (!newAccount.name || !newAccount.initial_balance) {
-      alert('Favor preencher os dados da conta.');
+    if (!newAccount.name) {
+      alert('Favor preencher o nome da conta.');
       return;
     }
+
+    if (editingAccount) {
+      setAccounts(prev => prev.map(acc => acc.id === editingAccount.id ? {
+        ...acc,
+        name: newAccount.name,
+        color: newAccount.color,
+        type: newAccount.type,
+        credit_limit: newAccount.credit_limit ? Number(newAccount.credit_limit) : undefined
+      } : acc));
+      handleCloseModal();
+      return;
+    }
+
+    if (newAccount.initial_balance === undefined || newAccount.initial_balance === null) {
+      alert('Favor preencher o saldo inicial.');
+      return;
+    }
+
     const payload: Omit<FinancialAccount, 'id'> = {
       agency_id: currentUser.agencyId,
       name: newAccount.name,
@@ -253,7 +331,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     const result = await supabaseService.createFinancialAccount(payload);
     if (result) {
-      setIsModalOpen(false);
+      handleCloseModal();
       loadFinancialData();
     } else {
       const mockResult: FinancialAccount = {
@@ -261,7 +339,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         ...payload
       };
       setAccounts(prev => [...prev, mockResult]);
-      setIsModalOpen(false);
+      handleCloseModal();
     }
   };
 
@@ -270,6 +348,17 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       alert('Favor inserir o nome da categoria.');
       return;
     }
+
+    if (editingCategory) {
+      setCategories(prev => prev.map(c => c.id === editingCategory.id ? {
+        ...c,
+        name: newCategory.name,
+        color: newCategory.color
+      } : c));
+      handleCloseModal();
+      return;
+    }
+
     const payload: Omit<FinancialCategory, 'id'> = {
       agency_id: currentUser.agencyId,
       name: newCategory.name,
@@ -279,7 +368,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     const result = await supabaseService.createFinancialCategory(payload);
     if (result) {
-      setIsModalOpen(false);
+      handleCloseModal();
       loadFinancialData();
     } else {
       const mockResult: FinancialCategory = {
@@ -287,7 +376,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         ...payload
       };
       setCategories(prev => [...prev, mockResult]);
-      setIsModalOpen(false);
+      handleCloseModal();
     }
   };
 
@@ -675,7 +764,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 <div className="absolute right-0 top-0 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none" />
                 <div className="flex items-start justify-between relative z-10">
                   <div>
-                    <span className="text-[10px] tracking-widest uppercase font-black opacity-60">Corporate Card</span>
+                    <span className="text-[10px] tracking-widest uppercase font-black opacity-60">Cartão Corporativo</span>
                     <h3 className="text-lg font-black tracking-tight leading-none mt-0.5">{card.name}</h3>
                   </div>
                   <div className="w-10 h-6 bg-amber-400/80 rounded-md border border-amber-300 opacity-80" />
@@ -753,11 +842,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <div className="flex items-center justify-between mb-4">
                     <span className="w-3 h-3 rounded-full" style={{ backgroundColor: account.color || '#3b82f6' }} />
                     <span className="px-2 py-0.5 rounded bg-slate-50 border border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                      {account.is_default ? 'Principal' : account.type || 'Conta'}
+                      {account.is_default ? 'Principal' : (account.type?.toUpperCase() === 'CREDIT_CARD' || account.type === 'credit_card' ? 'Cartão de Crédito' : account.type || 'Conta')}
                     </span>
                   </div>
                   <h4 className="text-base font-black text-slate-800">{account.name}</h4>
-                  <p className="text-slate-400 text-xs font-semibold mt-1">ID Conta: {account.id.substr(0, 8)}</p>
                 </div>
 
                 <div className="mt-6 flex items-end justify-between">
@@ -768,6 +856,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <span className="flex items-center gap-1 text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded border border-emerald-100">
                     <Check size={10} /> Conciliada
                   </span>
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-slate-50 flex items-center justify-end gap-2">
+                  <button 
+                    onClick={() => handleEditAccountClick(account)}
+                    className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-blue-600 transition-colors px-2.5 py-1.5 bg-slate-50 hover:bg-blue-50 rounded-lg"
+                  >
+                    <Pencil size={11} /> Editar
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteAccount(account.id)}
+                    className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-rose-600 transition-colors px-2.5 py-1.5 bg-slate-50 hover:bg-rose-50 rounded-lg"
+                  >
+                    <Trash2 size={11} /> Excluir
+                  </button>
                 </div>
               </div>
             );
@@ -966,11 +1069,26 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {revenueCats.map(cat => (
-                <div key={cat.id} className="p-4 border border-slate-50 bg-slate-50/10 rounded-xl flex items-center gap-3 shadow-sm hover:border-slate-100 transition-all">
-                  <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color || '#10b981' }} />
-                  <div>
+                <div key={cat.id} className="p-4 border border-slate-50 bg-slate-50/10 rounded-xl flex items-center justify-between gap-3 shadow-sm hover:border-slate-100 transition-all">
+                  <div className="flex items-center gap-3">
+                    <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color || '#10b981' }} />
                     <p className="text-sm font-bold text-slate-800">{cat.name}</p>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">ID: {cat.id.substr(0, 6)}</p>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button 
+                      onClick={() => handleEditCategoryClick(cat)}
+                      className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
+                      title="Editar"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteCategory(cat.id)}
+                      className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
+                      title="Excluir"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -985,11 +1103,26 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {expenseCats.map(cat => (
-                <div key={cat.id} className="p-4 border border-slate-50 bg-slate-50/10 rounded-xl flex items-center gap-3 shadow-sm hover:border-slate-100 transition-all">
-                  <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color || '#f43f5e' }} />
-                  <div>
+                <div key={cat.id} className="p-4 border border-slate-50 bg-slate-50/10 rounded-xl flex items-center justify-between gap-3 shadow-sm hover:border-slate-100 transition-all">
+                  <div className="flex items-center gap-3">
+                    <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color || '#f43f5e' }} />
                     <p className="text-sm font-bold text-slate-800">{cat.name}</p>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">ID: {cat.id.substr(0, 6)}</p>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button 
+                      onClick={() => handleEditCategoryClick(cat)}
+                      className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
+                      title="Editar"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteCategory(cat.id)}
+                      className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
+                      title="Excluir"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1089,7 +1222,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
              <motion.div 
                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
-               onClick={() => setIsModalOpen(false)}
+               onClick={handleCloseModal}
              />
              <motion.div 
                initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
@@ -1172,7 +1305,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     </div>
 
                     <div className="flex gap-4 mt-8">
-                      <button onClick={() => setIsModalOpen(false)} className="flex-1 font-bold text-slate-400">Cancelar</button>
+                      <button onClick={handleCloseModal} className="flex-1 font-bold text-slate-400">Cancelar</button>
                       <button 
                         onClick={handleCreateTransaction}
                         className="flex-1 bg-blue-600 text-white font-black py-3 rounded-xl shadow-lg shadow-blue-100"
@@ -1188,7 +1321,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <div>
                     <h2 className="text-xl font-black text-slate-900 mb-6 flex items-center gap-2">
                        <Landmark className="text-blue-500" size={24} />
-                       Adicionar Nova Conta
+                       {editingAccount ? 'Editar Conta Bancária' : 'Adicionar Nova Conta'}
                     </h2>
                     <div className="space-y-4">
                       <div>
@@ -1200,39 +1333,58 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           onChange={(e) => setNewAccount({...newAccount, name: e.target.value})}
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Saldo Inicial (R$)*</label>
-                          <input 
-                            type="number" placeholder="8500.00" 
-                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none"
-                            value={newAccount.initial_balance || ''} 
-                            onChange={(e) => setNewAccount({...newAccount, initial_balance: Number(e.target.value)})}
-                          />
+                      
+                      {!editingAccount && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Saldo Inicial (R$)*</label>
+                            <input 
+                              type="number" placeholder="8500.00" 
+                              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
+                              value={newAccount.initial_balance || ''} 
+                              onChange={(e) => setNewAccount({...newAccount, initial_balance: Number(e.target.value)})}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Tipo de Conta*</label>
+                            <select 
+                              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
+                              value={newAccount.type}
+                              onChange={(e) => setNewAccount({...newAccount, type: e.target.value})}
+                            >
+                              <option value="Corrente">Corrente</option>
+                              <option value="Poupança">Poupança</option>
+                              <option value="Investimentos">Investimentos</option>
+                              <option value="Dinheiro">Dinheiro</option>
+                            </select>
+                          </div>
                         </div>
-                        <div>
-                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Tipo de Conta*</label>
-                          <select 
-                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none"
-                            value={newAccount.type}
-                            onChange={(e) => setNewAccount({...newAccount, type: e.target.value})}
-                          >
-                            <option value="Corrente">Corrente</option>
-                            <option value="Poupança">Poupança</option>
-                            <option value="Investimentos">Investimentos</option>
-                            <option value="Dinheiro">Dinheiro</option>
-                          </select>
-                        </div>
+                      )}
+
+                      <div>
+                        <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Cor da Conta</label>
+                        <select 
+                          className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-805"
+                          value={newAccount.color}
+                          onChange={(e) => setNewAccount({...newAccount, color: e.target.value})}
+                        >
+                          <option value="#3b82f6">Azul Standard</option>
+                          <option value="#10b981">Verde</option>
+                          <option value="#f43f5e">Vermelho</option>
+                          <option value="#eab308">Amarelo Itaú</option>
+                          <option value="#8b5cf6">Roxo</option>
+                          <option value="#1e293b">Cinza Escuro</option>
+                        </select>
                       </div>
                     </div>
 
                     <div className="flex gap-4 mt-8">
-                      <button onClick={() => setIsModalOpen(false)} className="flex-1 font-bold text-slate-400">Cancelar</button>
+                      <button onClick={handleCloseModal} className="flex-1 font-bold text-slate-400">Cancelar</button>
                       <button 
                         onClick={handleCreateAccount}
                         className="flex-1 bg-blue-600 text-white font-black py-3 rounded-xl shadow-lg"
                       >
-                        Salvar Conta
+                        {editingAccount ? 'Salvar Alterações' : 'Salvar Conta'}
                       </button>
                     </div>
                   </div>
@@ -1243,7 +1395,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <div>
                     <h2 className="text-xl font-black text-slate-900 mb-6 flex items-center gap-2">
                        <Tag className="text-blue-500" size={24} />
-                       Criar Categoria Financeira
+                       {editingCategory ? 'Editar Categoria Financeira' : 'Criar Categoria Financeira'}
                     </h2>
                     <div className="space-y-4">
                       <div>
@@ -1255,22 +1407,42 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           onChange={(e) => setNewCategory({...newCategory, name: e.target.value})}
                         />
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Tipo*</label>
-                          <select 
-                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none"
-                            value={newCategory.type}
-                            onChange={(e) => setNewCategory({...newCategory, type: e.target.value as TransactionType})}
-                          >
-                            <option value={TransactionType.EXPENSE}>Despesa</option>
-                            <option value={TransactionType.INCOME}>Receita</option>
-                          </select>
+                      
+                      {!editingCategory && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Tipo*</label>
+                            <select 
+                              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
+                              value={newCategory.type}
+                              onChange={(e) => setNewCategory({...newCategory, type: e.target.value as TransactionType})}
+                            >
+                              <option value={TransactionType.EXPENSE}>Despesa</option>
+                              <option value={TransactionType.INCOME}>Receita</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Cor Visual</label>
+                            <select 
+                              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
+                              value={newCategory.color}
+                              onChange={(e) => setNewCategory({...newCategory, color: e.target.value})}
+                            >
+                              <option value="#f43f5e">Vermelho</option>
+                              <option value="#3b82f6">Azul</option>
+                              <option value="#10b981">Verde</option>
+                              <option value="#eab308">Amarelo</option>
+                              <option value="#a855f7">Roxo</option>
+                            </select>
+                          </div>
                         </div>
+                      )}
+
+                      {editingCategory && (
                         <div>
                           <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Cor Visual</label>
                           <select 
-                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none"
+                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
                             value={newCategory.color}
                             onChange={(e) => setNewCategory({...newCategory, color: e.target.value})}
                           >
@@ -1281,16 +1453,16 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             <option value="#a855f7">Roxo</option>
                           </select>
                         </div>
-                      </div>
+                      )}
                     </div>
 
                     <div className="flex gap-4 mt-8">
-                      <button onClick={() => setIsModalOpen(false)} className="flex-1 font-bold text-slate-400">Cancelar</button>
+                      <button onClick={handleCloseModal} className="flex-1 font-bold text-slate-400">Cancelar</button>
                       <button 
                         onClick={handleCreateCategory}
                         className="flex-1 bg-blue-600 text-white font-black py-3 rounded-xl shadow-lg"
                       >
-                        Criar Categoria
+                        {editingCategory ? 'Salvar Alterações' : 'Criar Categoria'}
                       </button>
                     </div>
                   </div>
@@ -1326,7 +1498,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     </div>
 
                     <div className="flex gap-4 mt-8">
-                      <button onClick={() => setIsModalOpen(false)} className="flex-1 font-bold text-slate-400">Cancelar</button>
+                      <button onClick={handleCloseModal} className="flex-1 font-bold text-slate-400">Cancelar</button>
                       <button 
                         onClick={() => {
                           setNewAccount(prev => ({...prev, type: 'credit_card', initial_balance: 0}));
