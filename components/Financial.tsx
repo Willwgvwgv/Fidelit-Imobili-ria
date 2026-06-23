@@ -764,14 +764,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 <div className="absolute right-0 top-0 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none" />
                 <div className="flex items-start justify-between relative z-10">
                   <div>
-                    <span className="text-[10px] tracking-widest uppercase font-black opacity-60">Cartão Corporativo</span>
-                    <h3 className="text-lg font-black tracking-tight leading-none mt-0.5">{card.name}</h3>
+                    <h3 className="text-lg font-black tracking-tight leading-none">{card.name}</h3>
                   </div>
                   <div className="w-10 h-6 bg-amber-400/80 rounded-md border border-amber-300 opacity-80" />
                 </div>
 
                 <div className="mt-4">
-                  <span className="text-[10px] tracking-widest font-bold opacity-60">Fatura Aberta</span>
                   <p className="text-2xl font-black">{formatCurrency(openInvoices)}</p>
                 </div>
 
@@ -813,10 +811,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-            <Landmark size={20} className="text-slate-700" />
-            Contas Ativas e Saldos
-          </h2>
+          <div />
           <button 
             onClick={() => {
               setModalType('account');
@@ -850,8 +845,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                 <div className="mt-6 flex items-end justify-between">
                   <div>
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Saldo Atualizado</span>
-                    <p className="text-2xl font-black text-slate-900 mt-0.5">{formatCurrency(liveBalance)}</p>
+                    <p className="text-2xl font-black text-slate-900">{formatCurrency(liveBalance)}</p>
                   </div>
                   <span className="flex items-center gap-1 text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded border border-emerald-100">
                     <Check size={10} /> Conciliada
@@ -892,9 +886,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             <div>
               <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
                 <RefreshCw size={20} className="text-blue-500 animate-spin" style={{ animationDuration: '4s' }} />
-                Workspace Inteligente de Conciliação
+                Conciliação Bancária
               </h2>
-              <p className="text-xs text-slate-400 font-medium">Faça upload do extrato bancário para vincular aos lançamentos do ERP.</p>
+              <p className="text-xs text-slate-400 font-medium">Importe seu extrato para conciliar os lançamentos.</p>
             </div>
             
             <div className="flex items-center gap-3">
@@ -1045,10 +1039,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return (
       <div className="space-y-8">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-            <Tag size={20} className="text-slate-700" />
-            Configuração de Categorias Financeiras
-          </h2>
+          <div />
           <button 
             onClick={() => {
               setModalType('category');
@@ -1137,9 +1128,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     switch (activeView) {
       case 'financial-fluxo': return 'Visão consolidada e evolução de caixa';
       case 'financial-cartoes': return 'Cartões de crédito corporativos e limites';
-      case 'financial-contas': return 'Minhas contas e extratos bancários integrados';
+      case 'financial-contas': return '';
       case 'financial-conciliacao': return 'Atribuição e match automático de extratos bancários';
-      case 'financial-categorias': return 'Divisões e orçamentos por classificação';
+      case 'financial-categorias': return '';
       default: return 'Detalhamento de transações e fluxo do mês';
     }
   };
@@ -1164,7 +1155,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             Financeiro
             <span className="text-blue-600 font-medium text-lg">| {getMainTitleText()}</span>
           </h1>
-          <p className="text-slate-500 font-medium text-sm mt-0.5">{getSubTitleText()}</p>
+          {getSubTitleText() && (
+            <p className="text-slate-500 font-medium text-sm mt-0.5">{getSubTitleText()}</p>
+          )}
         </div>
         
         <div className="flex items-center gap-2">
