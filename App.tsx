@@ -200,7 +200,7 @@ const App: React.FC = () => {
     }
 
     // Verificar sessão inicial
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setAuthSession(session);
       setAuthLoading(false);
       if (session?.user?.email) {
@@ -209,6 +209,23 @@ const App: React.FC = () => {
         );
         if (userProfile) {
           setCurrentUser(userProfile);
+        } else if (team.length === 0) {
+          try {
+            const fetchedUsers = await supabaseService.getUsers();
+            if (fetchedUsers && fetchedUsers.length > 0) {
+              setTeam(fetchedUsers);
+              const profile = fetchedUsers.find(u => 
+                u.email?.toLowerCase() === session.user.email?.toLowerCase()
+              );
+              if (profile) {
+                setCurrentUser(profile);
+                return;
+              }
+            }
+          } catch (e) {
+            console.error('Error direct fetching users on session init:', e);
+          }
+          setCurrentUser(null);
         } else {
           setCurrentUser(null);
         }
@@ -216,7 +233,7 @@ const App: React.FC = () => {
     });
 
     // Ouvir mudanças de autenticação
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setAuthSession(session);
       if (session?.user?.email) {
         const userProfile = team.find(u => 
@@ -224,6 +241,23 @@ const App: React.FC = () => {
         );
         if (userProfile) {
           setCurrentUser(userProfile);
+        } else if (team.length === 0) {
+          try {
+            const fetchedUsers = await supabaseService.getUsers();
+            if (fetchedUsers && fetchedUsers.length > 0) {
+              setTeam(fetchedUsers);
+              const profile = fetchedUsers.find(u => 
+                u.email?.toLowerCase() === session.user.email?.toLowerCase()
+              );
+              if (profile) {
+                setCurrentUser(profile);
+                return;
+              }
+            }
+          } catch (e) {
+            console.error('Error direct fetching users on auth change:', e);
+          }
+          setCurrentUser(null);
         } else {
           setCurrentUser(null);
         }
