@@ -4,7 +4,6 @@ import {
   Trash2, 
   RotateCcw, 
   AlertCircle, 
-  ShieldCheck, 
   MapPin, 
   User as UserIcon, 
   Calendar, 
@@ -575,27 +574,10 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       {/* RICH HEADER */}
       <div className="bg-gradient-to-r from-[#1e3a5f] to-[#2563eb] p-6 text-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <span className="text-[10px] font-black uppercase tracking-[0.25em] text-[#93c5fd]">
-            {editingSale ? 'Editar Cadastro' : 'Nova Operação'}
-          </span>
-          <h2 className="text-2xl font-black tracking-tight mt-1">
+          <h2 className="text-2xl font-black tracking-tight">
             {editingSale ? 'EDITAR DADOS DA VENDA' : 'CADASTRAR NOVA VENDA'}
           </h2>
-          <p className="text-blue-100 text-xs mt-0.5">
-            Insira as informações do negócio imobiliário e segmente a distribuição de comissão.
-          </p>
         </div>
-
-        {!editingSale && (
-          <button
-            type="button"
-            onClick={handleClearForm}
-            className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 active:scale-95 transition-all text-xs font-bold rounded-lg text-white border border-white/15"
-          >
-            <RotateCcw size={14} />
-            Limpar Rascunho
-          </button>
-        )}
       </div>
 
       <div className="p-6 md:p-8 space-y-8 max-h-[80vh] overflow-y-auto">
@@ -1317,12 +1299,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       </div>
 
       {/* FOOTER ACTIONS */}
-      <div className="p-6 md:p-8 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
-        <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold text-center sm:text-left">
-          <ShieldCheck size={16} className="text-emerald-500" />
-          <span>Certificado ISO/Fidelité imobiliária real com segurança ponta a ponta.</span>
-        </div>
-
+      <div className="p-6 md:p-8 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row justify-end items-center gap-4">
         <div className="flex gap-4 w-full sm:w-auto justify-end">
           <button
             type="button"
