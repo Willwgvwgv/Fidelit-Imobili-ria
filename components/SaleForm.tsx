@@ -33,6 +33,14 @@ interface TempSplit {
   role: SplitRole;
 }
 
+interface InstallmentItem {
+  installment_number: number;
+  value: number;
+  valueStr: string;
+  due_date: string;
+  is_down_payment?: boolean;
+}
+
 // Robust Brazilian Real format to float number converter
 const parseBrlValue = (valueStr: string): number => {
   if (!valueStr) return 0;
@@ -87,8 +95,16 @@ export const SaleForm: React.FC<SaleFormProps> = ({
 
   // Installment
   const [isInstallment, setIsInstallment] = useState(false);
-  const [installmentCount, setInstallmentCount] = useState<number>(1);
+  const [installmentCount, setInstallmentCount] = useState<number>(4);
   const [firstDueDate, setFirstDueDate] = useState<string>(new Date().toISOString().split('T')[0]);
+
+  // Custom & Down-payment installment states
+  const [installmentPlanType, setInstallmentPlanType] = useState<'EQUAL' | 'CUSTOM'>('EQUAL');
+  const [hasDownPayment, setHasDownPayment] = useState<boolean>(false);
+  const [downPaymentValue, setDownPaymentValue] = useState<number>(0);
+  const [downPaymentInputStr, setDownPaymentInputStr] = useState<string>('');
+  const [installmentsList, setInstallmentsList] = useState<InstallmentItem[]>([]);
+  const [hasLoadedEditingSale, setHasLoadedEditingSale] = useState(false);
 
   // Splits & Split UI modes
   const [tempSplits, setTempSplits] = useState<TempSplit[]>([]);
@@ -118,6 +134,28 @@ export const SaleForm: React.FC<SaleFormProps> = ({
         if (editingSale.installments[0]?.due_date) {
           setFirstDueDate(editingSale.installments[0].due_date);
         }
+        
+        const mapped = editingSale.installments.map(inst => ({
+          installment_number: inst.installment_number,
+          value: inst.value,
+          valueStr: inst.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          due_date: inst.due_date,
+          is_down_payment: inst.installment_number === 1 && editingSale.installments.length > 1
+        }));
+        setInstallmentsList(mapped);
+
+        if (editingSale.installments.length > 1) {
+          const firstVal = editingSale.installments[0].value;
+          const isAllEqual = editingSale.installments.every(inst => Math.abs(inst.value - firstVal) < 0.05);
+          setInstallmentPlanType(isAllEqual ? 'EQUAL' : 'CUSTOM');
+          if (!isAllEqual) {
+            setHasDownPayment(true);
+            setDownPaymentValue(firstVal);
+            setDownPaymentInputStr(firstVal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+          }
+        } else {
+          setInstallmentPlanType('EQUAL');
+        }
       }
 
       if (editingSale.splits) {
@@ -129,8 +167,8 @@ export const SaleForm: React.FC<SaleFormProps> = ({
         }));
         setTempSplits(mappedSplits);
       }
+      setHasLoadedEditingSale(true);
     } else {
-      // Set default single split for user or agency on new sale creation
       setTempSplits([
         {
           brokerId: 'AGENCY',
@@ -139,6 +177,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
           role: SplitRole.AGENCY
         }
       ]);
+      setHasLoadedEditingSale(true);
     }
   }, [editingSale]);
 
@@ -146,16 +185,157 @@ export const SaleForm: React.FC<SaleFormProps> = ({
     return Math.round(((vgv * commissionPercentage) / 100 + Number.EPSILON) * 100) / 100;
   }, [vgv, commissionPercentage]);
 
-  // Helpers to format CPF
-  const formatCPF = (value: string) => {
+  // Helper to generate default list
+  const generateDefaultInstallmentsList = (
+    count: number,
+    total: number,
+    startDate: string,
+    hasDown: boolean,
+    downVal: number
+  ): InstallmentItem[] => {
+    const list: InstallmentItem[] = [];
+    if (count <= 0 || total <= 0) return [];
+
+    let d = new Date(startDate + 'T12:00:00');
+    if (isNaN(d.getTime())) {
+      d = new Date();
+    }
+
+    if (hasDown) {
+      // 1st item is down payment
+      const actualDown = Math.min(downVal, total);
+      list.push({
+        installment_number: 1,
+        value: actualDown,
+        valueStr: actualDown.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        due_date: startDate,
+        is_down_payment: true
+      });
+
+      const remainingVal = Math.max(0, total - actualDown);
+      const remainingCount = count - 1;
+      if (remainingCount > 0) {
+        const baseValue = Math.floor((remainingVal / remainingCount) * 100) / 100;
+        let remainder = Math.round((remainingVal - baseValue * remainingCount) * 100) / 100;
+
+        for (let i = 2; i <= count; i++) {
+          const installmentDate = new Date(d);
+          installmentDate.setMonth(d.getMonth() + (i - 1));
+          
+          const val = i === 2 ? Math.round((baseValue + remainder) * 100) / 100 : baseValue;
+          
+          list.push({
+            installment_number: i,
+            value: val,
+            valueStr: val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            due_date: installmentDate.toISOString().split('T')[0],
+            is_down_payment: false
+          });
+        }
+      }
+    } else {
+      // Split equally
+      const baseValue = Math.floor((total / count) * 100) / 100;
+      let remainder = Math.round((total - baseValue * count) * 100) / 100;
+
+      for (let i = 1; i <= count; i++) {
+        const installmentDate = new Date(d);
+        installmentDate.setMonth(d.getMonth() + (i - 1));
+
+        const val = i === 1 ? Math.round((baseValue + remainder) * 100) / 100 : baseValue;
+
+        list.push({
+          installment_number: i,
+          value: val,
+          valueStr: val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          due_date: installmentDate.toISOString().split('T')[0],
+          is_down_payment: false
+        });
+      }
+    }
+
+    return list;
+  };
+
+  // Sync installments list when core params change, but avoid overwriting loaded existing installments on mount
+  useEffect(() => {
+    if (!hasLoadedEditingSale) return;
+
+    if (isInstallment) {
+      const list = generateDefaultInstallmentsList(
+        installmentCount,
+        totalCommission,
+        firstDueDate,
+        hasDownPayment,
+        downPaymentValue
+      );
+      setInstallmentsList(list);
+    } else {
+      setInstallmentsList([]);
+    }
+  }, [hasLoadedEditingSale, isInstallment, installmentCount, totalCommission, firstDueDate, hasDownPayment, downPaymentValue]);
+
+  const installmentsSum = useMemo(() => {
+    return installmentsList.reduce((acc, curr) => acc + curr.value, 0);
+  }, [installmentsList]);
+
+  const isInstallmentsSumValid = useMemo(() => {
+    return Math.abs(installmentsSum - totalCommission) < 0.05;
+  }, [installmentsSum, totalCommission]);
+
+  const handleAutoAdjustInstallments = () => {
+    if (installmentsList.length === 0) return;
+    const currentSumExceptLast = installmentsList.slice(0, -1).reduce((acc, curr) => acc + curr.value, 0);
+    const balancedLastValue = Math.max(0, Math.round((totalCommission - currentSumExceptLast) * 100) / 100);
+    
+    const updated = [...installmentsList];
+    const lastIdx = updated.length - 1;
+    updated[lastIdx] = {
+      ...updated[lastIdx],
+      value: balancedLastValue,
+      valueStr: balancedLastValue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    };
+    setInstallmentsList(updated);
+  };
+
+  const handleUpdateInstallmentRow = (index: number, valOrStr: string | number, dueDate: string) => {
+    const updated = [...installmentsList];
+    let parsedVal = 0;
+    let strVal = '';
+    
+    if (typeof valOrStr === 'number') {
+      parsedVal = valOrStr;
+      strVal = valOrStr.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    } else {
+      strVal = valOrStr;
+      parsedVal = parseBrlValue(valOrStr);
+    }
+
+    updated[index] = {
+      ...updated[index],
+      value: parsedVal,
+      valueStr: strVal,
+      due_date: dueDate
+    };
+    setInstallmentsList(updated);
+  };
+
+  // Helpers to format CPF or CNPJ
+  const formatCPFOrCNPJ = (value: string) => {
     const digits = value.replace(/\D/g, '');
     if (digits.length <= 11) {
       return digits
         .replace(/(\d{3})(\d)/, '$1.$2')
         .replace(/(\d{3})(\d)/, '$1.$2')
         .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    } else {
+      return digits
+        .slice(0, 14)
+        .replace(/^(\d{2})(\d)/, '$1.$2')
+        .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+        .replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, '$1.$2.$3/$4')
+        .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
     }
-    return value.slice(0, 14);
   };
 
   // Format currency helper
@@ -285,8 +465,13 @@ export const SaleForm: React.FC<SaleFormProps> = ({
     setVgvInputStr('');
     setCommissionPercentage(6);
     setIsInstallment(false);
-    setInstallmentCount(1);
+    setInstallmentCount(4);
     setFirstDueDate(new Date().toISOString().split('T')[0]);
+    setInstallmentPlanType('EQUAL');
+    setHasDownPayment(false);
+    setDownPaymentValue(0);
+    setDownPaymentInputStr('');
+    setInstallmentsList([]);
     setTempSplits([
       {
         brokerId: 'AGENCY',
@@ -323,20 +508,23 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       return;
     }
 
+    if (isInstallment && !isDraft && !isInstallmentsSumValid) {
+      alert(`A soma das parcelas (${formatCurrency(installmentsSum)}) não confere com o valor total da comissão (${formatCurrency(totalCommission)}). Por favor clique em 'Ajustar última parcela' ou ajuste manualmente.`);
+      return;
+    }
+
     // Generate installments array if installment mode is true
     const generatedInstallments = [];
-    if (isInstallment && installmentCount > 0) {
-      const baseValue = Math.round((totalCommission / installmentCount + Number.EPSILON) * 100) / 100;
-      let d = new Date(firstDueDate + 'T00:00:00');
-      for (let i = 1; i <= installmentCount; i++) {
+    if (isInstallment && installmentsList.length > 0) {
+      for (let i = 0; i < installmentsList.length; i++) {
+        const inst = installmentsList[i];
         generatedInstallments.push({
-          installment_number: i,
-          percentage: Math.round((100 / installmentCount + Number.EPSILON) * 100) / 100,
-          value: baseValue,
-          due_date: d.toISOString().split('T')[0],
-          status: 'PENDING'
+          installment_number: inst.installment_number,
+          percentage: totalCommission > 0 ? Math.round(((inst.value / totalCommission) * 100 + Number.EPSILON) * 100) / 100 : 0,
+          value: inst.value,
+          due_date: inst.due_date,
+          status: (inst as any).status || 'PENDING'
         });
-        d.setMonth(d.getMonth() + 1);
       }
     }
 
@@ -495,13 +683,13 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                 </div>
                 <div className="space-y-1">
                   <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                    CPF (Opcional)
+                    CPF ou CNPJ (Opcional)
                   </label>
                   <input
                     type="text"
-                    placeholder="000.000.000-00"
+                    placeholder="000.000.000-00 ou 00.000.000/0000-00"
                     value={buyerCpf}
-                    onChange={(e) => setBuyerCpf(formatCPF(e.target.value))}
+                    onChange={(e) => setBuyerCpf(formatCPFOrCNPJ(e.target.value))}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-150 rounded-lg text-sm text-slate-800 font-medium"
                   />
                 </div>
@@ -528,13 +716,13 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                 </div>
                 <div className="space-y-1">
                   <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                    CPF (Opcional)
+                    CPF ou CNPJ (Opcional)
                   </label>
                   <input
                     type="text"
-                    placeholder="000.000.000-00"
+                    placeholder="000.000.000-00 ou 00.000.000/0000-00"
                     value={sellerCpf}
-                    onChange={(e) => setSellerCpf(formatCPF(e.target.value))}
+                    onChange={(e) => setSellerCpf(formatCPFOrCNPJ(e.target.value))}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-150 rounded-lg text-sm text-slate-800 font-medium"
                   />
                 </div>
@@ -653,46 +841,240 @@ export const SaleForm: React.FC<SaleFormProps> = ({
           </div>
 
           {isInstallment ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-2 duration-150">
-              <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase tracking-widest text-[#1e3a5f] block">
-                  Número de Parcelas
-                </label>
-                <select
-                  value={installmentCount}
-                  onChange={(e) => setInstallmentCount(Number(e.target.value))}
-                  className="w-full px-3 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-semibold text-slate-800 shadow-sm"
-                >
-                  {[2, 3, 4, 5, 6, 8, 10, 12, 18, 24, 30, 36].map(num => (
-                    <option key={num} value={num}>{num}x</option>
-                  ))}
-                </select>
-                <span className="text-[10px] text-slate-400 font-medium">
-                  Ativos parcelados geram datas de previsão com intervalo mensal de 30 dias.
-                </span>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] font-black uppercase tracking-widest text-[#1e3a5f] block">
-                  Vencimento 1ª Parcela
-                </label>
-                <input
-                  type="date"
-                  value={firstDueDate}
-                  onChange={(e) => setFirstDueDate(e.target.value)}
-                  className="w-full px-3 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-medium text-slate-800 shadow-sm"
-                />
-              </div>
-
-              <div className="md:col-span-2 bg-[#f0fdf4] border border-emerald-100 rounded-2xl p-4 flex flex-col md:flex-row justify-between items-center gap-2">
-                <div className="text-center md:text-left">
-                  <p className="text-xs font-black text-emerald-800 uppercase tracking-wide">Previsão das Parcelas</p>
-                  <p className="text-[11px] text-emerald-600 font-medium">Lançamento programado mensalmente recorrente</p>
+            <div className="space-y-6 animate-in slide-in-from-top-2 duration-150">
+              {/* Type of installment plan selection */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-100/50 p-4 rounded-xl border border-slate-200">
+                <div className="space-y-1">
+                  <span className="text-xs font-bold text-[#1e3a5f] block">Tipo de Parcelamento</span>
+                  <span className="text-[11px] text-slate-500 font-medium">Escolha se as parcelas serão iguais ou se deseja incluir entrada e valores diferentes.</span>
                 </div>
-                <div className="text-right">
-                  <p className="text-sm font-bold text-emerald-800">
-                    {installmentCount} parcelas de {formatCurrency(totalCommission / installmentCount)}
-                  </p>
+                <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setInstallmentPlanType('EQUAL')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                      installmentPlanType === 'EQUAL'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-400 hover:text-slate-600 bg-transparent'
+                    }`}
+                  >
+                    Parcelas Iguais
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInstallmentPlanType('CUSTOM')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                      installmentPlanType === 'CUSTOM'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-400 hover:text-slate-600 bg-transparent'
+                    }`}
+                  >
+                    Entrada e parcelas (Diferentes)
+                  </button>
+                </div>
+              </div>
+
+              {/* Installment parameters */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#1e3a5f] block">
+                    {installmentPlanType === 'CUSTOM' ? 'Número Total de Recebimentos' : 'Número de Parcelas'}
+                  </label>
+                  <select
+                    value={installmentCount}
+                    onChange={(e) => setInstallmentCount(Number(e.target.value))}
+                    className="w-full px-3 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-semibold text-slate-800 shadow-sm"
+                  >
+                    {[2, 3, 4, 5, 6, 8, 10, 12, 18, 24, 30, 36].map(num => (
+                      <option key={num} value={num}>{num}x {installmentPlanType === 'CUSTOM' && num === 4 ? '(Ex: Entrada + 3 parcelas)' : ''}</option>
+                    ))}
+                  </select>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    As previsões geram datas com intervalo mensal de 30 dias.
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-[#1e3a5f] block">
+                    Vencimento 1ª Parcela {hasDownPayment ? '(ou Entrada)' : ''}
+                  </label>
+                  <input
+                    type="date"
+                    value={firstDueDate}
+                    onChange={(e) => setFirstDueDate(e.target.value)}
+                    className="w-full px-3 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-medium text-slate-800 shadow-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Custom Down Payment UI if CUSTOM is selected */}
+              {installmentPlanType === 'CUSTOM' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border border-slate-200 bg-white p-4 rounded-xl shadow-sm animate-in fade-in duration-150">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-[#1e3a5f] block">
+                      Possui Entrada?
+                    </label>
+                    <div className="flex items-center gap-3 h-11">
+                      <input
+                        type="checkbox"
+                        id="hasDownPayment"
+                        checked={hasDownPayment}
+                        onChange={(e) => {
+                          setHasDownPayment(e.target.checked);
+                          if (!e.target.checked) {
+                            setDownPaymentValue(0);
+                            setDownPaymentInputStr('');
+                          }
+                        }}
+                        className="w-5 h-5 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                      />
+                      <label htmlFor="hasDownPayment" className="text-sm font-semibold text-slate-700 cursor-pointer">
+                        Sim, incluir valor de Entrada
+                      </label>
+                    </div>
+                  </div>
+
+                  {hasDownPayment && (
+                    <div className="space-y-1 animate-in slide-in-from-left-2 duration-150">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-[#1e3a5f] block">
+                        Valor da Entrada *
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">R$</span>
+                        <input
+                          type="text"
+                          placeholder="0,00"
+                          value={downPaymentInputStr}
+                          onChange={(e) => {
+                            const rawVal = e.target.value;
+                            setDownPaymentInputStr(rawVal);
+                            const parsed = parseBrlValue(rawVal);
+                            setDownPaymentValue(parsed);
+                          }}
+                          onBlur={() => {
+                            const parsed = parseBrlValue(downPaymentInputStr);
+                            if (parsed > 0) {
+                              setDownPaymentValue(parsed);
+                              setDownPaymentInputStr(parsed.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                            } else {
+                              setDownPaymentValue(0);
+                              setDownPaymentInputStr('');
+                            }
+                          }}
+                          className="w-full pl-9 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-bold text-slate-800 shadow-sm"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Installment Rows Detail list */}
+              <div className="space-y-3 bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <span className="text-xs font-black text-[#1e3a5f] uppercase tracking-wider block">
+                    Detalhamento das Parcelas
+                  </span>
+                  
+                  {installmentPlanType === 'CUSTOM' && (
+                    <button
+                      type="button"
+                      onClick={handleAutoAdjustInstallments}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-all shadow-sm border border-blue-100"
+                    >
+                      <RotateCcw size={12} className="animate-spin-slow" />
+                      Ajustar última parcela
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                  {installmentsList.map((item, idx) => (
+                    <div key={item.installment_number} className="flex flex-col md:flex-row items-center gap-4 bg-slate-50 border border-slate-100 p-3 rounded-xl hover:border-slate-200 transition-colors">
+                      <div className="w-full md:w-36 flex items-center gap-2">
+                        <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 text-[10px] font-bold flex items-center justify-center">
+                          {item.installment_number}
+                        </span>
+                        <span className="text-xs font-black text-[#1e3a5f] uppercase">
+                          {item.is_down_payment ? 'Entrada' : `Parcela ${item.installment_number}`}
+                        </span>
+                      </div>
+
+                      <div className="w-full md:flex-1 space-y-1">
+                        <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 block md:hidden">Valor</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">R$</span>
+                          <input
+                            type="text"
+                            disabled={installmentPlanType === 'EQUAL'}
+                            value={item.valueStr}
+                            onChange={(e) => {
+                              if (installmentPlanType === 'EQUAL') return;
+                              handleUpdateInstallmentRow(idx, e.target.value, item.due_date);
+                            }}
+                            onBlur={() => {
+                              if (installmentPlanType === 'EQUAL') return;
+                              const parsed = parseBrlValue(item.valueStr);
+                              handleUpdateInstallmentRow(idx, parsed.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), item.due_date);
+                            }}
+                            className={`w-full pl-9 pr-4 py-2 bg-white border rounded-xl outline-none transition-all text-xs font-bold text-slate-800 shadow-sm ${
+                              installmentPlanType === 'EQUAL'
+                                ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed shadow-none'
+                                : 'border-slate-200 focus:ring-2 focus:ring-blue-100'
+                            }`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="w-full md:w-48 space-y-1">
+                        <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 block md:hidden">Vencimento</label>
+                        <input
+                          type="date"
+                          disabled={installmentPlanType === 'EQUAL'}
+                          value={item.due_date}
+                          onChange={(e) => {
+                            if (installmentPlanType === 'EQUAL') return;
+                            handleUpdateInstallmentRow(idx, item.valueStr, e.target.value);
+                          }}
+                          className={`w-full px-3 py-2 bg-white border rounded-xl outline-none transition-all text-xs font-medium text-slate-800 shadow-sm ${
+                            installmentPlanType === 'EQUAL'
+                              ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed shadow-none'
+                              : 'border-slate-200 focus:ring-2 focus:ring-blue-100'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Installments sum status */}
+                <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-slate-50 border border-slate-100 p-4 rounded-xl mt-2">
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Status da Alocação</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-black text-[#1e3a5f]">
+                        Total Alocado: {formatCurrency(installmentsSum)}
+                      </span>
+                      <span className="text-xs text-slate-400 font-medium">de {formatCurrency(totalCommission)}</span>
+                    </div>
+                  </div>
+
+                  {isInstallmentsSumValid ? (
+                    <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-emerald-100 shadow-sm">
+                      <CheckCircle2 size={12} /> Valores Conciliados
+                    </span>
+                  ) : (
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="inline-flex items-center gap-1 bg-rose-50 text-rose-500 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-rose-100 shadow-sm">
+                        <AlertCircle size={12} /> Diferença de {formatCurrency(Math.abs(totalCommission - installmentsSum))}
+                      </span>
+                      {installmentPlanType === 'CUSTOM' && (
+                        <span className="text-[9px] text-slate-400 font-semibold">
+                          Clique em "Ajustar última parcela" para conciliar o valor.
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
