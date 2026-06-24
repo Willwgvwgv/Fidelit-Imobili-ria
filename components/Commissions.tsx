@@ -426,7 +426,9 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
                   <td className="px-5 py-4">
                     <div className="flex flex-col">
                       <span className="text-sm font-semibold text-gray-950">{comm.property}</span>
-                      <span className="text-[10px] text-gray-400 uppercase tracking-tight font-medium">Ref: {comm.saleId} • {new Date(comm.date).toLocaleDateString('pt-BR')}</span>
+                      <span className="text-[10px] text-gray-400 uppercase tracking-tight font-medium">
+                        #{comm.saleId.slice(0, 8).toUpperCase()} • {new Date(comm.date).toLocaleDateString('pt-BR')}
+                      </span>
                     </div>
                   </td>
                   <td className="px-5 py-4">

@@ -109,6 +109,7 @@ export interface FinancialTransaction {
   type: TransactionType;
   category_id?: string;
   account_id?: string;
+  financial_account_id?: string | null;
   status: TransactionStatus;
   due_date: string;
   payment_date?: string;

@@ -126,6 +126,15 @@ const CARD_GRADIENTS = [
   'from-rose-900 to-rose-950 text-white'
 ];
 
+// Retorna a data atual no fuso local no formato YYYY-MM-DD
+const getLocalTodayStr = (): string => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 'financial-extrato' }) => {
   // State managers
   const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
@@ -440,7 +449,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   // Compute stats dynamically for current period (selected month/year)
   const stats = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalTodayStr();
     const startOfYear = currentPeriod.getFullYear();
     const startOfMonth = currentPeriod.getMonth();
 
@@ -456,11 +465,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       .reduce((acc, curr) => acc + curr.amount, 0);
     
     const todays = periodTxs
-      .filter(t => t.due_date === todayStr)
+      .filter(t => t.status === TransactionStatus.PENDING && t.due_date === todayStr)
       .reduce((acc, curr) => acc + curr.amount, 0);
 
     const pending = periodTxs
-      .filter(t => t.status === TransactionStatus.PENDING && t.due_date >= todayStr)
+      .filter(t => t.status === TransactionStatus.PENDING && t.due_date > todayStr)
       .reduce((acc, curr) => acc + curr.amount, 0);
 
     const paid = periodTxs
@@ -477,7 +486,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const filteredTransactions = useMemo(() => {
     const startOfYear = currentPeriod.getFullYear();
     const startOfMonth = currentPeriod.getMonth();
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalTodayStr();
 
     return transactions.filter(t => {
       // 1. Month/Year Period Filter
@@ -506,10 +515,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           const isOverdue = t.status === TransactionStatus.PENDING && t.due_date < todayStr;
           if (!isOverdue) return false;
         } else if (kpiFilter === 'VENCEM HOJE') {
-          const isToday = t.due_date === todayStr;
+          const isToday = t.status === TransactionStatus.PENDING && t.due_date === todayStr;
           if (!isToday) return false;
         } else if (kpiFilter === 'A VENCER') {
-          const isFuturePending = t.status === TransactionStatus.PENDING && t.due_date >= todayStr;
+          const isFuturePending = t.status === TransactionStatus.PENDING && t.due_date > todayStr;
           if (!isFuturePending) return false;
         } else if (kpiFilter === 'PAGOS') {
           const isPaid = t.status === TransactionStatus.PAID;
@@ -549,7 +558,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
 
     if (!newTransaction.description || !newTransaction.account_id) {
-      alert('Por favor, preencha todos os campos obrigatórios.');
+      alert('Por favor, preencha todos os campos obrigatórios, incluindo a Conta Bancária.');
       return;
     }
 
@@ -559,6 +568,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       amount: parsedAmount,
       agency_id: currentUser.agencyId,
       account_id: !newTransaction.account_id || newTransaction.account_id === '' ? null : newTransaction.account_id,
+      financial_account_id: !newTransaction.account_id || newTransaction.account_id === '' ? null : newTransaction.account_id,
       category_id: !newTransaction.category_id || newTransaction.category_id === '' ? null : newTransaction.category_id,
       // 3. Robust "Marcar como Pago/Recebido" mapping
       status: markAsPaid ? TransactionStatus.PAID : TransactionStatus.PENDING,
@@ -1327,17 +1337,24 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       <td className="px-6 py-5">
                         <div className="flex flex-col items-center justify-center text-center">
                           <span 
-                            className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider text-center" 
+                            className="px-2 py-0.5 rounded-md text-[9px] font-medium uppercase tracking-wider text-center border" 
                             style={{ 
-                              backgroundColor: (category?.color || '#cbd5e1') + '1a', 
+                              backgroundColor: (category?.color || '#cbd5e1') + '26', 
+                              borderColor: (category?.color || '#cbd5e1') + '40',
                               color: category?.color || '#475569' 
                             }}
                           >
                             {category?.name || 'Geral'}
                           </span>
-                          <span className="text-[10px] font-medium text-slate-400 mt-1">
-                            {account?.name || 'Ativo Cresol'}
-                          </span>
+                          {(!tx.account_id && !tx.financial_account_id) || !account ? (
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[9px] font-medium uppercase tracking-wider mt-1 select-none">
+                              Sem conta
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-medium text-slate-400 mt-1">
+                              {account.name}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-5 text-right">
@@ -1604,6 +1621,29 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   // 4. View: Contas Bancárias (Bank Accounts list)
   const renderContas = () => {
+    if (accounts.length === 0) {
+      return (
+        <div className="bg-white rounded-3xl border border-slate-100 p-12 shadow-sm text-center flex flex-col items-center justify-center space-y-4">
+          <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center shadow-inner">
+            <Wallet size={32} />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-lg font-black text-slate-800">Nenhuma conta bancária cadastrada</h3>
+            <p className="text-sm text-slate-400 font-medium">Cadastre contas para realizar e controlar os lançamentos financeiros.</p>
+          </div>
+          <button 
+            onClick={() => {
+              setModalType('account');
+              setIsModalOpen(true);
+            }}
+            className="flex items-center gap-2 bg-slate-900 text-white rounded-xl px-5 py-2.5 text-sm font-bold hover:bg-slate-800 transition-all shadow-md cursor-pointer"
+          >
+            <Plus size={16} /> Adicionar Conta
+          </button>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -1613,7 +1653,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               setModalType('account');
               setIsModalOpen(true);
             }}
-            className="flex items-center gap-1.5 bg-slate-900 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-slate-800 transition-all shadow-sm"
+            className="flex items-center gap-1.5 bg-slate-900 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-slate-800 transition-all shadow-sm cursor-pointer"
           >
             <Plus size={14} /> Adicionar Conta
           </button>
@@ -1651,13 +1691,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 <div className="mt-4 pt-4 border-t border-slate-50 flex items-center justify-end gap-2">
                   <button 
                     onClick={() => handleEditAccountClick(account)}
-                    className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-blue-600 transition-colors px-2.5 py-1.5 bg-slate-50 hover:bg-blue-50 rounded-lg"
+                    className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-blue-600 transition-colors px-2.5 py-1.5 bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
                   >
                     <Pencil size={11} /> Editar
                   </button>
                   <button 
                     onClick={() => handleDeleteAccount(account.id)}
-                    className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-rose-600 transition-colors px-2.5 py-1.5 bg-slate-50 hover:bg-rose-50 rounded-lg"
+                    className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-rose-600 transition-colors px-2.5 py-1.5 bg-slate-50 hover:bg-rose-50 rounded-lg cursor-pointer"
                   >
                     <Trash2 size={11} /> Excluir
                   </button>
@@ -1793,10 +1833,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4 mb-6">
             <div>
-              <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                <RefreshCw size={20} className="text-blue-500 animate-spin" style={{ animationDuration: '6s' }} />
-                Conciliação de Extratos
-              </h2>
               <p className="text-xs text-slate-400 font-medium">Selecione lançamentos para realizar o vínculo ou crie novos em lote.</p>
             </div>
             
@@ -2426,7 +2462,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       case 'financial-fluxo': return 'Visão consolidada e evolução de caixa';
       case 'financial-cartoes': return 'Cartões de crédito corporativos e limites';
       case 'financial-contas': return '';
-      case 'financial-conciliacao': return 'Atribuição e match automático de extratos bancários';
+      case 'financial-conciliacao': return '';
       case 'financial-categorias': return '';
       case 'financial-extrato':
       case 'financial':
@@ -2451,7 +2487,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       {/* Dynamic Subheader matching requested view */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className={`text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2 ${activeView === 'financial-categorias' ? 'select-none' : ''}`}>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2 select-none">
             Financeiro
             <span className="text-blue-600 font-medium text-lg">| {getMainTitleText()}</span>
           </h1>
@@ -2460,7 +2496,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           )}
         </div>
         
-        {activeView !== 'financial-categorias' && (
+        {(activeView === 'financial-extrato' || activeView === 'financial') && (
           <div className="flex items-center gap-2">
             <button 
               onClick={() => {
@@ -2585,15 +2621,45 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Conta Principal*</label>
-                          <select 
-                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
-                            value={newTransaction.account_id}
-                            onChange={(e) => setNewTransaction({...newTransaction, account_id: e.target.value})}
-                          >
-                            <option value="">Selecione...</option>
-                            {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                          </select>
+                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Conta Bancária*</label>
+                          {accounts.length === 0 ? (
+                            <div className="mt-1 p-3 bg-rose-50 border border-rose-100 rounded-xl text-xs text-rose-700 font-semibold space-y-2">
+                              <p>Nenhuma conta cadastrada. Cadastre uma conta antes de lançar.</p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsModalOpen(false);
+                                  setTimeout(() => {
+                                    const btn = Array.from(document.querySelectorAll('button, a')).find(el => 
+                                      el.textContent?.toUpperCase().includes('CONTAS BANCÁRIAS') || 
+                                      el.textContent?.includes('Contas Bancárias')
+                                    );
+                                    if (btn) (btn as HTMLElement).click();
+                                  }, 100);
+                                }}
+                                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
+                              >
+                                Ir para Contas Bancárias
+                              </button>
+                            </div>
+                          ) : (
+                            <select 
+                              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
+                              value={newTransaction.account_id || ''}
+                              required
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setNewTransaction({
+                                  ...newTransaction,
+                                  account_id: val,
+                                  financial_account_id: val
+                                });
+                              }}
+                            >
+                              <option value="">Selecione...</option>
+                              {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                            </select>
+                          )}
                         </div>
                         <div>
                           <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Categoria*</label>

@@ -37,6 +37,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
   
   // Estado para o modal de exclusão
   const [saleToDelete, setSaleToDelete] = useState<string | null>(null);
+  const [detailSale, setDetailSale] = useState<Sale | null>(null);
   
   // Estados para Filtros
   const [period, setPeriod] = useState<string>('all');
@@ -509,7 +510,8 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                         <Edit size={15} />
                       </button>
                       <button 
-                        className="p-2 border border-slate-200/60 hover:bg-slate-50 text-slate-400 hover:text-blue-600 rounded-xl transition-all shadow-sm"
+                        onClick={() => setDetailSale(sale)}
+                        className="p-2 border border-slate-200/60 hover:bg-slate-50 text-slate-400 hover:text-blue-600 rounded-xl transition-all shadow-sm cursor-pointer"
                         title="Informações da Venda"
                       >
                         <Info size={15} />
@@ -580,6 +582,147 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                 editingSale={editingSale}
                 onUpdate={handleUpdateSale}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Detalhes da Venda */}
+      {detailSale && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setDetailSale(null)}
+        >
+          <div
+            className="bg-white w-full max-w-lg rounded-[28px] shadow-2xl overflow-hidden animate-in zoom-in duration-300"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-7 pt-7 pb-4 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Detalhes da Venda</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {detailSale.saleDate
+                    ? new Date(detailSale.saleDate + 'T12:00:00').toLocaleDateString('pt-BR')
+                    : '—'}
+                </p>
+              </div>
+              <button
+                onClick={() => setDetailSale(null)}
+                className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Corpo */}
+            <div className="px-7 py-5 space-y-5 max-h-[70vh] overflow-y-auto">
+
+              {/* Imóvel */}
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Imóvel</p>
+                <p className="text-sm font-semibold text-slate-700">{detailSale.propertyAddress || '—'}</p>
+              </div>
+
+              {/* Comprador / Vendedor */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Comprador</p>
+                  <p className="text-sm text-slate-700">{detailSale.buyerName || '—'}</p>
+                  {(detailSale.buyer_cpf || (detailSale as any).buyerCpf) && (
+                    <p className="text-xs text-slate-400">{detailSale.buyer_cpf || (detailSale as any).buyerCpf}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Vendedor / Construtora</p>
+                  <p className="text-sm text-slate-700">{detailSale.sellerName || '—'}</p>
+                  {(detailSale.seller_cpf || (detailSale as any).sellerCpfCnpj) && (
+                    <p className="text-xs text-slate-400">{detailSale.seller_cpf || (detailSale as any).sellerCpfCnpj}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* VGV / Comissão */}
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 rounded-2xl px-4 py-3">
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">VGV</p>
+                  <p className="text-sm font-bold text-slate-800">
+                    {detailSale.vgv != null
+                      ? detailSale.vgv.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                      : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    Comissão ({detailSale.commissionPercentage ?? '—'}%)
+                  </p>
+                  <p className="text-sm font-bold text-emerald-600">
+                    {detailSale.totalCommissionValue != null
+                      ? detailSale.totalCommissionValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                      : '—'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Rateio de Corretores */}
+              {detailSale.splits && detailSale.splits.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Rateio</p>
+                  <div className="space-y-1.5">
+                    {detailSale.splits.map((split, i) => (
+                      <div key={i} className="flex items-center justify-between text-sm py-1.5 px-3 bg-slate-50 rounded-xl">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold flex items-center justify-center">
+                            {(split.brokerName || '?').charAt(0).toUpperCase()}
+                          </span>
+                          <span className="text-slate-700 font-medium">{split.brokerName || 'Agência'}</span>
+                          <span className="text-[10px] text-slate-400">{split.role || ''}</span>
+                        </div>
+                        <span className="font-semibold text-slate-800">
+                          {split.calculatedValue != null
+                            ? split.calculatedValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                            : (split as any).commissionValue != null
+                              ? (split as any).commissionValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                              : `${split.percentage ?? 0}%`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* NF */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Nota Fiscal</p>
+                  <p className="text-sm text-slate-700">
+                    {detailSale.invoiceIssued
+                      ? `Emitida${detailSale.invoiceNumber ? ` — Nº ${detailSale.invoiceNumber}` : ''}`
+                      : 'Não emitida'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Observações / Notas */}
+              {detailSale.notes && detailSale.notes.trim() !== '' && (
+                <div>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Observações</p>
+                  <p className="text-sm text-slate-600 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 whitespace-pre-wrap">
+                    {detailSale.notes}
+                  </p>
+                </div>
+              )}
+
+            </div>
+
+            {/* Footer */}
+            <div className="px-7 py-5 bg-slate-50 flex justify-end">
+              <button
+                onClick={() => setDetailSale(null)}
+                className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>

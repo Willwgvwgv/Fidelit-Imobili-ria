@@ -36,18 +36,18 @@ const Layout: React.FC<LayoutProps> = ({
   const filteredNavItems = NAV_ITEMS.filter(item => item.roles.includes(currentUser.role));
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans">
+    <div className="flex h-screen bg-gray-50" style={{ fontFamily: 'Inter, sans-serif' }}>
       {/* Sidebar */}
       <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-white border-r border-gray-200 flex flex-col shrink-0 relative z-20 transition-all duration-300 ease-in-out hidden md:flex h-full`}>
         {/* Logo/Header da sidebar */}
         <div className="h-16 flex items-center justify-between px-5 border-b border-gray-200">
           {!isSidebarCollapsed ? (
             <div>
-              <span className="text-base font-bold text-gray-900">comissOne</span>
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider leading-none mt-0.5">Gestão Imobiliária</p>
+              <span className="text-base font-bold text-gray-900 select-none">comissOne</span>
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider leading-none mt-0.5 select-none">Gestão Imobiliária</p>
             </div>
           ) : (
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xs mx-auto">C1</div>
+            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xs mx-auto select-none">C1</div>
           )}
           
           <button 
@@ -59,7 +59,7 @@ const Layout: React.FC<LayoutProps> = ({
           </button>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto custom-scrollbar">
+        <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto custom-scrollbar select-none">
           {filteredNavItems.map((item: any) => {
             const isExpanded = expandedItems.includes(item.id);
             const isActive = activeView === item.id || (item.subItems?.some((sub: any) => sub.id === activeView));
