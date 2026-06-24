@@ -2,6 +2,36 @@
 import { supabase } from '../supabase';
 import { Sale, User, BrokerSplit, CommissionStatus, SplitRole, FinancialAccount, FinancialCategory, FinancialTransaction, TransactionStatus, BrokerEntry } from '../types';
 
+export const mapUiRoleToDbRole = (uiRole: string): string => {
+  if (!uiRole) return 'BROKER';
+  if (['BROKER', 'CAPTURER', 'PARTNER', 'AGENCY', 'MANAGER'].includes(uiRole)) {
+    return uiRole;
+  }
+  switch (uiRole) {
+    case 'Corretor': return 'BROKER';
+    case 'Captador': return 'CAPTURER';
+    case 'Sócio': return 'PARTNER';
+    case 'Agência': return 'AGENCY';
+    case 'Gerente': return 'MANAGER';
+    default: return 'BROKER';
+  }
+};
+
+export const mapDbRoleToUiRole = (dbRole: string): SplitRole => {
+  if (!dbRole) return SplitRole.BROKER;
+  if (Object.values(SplitRole).includes(dbRole as SplitRole)) {
+    return dbRole as SplitRole;
+  }
+  switch (dbRole) {
+    case 'BROKER': return SplitRole.BROKER;
+    case 'CAPTURER': return SplitRole.CAPTURER;
+    case 'PARTNER': return SplitRole.PARTNER;
+    case 'AGENCY': return SplitRole.AGENCY;
+    case 'MANAGER': return SplitRole.MANAGER;
+    default: return SplitRole.BROKER;
+  }
+};
+
 export const supabaseService = {
   // Fetch all users
   async getUsers(): Promise<User[]> {
@@ -67,7 +97,7 @@ export const supabaseService = {
         percentage: split.percentage,
         calculatedValue: split.calculated_value,
         status: split.status as CommissionStatus,
-        role: split.role as SplitRole,
+        role: mapDbRoleToUiRole(split.role),
         paymentDate: split.payment_date,
         paymentMethod: split.payment_method,
         forecastDate: split.forecast_date,
@@ -121,7 +151,7 @@ export const supabaseService = {
       percentage: split.percentage,
       calculated_value: split.calculatedValue,
       status: split.status,
-      role: split.role,
+      role: mapUiRoleToDbRole(split.role || ''),
       payment_date: split.paymentDate,
       payment_method: split.paymentMethod,
       forecast_date: split.forecastDate,
@@ -191,14 +221,16 @@ export const supabaseService = {
     // Map incoming splits by the composite key: brokerId + role + installment_number
     const incomingMap = new Map<string, Omit<BrokerSplit, 'id' | 'sale_id'>>();
     splits.forEach(s => {
-      const key = `${s.brokerId || ''}::${s.role || ''}::${s.installment_number ?? 1}`;
+      const dbRole = mapUiRoleToDbRole(s.role || '');
+      const key = `${s.brokerId || ''}::${dbRole}::${s.installment_number ?? 1}`;
       incomingMap.set(key, s);
     });
 
     // Map existing splits by the same composite key
     const existingMap = new Map<string, any>();
     existingSplits.forEach(s => {
-      const key = `${s.broker_id || ''}::${s.role || ''}::${s.installment_number ?? 1}`;
+      const dbRole = mapUiRoleToDbRole(s.role || '');
+      const key = `${s.broker_id || ''}::${dbRole}::${s.installment_number ?? 1}`;
       existingMap.set(key, s);
     });
 
@@ -213,7 +245,8 @@ export const supabaseService = {
     // 1. Identify splits to be deleted (removed from editor, and they do NOT have payment history)
     const idsToDelete = existingSplits
       .filter(s => {
-        const key = `${s.broker_id || ''}::${s.role || ''}::${s.installment_number ?? 1}`;
+        const dbRole = mapUiRoleToDbRole(s.role || '');
+        const key = `${s.broker_id || ''}::${dbRole}::${s.installment_number ?? 1}`;
         const hasIncomingMatch = incomingMap.has(key);
         const hasPayment = isPaidOrHasPayment(s);
         return !hasIncomingMatch && !hasPayment;
@@ -235,7 +268,8 @@ export const supabaseService = {
     // 2. Insert new incoming splits (key does not exist in db)
     const splitsToInsert = splits
       .filter(incoming => {
-        const key = `${incoming.brokerId || ''}::${incoming.role || ''}::${incoming.installment_number ?? 1}`;
+        const dbRole = mapUiRoleToDbRole(incoming.role || '');
+        const key = `${incoming.brokerId || ''}::${dbRole}::${incoming.installment_number ?? 1}`;
         return !existingMap.has(key);
       })
       .map(incoming => ({
@@ -245,7 +279,7 @@ export const supabaseService = {
         percentage: incoming.percentage,
         calculated_value: incoming.calculatedValue,
         status: incoming.status || 'PENDING',
-        role: incoming.role,
+        role: mapUiRoleToDbRole(incoming.role || ''),
         payment_date: incoming.paymentDate || null,
         payment_method: incoming.paymentMethod || null,
         forecast_date: incoming.forecastDate || null,
@@ -262,14 +296,21 @@ export const supabaseService = {
         .insert(splitsToInsert);
 
       if (insertError) {
-        console.error('Error inserting new splits:', insertError);
+        console.error('Error inserting new splits:', JSON.stringify(insertError, null, 2));
+        console.error('Insert error details:', {
+          message: insertError.message,
+          details: insertError.details,
+          hint: insertError.hint,
+          code: insertError.code
+        });
         return false;
       }
     }
 
     // 3. Update existing matched splits (preserving payment history if existing has it)
     for (const existing of existingSplits) {
-      const key = `${existing.broker_id || ''}::${existing.role || ''}::${existing.installment_number ?? 1}`;
+      const dbRole = mapUiRoleToDbRole(existing.role || '');
+      const key = `${existing.broker_id || ''}::${dbRole}::${existing.installment_number ?? 1}`;
       const incoming = incomingMap.get(key);
 
       if (incoming) {
