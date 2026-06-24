@@ -547,20 +547,41 @@ export const SaleForm: React.FC<SaleFormProps> = ({
     };
 
     // Construct final splits with calculated values
-    const finalSplits: Omit<BrokerSplit, 'id' | 'sale_id'>[] = tempSplits.map(s => {
-      const calculatedValue = Math.round(((totalCommission * s.percentage) / 100 + Number.EPSILON) * 100) / 100;
-      return {
-        brokerId: s.brokerId,
-        brokerName: s.brokerName,
-        percentage: s.percentage,
-        calculatedValue,
-        status: CommissionStatus.PENDING,
-        role: s.role,
-        forecastDate: isInstallment ? firstDueDate : saleDate,
-        installment_number: 1,
-        total_installments: isInstallment ? installmentCount : 1
-      };
-    });
+    let finalSplits: Omit<BrokerSplit, 'id' | 'sale_id'>[] = [];
+
+    if (isInstallment && installmentsList.length > 0) {
+      installmentsList.forEach(parcela => {
+        tempSplits.forEach(s => {
+          const calculatedValue = Math.round(((parcela.value * s.percentage) / 100 + Number.EPSILON) * 100) / 100;
+          finalSplits.push({
+            brokerId: s.brokerId,
+            brokerName: s.brokerName,
+            percentage: s.percentage,
+            calculatedValue,
+            status: CommissionStatus.PENDING,
+            role: s.role,
+            forecastDate: parcela.due_date,
+            installment_number: parcela.installment_number,
+            total_installments: installmentCount
+          });
+        });
+      });
+    } else {
+      finalSplits = tempSplits.map(s => {
+        const calculatedValue = Math.round(((totalCommission * s.percentage) / 100 + Number.EPSILON) * 100) / 100;
+        return {
+          brokerId: s.brokerId,
+          brokerName: s.brokerName,
+          percentage: s.percentage,
+          calculatedValue,
+          status: CommissionStatus.PENDING,
+          role: s.role,
+          forecastDate: saleDate,
+          installment_number: 1,
+          total_installments: 1
+        };
+      });
+    }
 
     if (editingSale && onUpdate) {
       onUpdate(editingSale.id, saleData, finalSplits);
