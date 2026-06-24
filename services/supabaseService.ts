@@ -146,7 +146,7 @@ export const supabaseService = {
 
     const splitsToInsert = splits.map(split => ({
       sale_id: saleId,
-      broker_id: split.brokerId,
+      broker_id: (split.brokerId === 'AGENCY' || !split.brokerId) ? null : split.brokerId,
       broker_name: split.brokerName,
       percentage: split.percentage,
       calculated_value: split.calculatedValue,
@@ -222,7 +222,8 @@ export const supabaseService = {
     const incomingMap = new Map<string, Omit<BrokerSplit, 'id' | 'sale_id'>>();
     splits.forEach(s => {
       const dbRole = mapUiRoleToDbRole(s.role || '');
-      const key = `${s.brokerId || ''}::${dbRole}::${s.installment_number ?? 1}`;
+      const incomingBrokerId = (s.brokerId === 'AGENCY' || !s.brokerId) ? '' : s.brokerId;
+      const key = `${incomingBrokerId}::${dbRole}::${s.installment_number ?? 1}`;
       incomingMap.set(key, s);
     });
 
@@ -269,12 +270,13 @@ export const supabaseService = {
     const splitsToInsert = splits
       .filter(incoming => {
         const dbRole = mapUiRoleToDbRole(incoming.role || '');
-        const key = `${incoming.brokerId || ''}::${dbRole}::${incoming.installment_number ?? 1}`;
+        const incomingBrokerId = (incoming.brokerId === 'AGENCY' || !incoming.brokerId) ? '' : incoming.brokerId;
+        const key = `${incomingBrokerId}::${dbRole}::${incoming.installment_number ?? 1}`;
         return !existingMap.has(key);
       })
       .map(incoming => ({
         sale_id: saleId,
-        broker_id: incoming.brokerId,
+        broker_id: (incoming.brokerId === 'AGENCY' || !incoming.brokerId) ? null : incoming.brokerId,
         broker_name: incoming.brokerName,
         percentage: incoming.percentage,
         calculated_value: incoming.calculatedValue,
@@ -317,6 +319,7 @@ export const supabaseService = {
         const hasPayment = isPaidOrHasPayment(existing);
 
         const updatedFields = {
+          broker_id: (incoming.brokerId === 'AGENCY' || !incoming.brokerId) ? null : incoming.brokerId,
           broker_name: incoming.brokerName,
           percentage: incoming.percentage,
           calculated_value: incoming.calculatedValue,
