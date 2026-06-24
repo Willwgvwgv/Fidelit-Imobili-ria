@@ -33,6 +33,34 @@ interface TempSplit {
   role: SplitRole;
 }
 
+// Robust Brazilian Real format to float number converter
+const parseBrlValue = (valueStr: string): number => {
+  if (!valueStr) return 0;
+  let clean = valueStr.replace(/[R$\s]/gi, '');
+  if (!clean) return 0;
+  
+  // If there is a comma, it is the decimal separator (BRL standard)
+  if (clean.includes(',')) {
+    clean = clean.replace(/\./g, '').replace(',', '.');
+  } else {
+    // No comma. If there is a dot:
+    // A single dot followed by exactly 3 digits is assumed to be a thousands separator (e.g., "1.500" -> 1500, but "1500.50" -> 1500.50)
+    // Multiple dots (e.g. "1.500.000") are also treated as thousands separators and removed.
+    const dotCount = (clean.match(/\./g) || []).length;
+    if (dotCount > 1) {
+      clean = clean.replace(/\./g, '');
+    } else if (dotCount === 1) {
+      const parts = clean.split('.');
+      if (parts[1].length === 3) {
+        clean = clean.replace(/\./g, '');
+      }
+    }
+  }
+  
+  const parsed = parseFloat(clean);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
 export const SaleForm: React.FC<SaleFormProps> = ({
   agencyId,
   team,
@@ -54,6 +82,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
 
   // Values
   const [vgv, setVgv] = useState<number>(0);
+  const [vgvInputStr, setVgvInputStr] = useState<string>('');
   const [commissionPercentage, setCommissionPercentage] = useState<number>(6);
 
   // Installment
@@ -76,6 +105,11 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       sellerSetName(editingSale.sellerName || '');
       setSellerCpf(editingSale.seller_cpf || '');
       setVgv(editingSale.vgv || 0);
+      if (editingSale.vgv) {
+        setVgvInputStr(editingSale.vgv.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      } else {
+        setVgvInputStr('');
+      }
       setCommissionPercentage(editingSale.commissionPercentage || 6);
       setIsInstallment(editingSale.is_installment || false);
       
@@ -248,6 +282,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
     sellerSetName('');
     setSellerCpf('');
     setVgv(0);
+    setVgvInputStr('');
     setCommissionPercentage(6);
     setIsInstallment(false);
     setInstallmentCount(1);
@@ -525,10 +560,25 @@ export const SaleForm: React.FC<SaleFormProps> = ({
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">R$</span>
                 <input
-                  type="number"
+                  type="text"
                   placeholder="0,00"
-                  value={vgv === 0 ? '' : vgv}
-                  onChange={(e) => setVgv(Number(e.target.value))}
+                  value={vgvInputStr}
+                  onChange={(e) => {
+                    const rawVal = e.target.value;
+                    setVgvInputStr(rawVal);
+                    const parsed = parseBrlValue(rawVal);
+                    setVgv(parsed);
+                  }}
+                  onBlur={() => {
+                    const parsed = parseBrlValue(vgvInputStr);
+                    if (parsed > 0) {
+                      setVgv(parsed);
+                      setVgvInputStr(parsed.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                    } else {
+                      setVgv(0);
+                      setVgvInputStr('');
+                    }
+                  }}
                   className="w-full pl-9 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-bold text-slate-800 shadow-sm"
                 />
               </div>
