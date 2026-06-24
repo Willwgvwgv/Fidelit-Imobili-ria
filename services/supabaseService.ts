@@ -151,14 +151,14 @@ export const supabaseService = {
       percentage: split.percentage,
       calculated_value: split.calculatedValue,
       status: split.status,
-      role: mapUiRoleToDbRole(split.role || ''),
       payment_date: split.paymentDate,
       payment_method: split.paymentMethod,
       forecast_date: split.forecastDate,
       receipt_data: split.receiptData,
       installment_number: split.installment_number,
       total_installments: split.total_installments,
-      notes: split.notes,
+      role: mapUiRoleToDbRole(split.role || ''),
+      notes: split.notes || null,
       discount_value: split.discount_value
     }));
 
@@ -279,14 +279,14 @@ export const supabaseService = {
         percentage: incoming.percentage,
         calculated_value: incoming.calculatedValue,
         status: incoming.status || 'PENDING',
-        role: mapUiRoleToDbRole(incoming.role || ''),
         payment_date: incoming.paymentDate || null,
         payment_method: incoming.paymentMethod || null,
         forecast_date: incoming.forecastDate || null,
         receipt_data: incoming.receiptData || null,
         installment_number: incoming.installment_number || 1,
         total_installments: incoming.total_installments,
-        notes: incoming.notes,
+        role: mapUiRoleToDbRole(incoming.role || ''),
+        notes: incoming.notes || null,
         discount_value: incoming.discount_value
       }));
 
@@ -322,7 +322,8 @@ export const supabaseService = {
           calculated_value: incoming.calculatedValue,
           total_installments: incoming.total_installments,
           forecast_date: incoming.forecastDate || null,
-          notes: incoming.notes,
+          role: mapUiRoleToDbRole(incoming.role || ''),
+          notes: incoming.notes || null,
           discount_value: incoming.discount_value,
           status: hasPayment ? existing.status : (incoming.status || 'PENDING'),
           payment_date: hasPayment ? existing.payment_date : (incoming.paymentDate || null),
