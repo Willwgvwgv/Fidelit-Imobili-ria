@@ -397,8 +397,13 @@ export const supabaseService = {
   async updateTransactionStatus(transactionId: string, status: TransactionStatus, paymentDate?: string): Promise<boolean> {
     if (!supabase) return false;
     const updateData: any = { status };
-    if (paymentDate) updateData.payment_date = paymentDate;
-    if (status === TransactionStatus.PAID && !paymentDate) updateData.payment_date = new Date().toISOString();
+    if (paymentDate) {
+      updateData.payment_date = paymentDate;
+    } else if (status === TransactionStatus.PAID) {
+      updateData.payment_date = new Date().toISOString().split('T')[0];
+    } else if (status === TransactionStatus.PENDING) {
+      updateData.payment_date = null;
+    }
 
     const { error } = await supabase.from('financial_transactions').update(updateData).eq('id', transactionId);
     if (error) {

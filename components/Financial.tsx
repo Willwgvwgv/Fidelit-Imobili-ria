@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Wallet, 
   ArrowUpRight, 
@@ -53,6 +53,69 @@ interface FinancialProps {
   currentUser: User;
   activeView?: string;
 }
+
+// Robust Brazilian Real format to float number converter
+const parseBrlValue = (valueStr: string): number => {
+  if (!valueStr) return 0;
+  let clean = valueStr.replace(/[R$\s]/gi, '');
+  if (!clean) return 0;
+  
+  // If there is a comma, it is the decimal separator (BRL standard)
+  if (clean.includes(',')) {
+    clean = clean.replace(/\./g, '').replace(',', '.');
+  } else {
+    // No comma. If there is a dot:
+    // A single dot followed by exactly 3 digits is assumed to be a thousands separator (e.g., "1.500" -> 1500, but "1500.50" -> 1500.50)
+    // Multiple dots (e.g. "1.500.000") are also treated as thousands separators and removed.
+    const dotCount = (clean.match(/\./g) || []).length;
+    if (dotCount > 1) {
+      clean = clean.replace(/\./g, '');
+    } else if (dotCount === 1) {
+      const parts = clean.split('.');
+      if (parts[1].length === 3) {
+        clean = clean.replace(/\./g, '');
+      }
+    }
+  }
+  
+  const parsed = parseFloat(clean);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
+// Precise date incrementer for recurrences avoiding date-boundary errors and month hopping
+const addPeriodToDate = (dateStr: string, type: 'WEEKLY' | 'MONTHLY' | 'YEARLY', index: number): string => {
+  if (!dateStr) return dateStr;
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1; // 0-indexed month
+  const day = parseInt(parts[2], 10);
+  
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return dateStr;
+
+  if (type === 'WEEKLY') {
+    const d = new Date(year, month, day, 12, 0, 0);
+    d.setDate(d.getDate() + 7 * index);
+    return d.toISOString().split('T')[0];
+  } else if (type === 'MONTHLY') {
+    const targetMonth = month + index;
+    // Get max days in target month
+    const testDate = new Date(year, targetMonth, 1, 12, 0, 0);
+    const maxDays = new Date(testDate.getFullYear(), testDate.getMonth() + 1, 0).getDate();
+    const targetDay = Math.min(day, maxDays);
+    const resultDate = new Date(testDate.getFullYear(), testDate.getMonth(), targetDay, 12, 0, 0);
+    return resultDate.toISOString().split('T')[0];
+  } else if (type === 'YEARLY') {
+    const targetYear = year + index;
+    // Handle leap years (e.g. Feb 29 -> Feb 28)
+    const maxDays = new Date(targetYear, month + 1, 0).getDate();
+    const targetDay = Math.min(day, maxDays);
+    const resultDate = new Date(targetYear, month, targetDay, 12, 0, 0);
+    return resultDate.toISOString().split('T')[0];
+  }
+  return dateStr;
+};
 
 // Visual color choices for gradients
 const CARD_GRADIENTS = [
@@ -149,11 +212,22 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [selectedTxIds, setSelectedTxIds] = useState<string[]>([]);
   const [editingTransaction, setEditingTransaction] = useState<FinancialTransaction | null>(null);
 
+  // New states for form formatting, recurrence, and payment
+  const [amountInputStr, setAmountInputStr] = useState<string>('');
+  const [recurrenceType, setRecurrenceType] = useState<'NONE' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'>('NONE');
+  const [recurrencePeriods, setRecurrencePeriods] = useState<number>(1);
+  const [markAsPaid, setMarkAsPaid] = useState<boolean>(false);
+  const monthInputRef = useRef<HTMLInputElement>(null);
+
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingAccount(null);
     setEditingCategory(null);
     setEditingTransaction(null);
+    setAmountInputStr('');
+    setRecurrenceType('NONE');
+    setRecurrencePeriods(1);
+    setMarkAsPaid(false);
     setNewAccount({
       name: '',
       initial_balance: 0,
@@ -168,6 +242,29 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       color: '#f43f5e',
       group_name: ''
     });
+  };
+
+  useEffect(() => {
+    if (isModalOpen && modalType === 'transaction') {
+      if (editingTransaction) {
+        setAmountInputStr(editingTransaction.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+        setMarkAsPaid(editingTransaction.status === TransactionStatus.PAID);
+      } else {
+        setAmountInputStr('');
+        setMarkAsPaid(false);
+      }
+    }
+  }, [isModalOpen, editingTransaction, modalType]);
+
+  const handleAmountBlur = () => {
+    const parsed = parseBrlValue(amountInputStr);
+    if (parsed > 0) {
+      setNewTransaction(prev => ({ ...prev, amount: parsed }));
+      setAmountInputStr(parsed.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    } else {
+      setNewTransaction(prev => ({ ...prev, amount: 0 }));
+      setAmountInputStr('');
+    }
   };
 
   const handleEditAccountClick = (account: FinancialAccount) => {
@@ -437,21 +534,54 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       loadFinancialData();
     } else {
       // update state locally for robust presentation even if network delays
-      setTransactions(prev => prev.map(t => t.id === tx.id ? { ...t, status: newStatus, payment_date: newStatus === TransactionStatus.PAID ? new Date().toISOString() : undefined } : t));
+      setTransactions(prev => prev.map(t => t.id === tx.id ? { ...t, status: newStatus, payment_date: newStatus === TransactionStatus.PAID ? new Date().toISOString().split('T')[0] : null as any } : t));
     }
   };
 
   // Submit handlings
   const handleCreateTransaction = async () => {
-    if (!newTransaction.description || !newTransaction.amount || !newTransaction.account_id) {
+    // 1. Centralized BRL currency parser and validation
+    const parsedAmount = parseBrlValue(amountInputStr);
+    
+    if (parsedAmount <= 0) {
+      alert('Por favor, insira um valor válido maior que zero (ex: 100,50 ou 1.500,00).');
+      return;
+    }
+
+    if (!newTransaction.description || !newTransaction.account_id) {
       alert('Por favor, preencha todos os campos obrigatórios.');
       return;
     }
+
+    // 2. Map payload properties, converting empty UUID values to null
     const payload = {
       ...newTransaction,
-      amount: Number(newTransaction.amount),
-      agency_id: currentUser.agencyId
+      amount: parsedAmount,
+      agency_id: currentUser.agencyId,
+      account_id: !newTransaction.account_id || newTransaction.account_id === '' ? null : newTransaction.account_id,
+      category_id: !newTransaction.category_id || newTransaction.category_id === '' ? null : newTransaction.category_id,
+      // 3. Robust "Marcar como Pago/Recebido" mapping
+      status: markAsPaid ? TransactionStatus.PAID : TransactionStatus.PENDING,
+      payment_date: markAsPaid ? (newTransaction.payment_date || new Date().toISOString().split('T')[0]) : null
     } as any;
+
+    // Validate due_date is present
+    if (!payload.due_date) {
+      payload.due_date = new Date().toISOString().split('T')[0];
+    }
+
+    // 4. Generate recurrences using the precise monthly/yearly helper
+    const copiesToCreate: any[] = [];
+    if (recurrenceType !== 'NONE' && recurrencePeriods > 0 && !editingTransaction) {
+      for (let i = 1; i <= recurrencePeriods; i++) {
+        const nextDueDate = addPeriodToDate(payload.due_date, recurrenceType, i);
+        copiesToCreate.push({
+          ...payload,
+          due_date: nextDueDate,
+          description: `${payload.description} (Cópia ${i})`
+        });
+      }
+    }
 
     if (editingTransaction) {
       if (supabase) {
@@ -475,19 +605,74 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         setEditingTransaction(null);
       }
     } else {
-      const result = await supabaseService.createFinancialTransaction(payload);
-      if (result) {
-        setIsModalOpen(false);
-        loadFinancialData();
+      // Insertion of new transactions or recurring batches
+      if (supabase) {
+        if (copiesToCreate.length > 0) {
+          // Batch insertion returning created rows to prevent manual reload
+          const { data, error } = await supabase
+            .from('financial_transactions')
+            .insert([payload, ...copiesToCreate])
+            .select();
+          
+          if (error) {
+            console.error('Error creating recurring transactions:', error);
+            alert('Erro ao criar lançamentos recorrentes: ' + error.message);
+          } else {
+            if (data && data.length > 0) {
+              setTransactions(prev => [...data, ...prev]);
+            }
+            setIsModalOpen(false);
+            loadFinancialData(); // Background refresh to update accounts/balances
+          }
+        } else {
+          // Single insertion
+          const { data, error } = await supabase
+            .from('financial_transactions')
+            .insert([payload])
+            .select();
+          
+          if (error) {
+            console.error('Error creating transaction:', error);
+            alert('Erro ao criar lançamento: ' + error.message);
+          } else {
+            if (data && data.length > 0) {
+              setTransactions(prev => [data[0], ...prev]);
+            }
+            setIsModalOpen(false);
+            loadFinancialData(); // Background refresh to update accounts/balances
+          }
+        }
       } else {
-        // local fallback update
-        const mockResult: FinancialTransaction = {
-          id: 'tx-local-' + Math.random().toString(36).substr(2, 9),
-          created_at: new Date().toISOString(),
-          ...payload
-        };
-        setTransactions(prev => [mockResult, ...prev]);
-        setIsModalOpen(false);
+        // Fallback local or services without direct supabase access
+        const result = await supabaseService.createFinancialTransaction(payload);
+        if (result) {
+          if (copiesToCreate.length > 0) {
+            const mockCopies = copiesToCreate.map((c, i) => ({
+              id: 'tx-local-rec-' + i + '-' + Math.random().toString(36).substr(2, 9),
+              created_at: new Date().toISOString(),
+              ...c
+            }));
+            setTransactions(prev => [result, ...mockCopies, ...prev]);
+          } else {
+            setTransactions(prev => [result, ...prev]);
+          }
+          setIsModalOpen(false);
+          loadFinancialData();
+        } else {
+          // Entirely local fallback
+          const mockResult: FinancialTransaction = {
+            id: 'tx-local-' + Math.random().toString(36).substr(2, 9),
+            created_at: new Date().toISOString(),
+            ...payload
+          };
+          const mockCopies = copiesToCreate.map((c, i) => ({
+            id: 'tx-local-rec-' + i + '-' + Math.random().toString(36).substr(2, 9),
+            created_at: new Date().toISOString(),
+            ...c
+          }));
+          setTransactions(prev => [mockResult, ...mockCopies, ...prev]);
+          setIsModalOpen(false);
+        }
       }
     }
   };
@@ -983,7 +1168,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <ChevronLeft size={16} />
                 </button>
                 
-                <label className="text-xs font-black uppercase tracking-wider text-slate-800 px-2 min-w-[120px] text-center cursor-pointer hover:bg-slate-200/60 py-1 rounded-lg transition-colors relative flex items-center justify-center">
+                <div 
+                  onClick={() => {
+                    monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
+                  }}
+                  className="text-xs font-black uppercase tracking-wider text-slate-800 px-2 min-w-[120px] text-center cursor-pointer hover:bg-slate-200/60 py-1 rounded-lg transition-colors relative flex items-center justify-center"
+                >
                   {(() => {
                     const monthNames = [
                       'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -992,6 +1182,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     return `${monthNames[currentPeriod.getMonth()]} de ${currentPeriod.getFullYear()}`;
                   })()}
                   <input 
+                    ref={monthInputRef}
                     type="month" 
                     className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                     value={`${currentPeriod.getFullYear()}-${String(currentPeriod.getMonth() + 1).padStart(2, '0')}`}
@@ -1002,7 +1193,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       }
                     }}
                   />
-                </label>
+                </div>
                 
                 <button 
                   onClick={() => {
@@ -1042,19 +1233,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           {categories.map(cat => (
                             <option key={cat.id} value={cat.id}>{cat.name}</option>
                           ))}
-                        </select>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Tipo</label>
-                        <select 
-                          value={typeFilter}
-                          onChange={(e) => setTypeFilter(e.target.value as 'ALL' | TransactionType)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none cursor-pointer"
-                        >
-                          <option value="ALL">Todos os Tipos</option>
-                          <option value={TransactionType.INCOME}>Receitas</option>
-                          <option value={TransactionType.EXPENSE}>Despesas</option>
                         </select>
                       </div>
                     </div>
@@ -1171,7 +1349,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${
                           isPaid ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-amber-50 text-amber-600 border border-amber-100'
                         }`}>
-                          {isPaid ? 'Liquidado' : 'Aberto'}
+                          {isPaid ? 'Liquidado' : 'Pendente'}
                         </span>
                       </td>
                       <td className="px-6 py-5">
@@ -2362,14 +2540,36 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           onChange={(e) => setNewTransaction({...newTransaction, description: e.target.value})}
                         />
                       </div>
+                      <div>
+                        <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Tipo*</label>
+                        <select 
+                          className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
+                          value={newTransaction.type}
+                          onChange={(e) => {
+                            const selectedType = e.target.value as TransactionType;
+                            setNewTransaction({
+                              ...newTransaction, 
+                              type: selectedType,
+                              category_id: '' // Clear category when type changes
+                            });
+                          }}
+                        >
+                          <option value={TransactionType.INCOME}>Receita</option>
+                          <option value={TransactionType.EXPENSE}>Despesa</option>
+                        </select>
+                      </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Valor (R$)*</label>
                           <input 
-                            type="number" placeholder="0.00" 
-                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold text-slate-805"
-                            value={newTransaction.amount || ''} 
-                            onChange={(e) => setNewTransaction({...newTransaction, amount: Number(e.target.value)})}
+                            type="text" placeholder="0,00" 
+                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold text-slate-800"
+                            value={amountInputStr} 
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setAmountInputStr(val);
+                            }}
+                            onBlur={handleAmountBlur}
                           />
                         </div>
                         <div>
@@ -2409,6 +2609,79 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           </select>
                         </div>
                       </div>
+
+                      {/* Recorrência */}
+                      {!editingTransaction && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Recorrência</label>
+                            <select 
+                              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
+                              value={recurrenceType}
+                              onChange={(e) => setRecurrenceType(e.target.value as any)}
+                            >
+                              <option value="NONE">Não repetir</option>
+                              <option value="WEEKLY">Semanal</option>
+                              <option value="MONTHLY">Mensal</option>
+                              <option value="YEARLY">Anual</option>
+                            </select>
+                          </div>
+                          {recurrenceType !== 'NONE' && (
+                            <div>
+                              <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Repetir por X períodos</label>
+                              <input 
+                                type="number" 
+                                min={1}
+                                max={60}
+                                className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-800"
+                                value={recurrencePeriods}
+                                onChange={(e) => setRecurrencePeriods(Math.max(1, Number(e.target.value)))}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-2 py-2">
+                        <input 
+                          type="checkbox" 
+                          id="markAsPaid"
+                          className="rounded text-blue-600 focus:ring-blue-400 cursor-pointer w-4 h-4"
+                          checked={markAsPaid}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setMarkAsPaid(checked);
+                            if (checked) {
+                              setNewTransaction(prev => ({
+                                ...prev,
+                                status: TransactionStatus.PAID,
+                                payment_date: prev.payment_date || new Date().toISOString().split('T')[0]
+                              }));
+                            } else {
+                              setNewTransaction(prev => ({
+                                ...prev,
+                                status: TransactionStatus.PENDING,
+                                payment_date: undefined
+                              }));
+                            }
+                          }}
+                        />
+                        <label htmlFor="markAsPaid" className="text-xs font-bold text-slate-700 cursor-pointer select-none">
+                          {newTransaction.type === TransactionType.INCOME ? 'Marcar como Recebido' : 'Marcar como Pago'}
+                        </label>
+                      </div>
+
+                      {markAsPaid && (
+                        <div>
+                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Data do Pagamento*</label>
+                          <input 
+                            type="date" 
+                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
+                            value={newTransaction.payment_date || new Date().toISOString().split('T')[0]} 
+                            onChange={(e) => setNewTransaction({...newTransaction, payment_date: e.target.value})}
+                          />
+                        </div>
+                      )}
 
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Anotações Adicionais</label>
