@@ -159,12 +159,21 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       }
 
       if (editingSale.splits) {
-        const mappedSplits = editingSale.splits.map(split => ({
-          brokerId: split.brokerId,
-          brokerName: split.brokerName,
-          percentage: split.percentage,
-          role: split.role || SplitRole.BROKER
-        }));
+        // Deduplicar por brokerId — venda parcelada tem um split por parcela por corretor
+        const seen = new Set<string>();
+        const mappedSplits = editingSale.splits
+          .filter(split => {
+            const key = split.brokerId || split.brokerName;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .map(split => ({
+            brokerId: split.brokerId,
+            brokerName: split.brokerName,
+            percentage: split.percentage,
+            role: split.role || SplitRole.BROKER
+          }));
         setTempSplits(mappedSplits);
       }
       setHasLoadedEditingSale(true);
