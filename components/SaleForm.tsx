@@ -163,7 +163,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
         const seen = new Set<string>();
         const mappedSplits = editingSale.splits
           .filter(split => {
-            const key = split.brokerId || split.brokerName;
+            const key = `${split.brokerName}|${split.role || ''}`;
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
