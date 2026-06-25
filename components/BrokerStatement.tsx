@@ -124,7 +124,15 @@ const BrokerStatement: React.FC<BrokerStatementProps> = ({ broker, agencyId, com
             {broker.name.charAt(0).toUpperCase()}
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-slate-800 leading-none">{broker.name}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-slate-800 leading-none">{broker.name}</h3>
+              {!loading && stats.balance > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.balance)} a receber
+                </span>
+              )}
+            </div>
             <p className="text-xs text-slate-400 mt-1">Extrato de conta corrente</p>
           </div>
         </div>
