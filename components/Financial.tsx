@@ -1680,51 +1680,70 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               .reduce((acc, curr) => acc + (curr.type === TransactionType.INCOME ? curr.amount : -curr.amount), 0);
             
             const liveBalance = account.initial_balance + sumTransactions;
-            const bank = getAccountBank(account);
-            const circleColor = bank ? bank.color : (account.color || '#3b82f6');
+            const bank = BANKS.find(b => b.code === (account as any).bank_code);
+            const initials = bank ? bank.initials : 'BC';
+            const bankName = bank ? bank.name : 'Banco';
+            const bankColor = bank ? bank.color : '#64748b';
 
             return (
-              <div key={account.id} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm flex flex-col justify-between">
+              <div key={account.id} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
                 <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="w-3 h-3 rounded-full" style={{ backgroundColor: circleColor }} />
-                    <span className="px-2 py-0.5 rounded bg-slate-50 border border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                      {account.is_default ? 'Principal' : (account.type?.toUpperCase() === 'CREDIT_CARD' || account.type === 'credit_card' ? 'Cartão de Crédito' : account.type || 'Conta')}
+                  {/* 1. Cabeçalho */}
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-50 mb-4">
+                    <div className="flex items-center gap-2.5">
+                      <div 
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-sm shrink-0"
+                        style={{ backgroundColor: bankColor }}
+                      >
+                        {initials}
+                      </div>
+                      <span className="text-xs font-extrabold text-slate-700 tracking-tight">
+                        {bankName}
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full bg-slate-50 border border-slate-100 text-[9px] font-extrabold uppercase text-slate-400 tracking-wider">
+                      {account.is_default ? 'Principal' : (account.type?.toUpperCase() === 'CREDIT_CARD' || account.type === 'credit_card' ? 'Cartão' : account.type || 'Conta')}
                     </span>
                   </div>
-                  {bank && (
-                    <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-slate-500 mb-1 uppercase tracking-wider">
-                      <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-black">
-                        {bank.initials}
-                      </span>
-                      <span>{bank.name}</span>
-                    </div>
-                  )}
-                  <h4 className="text-base font-black text-slate-800">{account.name}</h4>
-                </div>
 
-                <div className="mt-6 flex items-end justify-between">
-                  <div>
-                    <p className="text-2xl font-black text-slate-900">{formatCurrency(liveBalance)}</p>
+                  {/* 2. Nome da conta */}
+                  <div className="mb-4">
+                    <h4 className="text-base font-black text-slate-800 leading-tight">{account.name}</h4>
                   </div>
-                  <span className="flex items-center gap-1 text-[10px] font-black text-emerald-600 uppercase tracking-widest bg-emerald-50 px-2 py-1 rounded border border-emerald-100">
-                    <Check size={10} /> Conciliada
-                  </span>
                 </div>
 
-                <div className="mt-4 pt-4 border-t border-slate-50 flex items-center justify-end gap-2">
-                  <button 
-                    onClick={() => handleEditAccountClick(account)}
-                    className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-blue-600 transition-colors px-2.5 py-1.5 bg-slate-50 hover:bg-blue-50 rounded-lg cursor-pointer"
-                  >
-                    <Pencil size={11} /> Editar
-                  </button>
-                  <button 
-                    onClick={() => handleDeleteAccount(account.id)}
-                    className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-rose-600 transition-colors px-2.5 py-1.5 bg-slate-50 hover:bg-rose-50 rounded-lg cursor-pointer"
-                  >
-                    <Trash2 size={11} /> Excluir
-                  </button>
+                <div>
+                  {/* 3. Saldo */}
+                  <div className="bg-slate-50/50 rounded-xl p-3 border border-slate-100/50 mb-4">
+                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">
+                      Saldo da Conta
+                    </span>
+                    <p className="text-xl font-black text-slate-900 mt-0.5">{formatCurrency(liveBalance)}</p>
+                  </div>
+
+                  {/* 4. Rodapé */}
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <span className="flex items-center gap-1 text-[9px] font-extrabold text-emerald-600 uppercase tracking-wider bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100/80">
+                      <Check size={10} /> Conciliada
+                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      <button 
+                        onClick={() => handleEditAccountClick(account)}
+                        className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors p-1.5 rounded-lg cursor-pointer"
+                        title="Editar Conta"
+                      >
+                        <Pencil size={11} /> <span className="sr-only sm:not-sr-only">Editar</span>
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteAccount(account.id)}
+                        className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors p-1.5 rounded-lg cursor-pointer"
+                        title="Excluir Conta"
+                      >
+                        <Trash2 size={11} /> <span className="sr-only sm:not-sr-only">Excluir</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             );
