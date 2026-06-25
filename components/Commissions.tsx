@@ -51,6 +51,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
 
   const [statementBroker, setStatementBroker] = useState<User | null>(null);
+  const [openStatusMenu, setOpenStatusMenu] = useState<string | null>(null);
 
   const isAdmin = currentUser.role === UserRole.ADMIN;
 
@@ -164,15 +165,108 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
   };
 
-  const getStatusBadge = (status: CommissionStatus) => {
-    switch (status) {
-      case CommissionStatus.PAID:
-        return <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-emerald-100"><CheckCircle2 size={14} /> PAGO</span>;
-      case CommissionStatus.PENDING:
-        return <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-blue-100"><Clock size={14} /> PENDENTE</span>;
-      case CommissionStatus.OVERDUE:
-        return <span className="bg-red-50 text-red-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-red-100"><AlertTriangle size={14} /> ATRASADO</span>;
+  const renderStatusBadge = (comm: any) => {
+    const key = `${comm.saleId}-${comm.brokerId}`;
+    const isOpen = openStatusMenu === key;
+    const isPaid = comm.status === CommissionStatus.PAID;
+
+    const badgeContent = () => {
+      switch (comm.status) {
+        case CommissionStatus.PAID:
+          return (
+            <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-emerald-100">
+              <CheckCircle2 size={14} /> PAGO
+            </span>
+          );
+        case CommissionStatus.PENDING:
+          return (
+            <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-blue-100">
+              <Clock size={14} /> PENDENTE
+            </span>
+          );
+        case CommissionStatus.OVERDUE:
+          return (
+            <span className="bg-red-50 text-red-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-red-100">
+              <AlertTriangle size={14} /> ATRASADO
+            </span>
+          );
+        default:
+          return null;
+      }
+    };
+
+    // Comissão PAGA: badge estático sem interação
+    if (isPaid || !isAdmin) {
+      return badgeContent();
     }
+
+    // Não pago + admin: badge clicável com dropdown de ações
+    return (
+      <div className="relative inline-block text-left">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpenStatusMenu(isOpen ? null : key);
+          }}
+          className="cursor-pointer hover:opacity-80 transition-opacity focus:outline-none flex items-center"
+          title="Alterar status"
+        >
+          {badgeContent()}
+        </button>
+
+        {isOpen && (
+          <>
+            {/* Overlay transparente para fechar ao clicar fora */}
+            <div
+              className="fixed inset-0 z-40"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpenStatusMenu(null);
+              }}
+            />
+            <div className="absolute left-0 top-full mt-1.5 z-50 bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden min-w-[160px] animate-in fade-in zoom-in duration-150">
+              {comm.status !== CommissionStatus.PENDING && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpdateStatus(comm.saleId, comm.brokerId, CommissionStatus.PENDING);
+                    setOpenStatusMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-blue-600 hover:bg-blue-50 transition-colors cursor-pointer text-left"
+                >
+                  <Clock size={14} />
+                  Marcar Pendente
+                </button>
+              )}
+              {comm.status !== CommissionStatus.OVERDUE && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpdateStatus(comm.saleId, comm.brokerId, CommissionStatus.OVERDUE);
+                    setOpenStatusMenu(null);
+                  }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors cursor-pointer text-left"
+                >
+                  <AlertTriangle size={14} />
+                  Marcar Atrasado
+                </button>
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenPaymentModal(comm);
+                  setOpenStatusMenu(null);
+                }}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-emerald-600 hover:bg-emerald-50 transition-colors border-t border-slate-100 cursor-pointer text-left"
+              >
+                <DollarSign size={14} />
+                Registrar Pagamento
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    );
   };
 
   const handleOpenForecastModal = (comm: any) => {
@@ -422,7 +516,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
             <tbody className="divide-y divide-gray-100">
               {filteredCommissions.map((comm, idx) => (
                 <tr key={`${comm.saleId}-${comm.brokerId}-${idx}`} className="hover:bg-gray-50/50 transition-colors group">
-                  <td className="px-5 py-4">{getStatusBadge(comm.status)}</td>
+                  <td className="px-5 py-4">{renderStatusBadge(comm)}</td>
                   <td className="px-5 py-4">
                     <div className="flex flex-col">
                       <span className="text-sm font-semibold text-gray-950">{comm.property}</span>
