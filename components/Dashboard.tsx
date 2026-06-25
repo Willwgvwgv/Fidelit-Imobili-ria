@@ -113,7 +113,10 @@ const Dashboard: React.FC<DashboardProps> = ({ sales, team, currentUser }) => {
           brokerPerfMap[split.brokerId] = { name: split.brokerName, vgv: 0, commissions: 0 };
         }
         brokerPerfMap[split.brokerId].commissions += split.calculatedValue;
-        brokerPerfMap[split.brokerId].vgv += (s.vgv * (split.percentage / 100));
+        const vgvRoles = ['BROKER', 'AGENCY', 'Corretor', 'Agência', 'Captador', 'CAPTURER'];
+        if (vgvRoles.includes(split.role)) {
+          brokerPerfMap[split.brokerId].vgv += (s.vgv * (split.percentage / 100));
+        }
       });
     });
 
