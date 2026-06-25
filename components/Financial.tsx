@@ -394,34 +394,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         supabaseService.getFinancialTransactions()
       ]);
 
-      // Seed mock fallbacks to prevent empty state layout breakage
-      const defaultAccs = accs.length > 0 ? accs : [
-        { id: 'acc-1', agency_id: currentUser.agencyId, name: 'Cresol Principal', initial_balance: 154000, current_balance: 154000, color: '#0f766e', is_default: true, type: 'Corrente', is_active: true },
-        { id: 'acc-2', agency_id: currentUser.agencyId, name: 'Sicoob Caixa', initial_balance: 42000, current_balance: 42000, color: '#1e3a8a', is_default: false, type: 'Poupança', is_active: true },
-        { id: 'acc-3', agency_id: currentUser.agencyId, name: 'Itaú Holding', initial_balance: 890000, current_balance: 890000, color: '#ca8a04', is_default: false, type: 'Investimentos', is_active: true },
-        { id: 'card-1', agency_id: currentUser.agencyId, name: 'Visa Gold Corporativo', initial_balance: 0, current_balance: -3400, color: '#1e293b', is_default: false, type: 'credit_card', credit_limit: 25000, is_active: true }
-      ];
-
-      const defaultCats = cats.length > 0 ? cats : [
-        { id: 'cat-1', agency_id: currentUser.agencyId, name: 'Comissão Imobiliária', type: TransactionType.INCOME, color: '#10b981' },
-        { id: 'cat-2', agency_id: currentUser.agencyId, name: 'Aluguel Comercial', type: TransactionType.INCOME, color: '#34d399' },
-        { id: 'cat-3', agency_id: currentUser.agencyId, name: 'Salários e Prolabore', type: TransactionType.EXPENSE, color: '#f43f5e' },
-        { id: 'cat-4', agency_id: currentUser.agencyId, name: 'Marketing e Tráfego pago', type: TransactionType.EXPENSE, color: '#ec4899' },
-        { id: 'cat-5', agency_id: currentUser.agencyId, name: 'Manutenção / Infraestrutura', type: TransactionType.EXPENSE, color: '#f59e0b' }
-      ];
-
-      const defaultTxs = txs.length > 0 ? txs : [
-        { id: 'tx-1', agency_id: currentUser.agencyId, description: 'Comissão Venda Loteamento Sol', amount: 35000, type: TransactionType.INCOME, category_id: 'cat-1', account_id: 'acc-1', status: TransactionStatus.PAID, due_date: '2026-04-10', payment_date: '2026-04-10' },
-        { id: 'tx-2', agency_id: currentUser.agencyId, description: 'Serviços Marketing Abril', amount: 4800, type: TransactionType.EXPENSE, category_id: 'cat-4', account_id: 'acc-2', status: TransactionStatus.PAID, due_date: '2026-04-15', payment_date: '2026-04-15' },
-        { id: 'tx-a1', agency_id: currentUser.agencyId, description: 'Comissão Venda Apt 402 Ed. Royal', amount: 18500, type: TransactionType.INCOME, category_id: 'cat-1', account_id: 'acc-1', status: TransactionStatus.PENDING, due_date: '2026-04-28' },
-        { id: 'tx-3', agency_id: currentUser.agencyId, description: 'Aluguel Sede Comercial', amount: 6200, type: TransactionType.EXPENSE, category_id: 'cat-5', account_id: 'acc-1', status: TransactionStatus.PENDING, due_date: new Date().toISOString().split('T')[0] },
-        { id: 'tx-4', agency_id: currentUser.agencyId, description: 'Plataformas SaaS e Licenças', amount: 1250, type: TransactionType.EXPENSE, category_id: 'cat-5', account_id: 'card-1', status: TransactionStatus.PENDING, due_date: '2026-04-20' },
-        { id: 'tx-5', agency_id: currentUser.agencyId, description: 'Prolabore Sócios Integrados', amount: 15000, type: TransactionType.EXPENSE, category_id: 'cat-3', account_id: 'acc-3', status: TransactionStatus.PENDING, due_date: '2026-04-05' }
-      ];
-
-      setAccounts(defaultAccs);
-      setCategories(defaultCats);
-      setTransactions(defaultTxs);
+      setAccounts(accs);
+      setCategories(cats);
+      setTransactions(txs);
     } catch (error) {
       console.error('Erro ao buscar dados do Supabase:', error);
     } finally {
@@ -2458,44 +2433,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     );
   };
 
-  const getSubTitleText = () => {
-    switch (activeView) {
-      case 'financial-fluxo': return 'Visão consolidada e evolução de caixa';
-      case 'financial-cartoes': return 'Cartões de crédito corporativos e limites';
-      case 'financial-contas': return '';
-      case 'financial-conciliacao': return '';
-      case 'financial-categorias': return '';
-      case 'financial-extrato':
-      case 'financial':
-        return '';
-      default: return '';
-    }
-  };
-
-  const getMainTitleText = () => {
-    switch (activeView) {
-      case 'financial-fluxo': return 'Fluxo de Caixa';
-      case 'financial-cartoes': return 'Cartões Corporativos';
-      case 'financial-contas': return 'Contas Bancárias';
-      case 'financial-conciliacao': return 'Conciliação Bancária';
-      case 'financial-categorias': return 'Categorias';
-      default: return 'Extrato';
-    }
-  };
-
   return (
     <div className="space-y-6 pb-20">
       {/* Dynamic Subheader matching requested view */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2 select-none">
-            Financeiro
-            <span className="text-blue-600 font-medium text-lg">| {getMainTitleText()}</span>
-          </h1>
-          {getSubTitleText() && (
-            <p className="text-slate-500 font-medium text-sm mt-0.5">{getSubTitleText()}</p>
-          )}
-        </div>
         
         {(activeView === 'financial-extrato' || activeView === 'financial') && (
           <div className="flex items-center gap-2">
