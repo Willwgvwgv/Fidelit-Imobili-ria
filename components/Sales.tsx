@@ -436,7 +436,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
             <thead>
               <tr className="bg-white text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em] border-b border-slate-50">
                 <th 
-                  className="px-10 py-8 cursor-pointer select-none hover:text-indigo-600 transition-colors group text-left"
+                  className="px-6 py-8 cursor-pointer select-none hover:text-indigo-600 transition-colors group text-left"
                   onClick={() => setSortDateDir(prev => prev === 'desc' ? 'asc' : 'desc')}
                 >
                   <div className="flex items-center gap-1.5">
@@ -446,22 +446,22 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                     </span>
                   </div>
                 </th>
-                <th className="px-10 py-8">IMÓVEL</th>
+                <th className="px-6 py-8">IMÓVEL</th>
                 <th className="px-6 py-8">COMPRADOR</th>
                 <th className="px-6 py-8">VENDEDOR</th>
                 <th className="px-6 py-8">VGV</th>
                 <th className="px-6 py-8 text-center">PARCELAS</th>
                 <th className="px-6 py-8">NF</th>
-                <th className="px-10 py-8 text-right">AÇÕES</th>
+                <th className="px-6 py-8 text-right">AÇÕES</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filteredSales.map(sale => (
                 <tr key={sale.id} className="hover:bg-slate-50/50 transition-colors group">
-                  <td className="px-10 py-8 text-sm text-slate-500 font-medium whitespace-nowrap">
+                  <td className="px-6 py-8 text-sm text-slate-500 font-medium whitespace-nowrap">
                     {new Date(sale.saleDate).toLocaleDateString('pt-BR')}
                   </td>
-                  <td className="px-10 py-8 min-w-[280px]">
+                  <td className="px-6 py-8 min-w-[200px]">
                     <span className="text-[14px] font-bold text-slate-800 block leading-tight">{sale.propertyAddress}</span>
                   </td>
                   <td className="px-6 py-8">
@@ -497,7 +497,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                       </span>
                     )}
                   </td>
-                  <td className="px-10 py-8 text-right">
+                  <td className="px-6 py-8 text-right whitespace-nowrap">
                     <div className="flex items-center justify-end gap-2.5">
                       <button 
                         onClick={() => openEditModal(sale)}
