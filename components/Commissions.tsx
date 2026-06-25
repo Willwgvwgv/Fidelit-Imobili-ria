@@ -156,19 +156,19 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   });
 
   const kpis = useMemo(() => {
-    const total = commissionList.reduce((acc, c) => acc + (c.value || 0), 0);
-    const pending = commissionList
+    const total = filteredCommissions.reduce((acc, c) => acc + (c.value || 0), 0);
+    const pending = filteredCommissions
       .filter(c => c.status === CommissionStatus.PENDING)
       .reduce((acc, c) => acc + (c.value || 0), 0);
-    const overdue = commissionList
+    const overdue = filteredCommissions
       .filter(c => c.status === CommissionStatus.OVERDUE)
       .reduce((acc, c) => acc + (c.value || 0), 0);
-    const paid = commissionList
+    const paid = filteredCommissions
       .filter(c => c.status === CommissionStatus.PAID)
       .reduce((acc, c) => acc + (c.value || 0), 0);
 
     return { total, pending, overdue, paid };
-  }, [commissionList]);
+  }, [filteredCommissions]);
 
   const brokerCommissionTotal = useMemo(() => {
     if (!statementBroker) return 0;
