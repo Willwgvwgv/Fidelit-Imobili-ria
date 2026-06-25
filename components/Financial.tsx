@@ -35,7 +35,8 @@ import {
   DollarSign,
   ShieldCheck,
   Star,
-  Pencil
+  Pencil,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
