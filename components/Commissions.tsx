@@ -173,7 +173,8 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   const brokerCommissionTotal = useMemo(() => {
     if (!statementBroker) return 0;
     return commissionList
-      .filter(c => c.brokerId === statementBroker.id)
+      .filter(c => c.brokerId === statementBroker.id && 
+        (c.status === CommissionStatus.PENDING || c.status === CommissionStatus.OVERDUE))
       .reduce((sum, c) => sum + c.value, 0);
   }, [commissionList, statementBroker]);
 
