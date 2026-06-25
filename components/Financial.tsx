@@ -137,6 +137,21 @@ const getLocalTodayStr = (): string => {
   return `${year}-${month}-${day}`;
 };
 
+export const BANKS = [
+  { code: "sicoob",     name: "Sicoob",           color: "#006B3F", initials: "SIC" },
+  { code: "cresol",     name: "Cresol",           color: "#007BC0", initials: "CRS" },
+  { code: "sicredi",    name: "Sicredi",          color: "#00A651", initials: "SCR" },
+  { code: "bradesco",   name: "Bradesco",         color: "#CC0000", initials: "BRA" },
+  { code: "itau",       name: "Itaú",             color: "#EC7000", initials: "ITÁ" },
+  { code: "bb",         name: "Banco do Brasil",  color: "#F9D100", initials: "BB"  },
+  { code: "caixa",      name: "Caixa Econômica",  color: "#005CA8", initials: "CEF" },
+  { code: "santander",  name: "Santander",        color: "#EC0000", initials: "SAN" },
+  { code: "nubank",     name: "Nubank",           color: "#8A05BE", initials: "NU"  },
+  { code: "inter",      name: "Inter",            color: "#FF7A00", initials: "INT" },
+  { code: "c6",         name: "C6 Bank",          color: "#1A1A1A", initials: "C6"  },
+  { code: "outros",     name: "Outro",            color: "#64748b", initials: "OUT" },
+];
+
 export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 'financial-extrato' }) => {
   // State managers
   const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
@@ -144,6 +159,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   
+  const getAccountBank = (account: FinancialAccount) => {
+    const bankCode = (account as any).bank_code;
+    if (!bankCode) return null;
+    return BANKS.find(b => b.code === bankCode) || null;
+  };
+
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<'ALL' | TransactionType>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -165,7 +186,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     type: 'Corrente',
     color: '#2563eb',
     is_default: false,
-    credit_limit: 0
+    credit_limit: 0,
+    bank_code: ''
   });
 
   const [newCategory, setNewCategory] = useState({
@@ -245,7 +267,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       type: 'Corrente',
       color: '#2563eb',
       is_default: false,
-      credit_limit: 0
+      credit_limit: 0,
+      bank_code: ''
     });
     setNewCategory({
       name: '',
@@ -280,13 +303,15 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   const handleEditAccountClick = (account: FinancialAccount) => {
     setEditingAccount(account);
+    const existingBankCode = (account as any).bank_code || '';
     setNewAccount({
       name: account.name,
       initial_balance: account.initial_balance,
       type: account.type || 'Corrente',
       color: account.color || '#2563eb',
       is_default: account.is_default || false,
-      credit_limit: account.credit_limit || 0
+      credit_limit: account.credit_limit || 0,
+      bank_code: existingBankCode
     });
     setModalType('account');
     setIsModalOpen(true);
@@ -686,7 +711,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         name: newAccount.name,
         color: newAccount.color,
         type: newAccount.type,
-        credit_limit: newAccount.credit_limit ? Number(newAccount.credit_limit) : undefined
+        credit_limit: newAccount.credit_limit ? Number(newAccount.credit_limit) : undefined,
+        bank_code: newAccount.bank_code || null
       } : acc));
       handleCloseModal();
       return;
@@ -697,7 +723,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       return;
     }
 
-    const payload: Omit<FinancialAccount, 'id'> = {
+    const payload: any = {
       agency_id: currentUser.agencyId,
       name: newAccount.name,
       initial_balance: Number(newAccount.initial_balance),
@@ -706,7 +732,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       is_default: newAccount.is_default,
       type: newAccount.type,
       credit_limit: newAccount.credit_limit ? Number(newAccount.credit_limit) : undefined,
-      is_active: true
+      is_active: true,
+      bank_code: newAccount.bank_code || null
     };
 
     const result = await supabaseService.createFinancialAccount(payload);
@@ -714,7 +741,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       handleCloseModal();
       loadFinancialData();
     } else {
-      const mockResult: FinancialAccount = {
+      const mockResult: any = {
         id: 'acc-' + Math.random().toString(36).substr(2, 9),
         ...payload
       };
@@ -1653,16 +1680,26 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               .reduce((acc, curr) => acc + (curr.type === TransactionType.INCOME ? curr.amount : -curr.amount), 0);
             
             const liveBalance = account.initial_balance + sumTransactions;
+            const bank = getAccountBank(account);
+            const circleColor = bank ? bank.color : (account.color || '#3b82f6');
 
             return (
               <div key={account.id} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <span className="w-3 h-3 rounded-full" style={{ backgroundColor: account.color || '#3b82f6' }} />
+                    <span className="w-3 h-3 rounded-full" style={{ backgroundColor: circleColor }} />
                     <span className="px-2 py-0.5 rounded bg-slate-50 border border-slate-100 text-[10px] font-black uppercase text-slate-400 tracking-wider">
                       {account.is_default ? 'Principal' : (account.type?.toUpperCase() === 'CREDIT_CARD' || account.type === 'credit_card' ? 'Cartão de Crédito' : account.type || 'Conta')}
                     </span>
                   </div>
+                  {bank && (
+                    <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-slate-500 mb-1 uppercase tracking-wider">
+                      <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-black">
+                        {bank.initials}
+                      </span>
+                      <span>{bank.name}</span>
+                    </div>
+                  )}
                   <h4 className="text-base font-black text-slate-800">{account.name}</h4>
                 </div>
 
@@ -1850,23 +1887,25 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           </div>
 
           {!importedFile ? (
-            <div className="border-4 border-dashed border-slate-100 py-24 rounded-3xl flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50/50 transition-all relative">
+            <div className="border-4 border-dashed border-slate-100 py-24 rounded-3xl flex flex-col items-center justify-center text-center hover:bg-slate-50/50 transition-all relative">
+              <label htmlFor="bank-file-upload" className="absolute inset-0 cursor-pointer z-10" />
               <input 
+                id="bank-file-upload"
                 type="file" 
                 accept=".ofx,.csv" 
-                className="absolute inset-0 opacity-0 cursor-pointer z-0" 
+                className="hidden" 
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) handleBankFileUpload(file);
                   e.target.value = '';
                 }}
               />
-              <div className="h-16 w-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-4">
+              <div className="h-16 w-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-4 relative z-20 pointer-events-none">
                 <Upload size={32} />
               </div>
-              <p className="font-black text-slate-700 text-sm">Arraste seu extrato bancário aqui ou clique para selecionar</p>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2">Suporta formatos OFX e CSV de qualquer banco</p>
-              <div className="mt-6 flex gap-3 relative z-10">
+              <p className="font-black text-slate-700 text-sm relative z-20 pointer-events-none">Arraste seu extrato bancário aqui ou clique para selecionar</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2 relative z-20 pointer-events-none">Suporta formatos OFX e CSV de qualquer banco</p>
+              <div className="mt-6 flex gap-3 relative z-20">
                 <button 
                   type="button" 
                   onClick={(e) => {
@@ -2737,6 +2776,43 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                        {editingAccount ? 'Editar Conta Bancária' : 'Adicionar Nova Conta'}
                     </h2>
                     <div className="space-y-4">
+                      <div>
+                        <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase mb-2 block">Banco</label>
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-2 bg-slate-50 rounded-xl border border-slate-100">
+                          {BANKS.map(b => {
+                            const isSelected = newAccount.bank_code === b.code;
+                            return (
+                              <button
+                                key={b.code}
+                                type="button"
+                                onClick={() => {
+                                  setNewAccount(prev => ({
+                                    ...prev,
+                                    bank_code: b.code,
+                                    color: b.color // "Usar a cor automaticamente"
+                                  }));
+                                }}
+                                className={`flex flex-col items-center justify-center p-2 rounded-lg border text-center transition-all cursor-pointer ${
+                                  isSelected 
+                                    ? 'border-blue-500 bg-blue-50/50 shadow-sm' 
+                                    : 'border-slate-100 bg-white hover:border-slate-200'
+                                }`}
+                              >
+                                <span 
+                                  className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white mb-1"
+                                  style={{ backgroundColor: b.color }}
+                                >
+                                  {b.initials}
+                                </span>
+                                <span className="text-[10px] font-extrabold text-slate-700 truncate w-full">
+                                  {b.name}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Nome da Conta*</label>
                         <input 
