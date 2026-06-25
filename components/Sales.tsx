@@ -244,10 +244,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
   };
 
   const confirmDeleteSale = () => {
-    if (saleToDelete) {
-      setSales(prev => prev.filter(s => s.id !== saleToDelete));
-      setSaleToDelete(null);
-    }
+    setSaleToDelete(null);
   };
 
   const handleExportCSV = () => {
