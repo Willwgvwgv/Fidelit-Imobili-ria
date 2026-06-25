@@ -423,6 +423,16 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (activeView === 'financial-conciliacao') {
+      setImportedFile(null);
+      setReconciliationItems([]);
+      setSelectedImportedIndex(null);
+      setSelectedSystemTxId(null);
+      setMatchedPairs([]);
+    }
+  }, [activeView]);
+
   // Compute stats dynamically for current period (selected month/year)
   const stats = useMemo(() => {
     const todayStr = getLocalTodayStr();
