@@ -12,7 +12,8 @@ import {
   Percent, 
   CheckCircle2, 
   CreditCard, 
-  GitBranch 
+  GitBranch,
+  X
 } from 'lucide-react';
 import { Sale, BrokerSplit, CommissionStatus, SplitRole, User, UserRole } from '../types';
 
@@ -599,6 +600,14 @@ export const SaleForm: React.FC<SaleFormProps> = ({
             {editingSale ? 'EDITAR DADOS DA VENDA' : 'CADASTRAR NOVA VENDA'}
           </h2>
         </div>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="p-2 hover:bg-white/20 rounded-xl transition-colors text-white/80 hover:text-white"
+          title="Fechar"
+        >
+          <X size={22} />
+        </button>
       </div>
 
       <div className="p-6 md:p-8 space-y-8 max-h-[80vh] overflow-y-auto">
