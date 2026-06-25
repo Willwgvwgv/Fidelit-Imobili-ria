@@ -15,7 +15,8 @@ import {
   FileText,
   Upload,
   Eye,
-  Check
+  Check,
+  TrendingUp
 } from 'lucide-react';
 import { Sale, User, UserRole, CommissionStatus } from '../types';
 import BrokerStatement from './BrokerStatement';
@@ -153,6 +154,21 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
 
     return matchesStatus && matchesSearch && matchesBroker && matchesDate && matchesPeriod;
   });
+
+  const kpis = useMemo(() => {
+    const total = commissionList.reduce((acc, c) => acc + (c.value || 0), 0);
+    const pending = commissionList
+      .filter(c => c.status === CommissionStatus.PENDING)
+      .reduce((acc, c) => acc + (c.value || 0), 0);
+    const overdue = commissionList
+      .filter(c => c.status === CommissionStatus.OVERDUE)
+      .reduce((acc, c) => acc + (c.value || 0), 0);
+    const paid = commissionList
+      .filter(c => c.status === CommissionStatus.PAID)
+      .reduce((acc, c) => acc + (c.value || 0), 0);
+
+    return { total, pending, overdue, paid };
+  }, [commissionList]);
 
   const brokerCommissionTotal = useMemo(() => {
     if (!statementBroker) return 0;
@@ -351,6 +367,62 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
 
   return (
     <div className="space-y-6">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Total Comissões</p>
+            <p className="text-xl font-black text-slate-800">{formatCurrency(kpis.total)}</p>
+          </div>
+          <div className="p-3 bg-indigo-50 rounded-xl text-indigo-600 shrink-0">
+            <DollarSign size={22} />
+          </div>
+        </div>
+
+        {/* A Receber */}
+        <div
+          className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center justify-between cursor-pointer hover:border-blue-200 hover:shadow-md transition-all"
+          onClick={() => setStatusFilter(CommissionStatus.PENDING)}
+        >
+          <div>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">A Receber</p>
+            <p className="text-xl font-black text-blue-600">{formatCurrency(kpis.pending)}</p>
+          </div>
+          <div className="p-3 bg-blue-50 rounded-xl text-blue-600 shrink-0">
+            <Clock size={22} />
+          </div>
+        </div>
+
+        {/* Em Atraso */}
+        <div
+          className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center justify-between cursor-pointer hover:border-red-200 hover:shadow-md transition-all"
+          onClick={() => setStatusFilter(CommissionStatus.OVERDUE)}
+        >
+          <div>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Em Atraso</p>
+            <p className="text-xl font-black text-red-600">{formatCurrency(kpis.overdue)}</p>
+          </div>
+          <div className="p-3 bg-red-50 rounded-xl text-red-600 shrink-0">
+            <AlertTriangle size={22} />
+          </div>
+        </div>
+
+        {/* Pagas */}
+        <div
+          className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 flex items-center justify-between cursor-pointer hover:border-emerald-200 hover:shadow-md transition-all"
+          onClick={() => setStatusFilter(CommissionStatus.PAID)}
+        >
+          <div>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">Pagas</p>
+            <p className="text-xl font-black text-emerald-600">{formatCurrency(kpis.paid)}</p>
+          </div>
+          <div className="p-3 bg-emerald-50 rounded-xl text-emerald-600 shrink-0">
+            <CheckCircle2 size={22} />
+          </div>
+        </div>
+      </div>
+
       {/* Barra de filtros */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4 space-y-3 shadow-sm">
         <div className="flex flex-wrap gap-3 items-center justify-between">
