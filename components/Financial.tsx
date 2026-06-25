@@ -1843,7 +1843,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <input 
                 type="file" 
                 accept=".ofx,.csv" 
-                className="absolute inset-0 opacity-0 cursor-pointer" 
+                className="absolute inset-0 opacity-0 cursor-pointer z-0" 
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) handleBankFileUpload(file);
