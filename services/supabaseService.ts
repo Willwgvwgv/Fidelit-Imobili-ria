@@ -258,9 +258,7 @@ export const supabaseService = {
       agency_id: '11111111-1111-1111-1111-111111111111',
       payment_date: s.paymentDate || null,
       payment_method: s.paymentMethod || null,
-      receipt_data: s.receiptData || null,
-      notes: s.notes || null,
-      discount_value: s.discount_value || null
+      receipt_data: s.receiptData || null
     }));
 
     if (splitsToInsert.length > 0) {
