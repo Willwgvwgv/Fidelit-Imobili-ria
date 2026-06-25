@@ -35,141 +35,18 @@ const App: React.FC = () => {
       const fetchedSales = await supabaseService.getSales();
       
       let finalUsers = fetchedUsers || [];
-      const hasRealUsers = finalUsers.length > 0;
-
-      if (!hasRealUsers) {
-        setIsDemoData(true);
-        setDbStatus('connected');
-        finalUsers = [
-          {
-            id: 'admin-1',
-            name: 'Williangyn (Administrador)',
-            email: 'williangyn10@gmail.com',
-            role: UserRole.ADMIN,
-            agencyId: 'agency-1',
-            phone: '62999999999'
-          },
-          {
-            id: 'broker-1',
-            name: 'Ana Silva (Corretor)',
-            email: 'ana.silva@comissone.com.br',
-            role: UserRole.BROKER,
-            agencyId: 'agency-1',
-            phone: '62988888888'
-          },
-          {
-            id: 'broker-2',
-            name: 'Carlos Oliveira (Corretor)',
-            email: 'carlos.oliveira@comissone.com.br',
-            role: UserRole.BROKER,
-            agencyId: 'agency-1',
-            phone: '62977777777'
-          }
-        ];
-      } else {
-        setIsDemoData(false);
-        setDbStatus('connected');
-      }
+      setIsDemoData(false);
+      setDbStatus('connected');
 
       let finalSales = fetchedSales || [];
-      if (finalSales.length === 0) {
-        finalSales = [
-          {
-            id: 'sale-1',
-            agencyId: 'agency-1',
-            saleDate: '2026-05-10',
-            propertyAddress: 'Av. T-10, Ed. Metropolitan, Ap 1502',
-            buyerName: 'Marcos Souza',
-            sellerName: 'Roberto Alves',
-            vgv: 850000,
-            commissionPercentage: 5,
-            totalCommissionValue: 42500,
-            invoiceIssued: true,
-            invoiceNumber: '00124',
-            notes: 'Venda de apartamento de alto padrão no Setor Bueno.',
-            status: 'APPROVED' as any,
-            splits: [
-              {
-                id: 'split-1',
-                sale_id: 'sale-1',
-                brokerId: 'broker-1',
-                brokerName: 'Ana Silva',
-                percentage: 40,
-                calculatedValue: 17000,
-                status: CommissionStatus.PAID,
-                role: SplitRole.BROKER,
-                paymentDate: '2026-05-15',
-                paymentMethod: 'PIX',
-                forecastDate: '2026-05-15'
-              },
-              {
-                id: 'split-2',
-                sale_id: 'sale-1',
-                brokerId: 'broker-2',
-                brokerName: 'Carlos Oliveira',
-                percentage: 40,
-                calculatedValue: 17000,
-                status: CommissionStatus.PENDING,
-                role: SplitRole.BROKER,
-                forecastDate: '2026-06-30'
-              }
-            ]
-          },
-          {
-            id: 'sale-2',
-            agencyId: 'agency-1',
-            saleDate: '2026-06-01',
-            propertyAddress: 'Rua 145, Qd 52, Casa 04, Setor Marista',
-            buyerName: 'Julia Pinheiro',
-            sellerName: 'Flavio Mendes',
-            vgv: 1200000,
-            commissionPercentage: 6,
-            totalCommissionValue: 72000,
-            invoiceIssued: false,
-            notes: 'Casa duplex, excelente localização.',
-            status: 'APPROVED' as any,
-            splits: [
-              {
-                id: 'split-3',
-                sale_id: 'sale-2',
-                brokerId: 'broker-1',
-                brokerName: 'Ana Silva',
-                percentage: 50,
-                calculatedValue: 36000,
-                status: CommissionStatus.PENDING,
-                role: SplitRole.BROKER,
-                forecastDate: '2026-07-15'
-              }
-            ]
-          }
-        ];
-      }
       
       setTeam(finalUsers);
       teamRef.current = finalUsers;
       setSales(finalSales);
-
-      // Sincronizar currentUser baseado na sessão de Auth atual se existir
-      if (supabase) {
-        const { data: { session } } = await supabase.auth.getSession();
-        setAuthSession(session);
-        if (session?.user?.email) {
-          const userProfile = finalUsers.find(u => 
-            u.email?.toLowerCase() === session.user.email?.toLowerCase()
-          );
-          if (userProfile) {
-            setCurrentUser(userProfile);
-          } else {
-            setCurrentUser(null);
-          }
-          setAuthLoading(false);
-        }
-      }
     } catch (error) {
       console.error('Failed to load data from Supabase:', error);
       setDbStatus('error');
       setIsDemoData(true);
-      setAuthLoading(false);
     } finally {
       setIsLoading(false);
     }
@@ -194,49 +71,63 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  useEffect(() => {
     if (!supabase) {
       setAuthLoading(false);
+      setIsLoading(false);
       return;
     }
 
-    // Verificar sessão inicial
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    let subscription: { unsubscribe: () => void } | null = null;
+
+    const bootstrap = async () => {
+      // 1. Carregar dados primeiro (usuários, vendas)
+      await loadData();
+
+      // 2. Só depois verificar a sessão atual
+      const { data: { session } } = await supabase.auth.getSession();
       setAuthSession(session);
+
+      if (session?.user?.email) {
+        const userProfile = teamRef.current.find(u =>
+          u.email?.toLowerCase() === session.user.email?.toLowerCase()
+        );
+        setCurrentUser(userProfile || null);
+      }
+
       setAuthLoading(false);
-      if (session?.user?.email) {
-        const userProfile = teamRef.current.find(u => 
-          u.email?.toLowerCase() === session.user.email?.toLowerCase()
-        );
-        if (userProfile) {
-          setCurrentUser(userProfile);
+
+      // 3. Ouvir mudanças futuras de auth (login/logout)
+      const { data } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+        setAuthSession(newSession);
+
+        if (newSession?.user?.email) {
+          // Se teamRef já está populado, usar direto
+          let userProfile = teamRef.current.find(u =>
+            u.email?.toLowerCase() === newSession.user.email?.toLowerCase()
+          );
+
+          // Se não encontrou (primeiro login após OAuth redirect), recarregar dados
+          if (!userProfile) {
+            await loadData();
+            userProfile = teamRef.current.find(u =>
+              u.email?.toLowerCase() === newSession.user.email?.toLowerCase()
+            );
+          }
+
+          setCurrentUser(userProfile || null);
         } else {
           setCurrentUser(null);
         }
-      }
-    });
+      });
 
-    // Ouvir mudanças de autenticação
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAuthSession(session);
-      if (session?.user?.email) {
-        const userProfile = teamRef.current.find(u => 
-          u.email?.toLowerCase() === session.user.email?.toLowerCase()
-        );
-        if (userProfile) {
-          setCurrentUser(userProfile);
-        } else {
-          setCurrentUser(null);
-        }
-      } else {
-        setCurrentUser(null);
-      }
-    });
+      subscription = data.subscription;
+    };
 
-    return () => subscription.unsubscribe();
+    bootstrap();
+
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
   const handleUpdateCommissionStatus = async (saleId: string, brokerId: string, newStatus: CommissionStatus, receiptData?: string) => {
