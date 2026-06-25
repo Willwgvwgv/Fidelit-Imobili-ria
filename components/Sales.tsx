@@ -662,31 +662,46 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
               </div>
 
               {/* Rateio de Corretores */}
-              {detailSale.splits && detailSale.splits.length > 0 && (
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Rateio</p>
-                  <div className="space-y-1.5">
-                    {detailSale.splits.map((split, i) => (
-                      <div key={i} className="flex items-center justify-between text-sm py-1.5 px-3 bg-slate-50 rounded-xl">
-                        <div className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold flex items-center justify-center">
-                            {(split.brokerName || '?').charAt(0).toUpperCase()}
+              {detailSale.splits && detailSale.splits.length > 0 && (() => {
+                // Agrupar splits por brokerId, somando valores
+                const grouped = detailSale.splits.reduce((acc, split) => {
+                  const key = split.brokerId || split.brokerName || 'unknown';
+                  if (!acc[key]) {
+                    acc[key] = {
+                      brokerName: split.brokerName,
+                      role: split.role,
+                      percentage: split.percentage,
+                      totalValue: 0
+                    };
+                  }
+                  acc[key].totalValue += split.calculatedValue || (split as any).commissionValue || 0;
+                  return acc;
+                }, {} as Record<string, { brokerName: string; role: string; percentage: number; totalValue: number }>);
+
+                const groupedSplits = Object.values(grouped);
+
+                return (
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Rateio</p>
+                    <div className="space-y-1.5">
+                      {groupedSplits.map((split, i) => (
+                        <div key={i} className="flex items-center justify-between text-sm py-1.5 px-3 bg-slate-50 rounded-xl">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold flex items-center justify-center">
+                              {(split.brokerName || '?').charAt(0).toUpperCase()}
+                            </span>
+                            <span className="text-slate-700 font-medium">{split.brokerName || 'Agência'}</span>
+                            <span className="text-[10px] text-slate-400">{split.role || ''}</span>
+                          </div>
+                          <span className="font-semibold text-slate-800">
+                            {split.totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </span>
-                          <span className="text-slate-700 font-medium">{split.brokerName || 'Agência'}</span>
-                          <span className="text-[10px] text-slate-400">{split.role || ''}</span>
                         </div>
-                        <span className="font-semibold text-slate-800">
-                          {split.calculatedValue != null
-                            ? split.calculatedValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                            : (split as any).commissionValue != null
-                              ? (split as any).commissionValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-                              : `${split.percentage ?? 0}%`}
-                        </span>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* NF */}
               <div className="grid grid-cols-2 gap-4">
