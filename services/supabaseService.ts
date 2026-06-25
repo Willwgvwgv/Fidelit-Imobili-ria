@@ -218,23 +218,6 @@ export const supabaseService = {
 
     const existingSplits = existingSplitsData || [];
 
-    // Map incoming splits by the composite key: brokerId + role + installment_number
-    const incomingMap = new Map<string, Omit<BrokerSplit, 'id' | 'sale_id'>>();
-    splits.forEach(s => {
-      const dbRole = mapUiRoleToDbRole(s.role || '');
-      const incomingBrokerId = (s.brokerId === 'AGENCY' || !s.brokerId) ? '' : s.brokerId;
-      const key = `${incomingBrokerId}::${dbRole}::${s.installment_number ?? 1}`;
-      incomingMap.set(key, s);
-    });
-
-    // Map existing splits by the same composite key
-    const existingMap = new Map<string, any>();
-    existingSplits.forEach(s => {
-      const dbRole = mapUiRoleToDbRole(s.role || '');
-      const key = `${s.broker_id || ''}::${dbRole}::${s.installment_number ?? 1}`;
-      existingMap.set(key, s);
-    });
-
     // Helper to identify if a split is paid or has any payment history
     const isPaidOrHasPayment = (s: any) => {
       return s.status === 'PAID' || 
@@ -243,54 +226,42 @@ export const supabaseService = {
              (s.receipt_data !== null && s.receipt_data !== undefined && s.receipt_data !== '');
     };
 
-    // 1. Identify splits to be deleted (removed from editor, and they do NOT have payment history)
-    const idsToDelete = existingSplits
-      .filter(s => {
-        const dbRole = mapUiRoleToDbRole(s.role || '');
-        const key = `${s.broker_id || ''}::${dbRole}::${s.installment_number ?? 1}`;
-        const hasIncomingMatch = incomingMap.has(key);
-        const hasPayment = isPaidOrHasPayment(s);
-        return !hasIncomingMatch && !hasPayment;
-      })
+    // Deletar todos os splits não pagos desta venda
+    const unpaidIds = existingSplits
+      .filter(s => !isPaidOrHasPayment(s))
       .map(s => s.id);
 
-    if (idsToDelete.length > 0) {
+    if (unpaidIds.length > 0) {
       const { error: deleteError } = await supabase
         .from('broker_splits')
         .delete()
-        .in('id', idsToDelete);
+        .in('id', unpaidIds);
 
       if (deleteError) {
-        console.error('Error deleting unused unpaid splits:', deleteError);
+        console.error('Error deleting unpaid splits:', deleteError);
         return false;
       }
     }
 
-    // 2. Insert new incoming splits (key does not exist in db)
-    const splitsToInsert = splits
-      .filter(incoming => {
-        const dbRole = mapUiRoleToDbRole(incoming.role || '');
-        const incomingBrokerId = (incoming.brokerId === 'AGENCY' || !incoming.brokerId) ? '' : incoming.brokerId;
-        const key = `${incomingBrokerId}::${dbRole}::${incoming.installment_number ?? 1}`;
-        return !existingMap.has(key);
-      })
-      .map(incoming => ({
-        sale_id: saleId,
-        broker_id: (incoming.brokerId === 'AGENCY' || !incoming.brokerId) ? null : incoming.brokerId,
-        broker_name: incoming.brokerName,
-        percentage: incoming.percentage,
-        calculated_value: incoming.calculatedValue,
-        status: incoming.status || 'PENDING',
-        payment_date: incoming.paymentDate || null,
-        payment_method: incoming.paymentMethod || null,
-        forecast_date: incoming.forecastDate || null,
-        receipt_data: incoming.receiptData || null,
-        installment_number: incoming.installment_number || 1,
-        total_installments: incoming.total_installments,
-        role: mapUiRoleToDbRole(incoming.role || ''),
-        notes: incoming.notes || null,
-        discount_value: incoming.discount_value
-      }));
+    // Inserir todos os novos splits
+    const splitsToInsert = splits.map(s => ({
+      sale_id: saleId,
+      broker_id: (s.brokerId === 'AGENCY' || !s.brokerId) ? null : s.brokerId,
+      broker_name: s.brokerName,
+      percentage: s.percentage,
+      calculated_value: s.calculatedValue,
+      status: s.status || 'PENDING',
+      role: mapUiRoleToDbRole(s.role || ''),
+      forecast_date: s.forecastDate || null,
+      installment_number: s.installment_number ?? 1,
+      total_installments: s.total_installments ?? 1,
+      agency_id: existingSplits[0]?.agency_id || '11111111-1111-1111-1111-111111111111',
+      payment_date: s.paymentDate || null,
+      payment_method: s.paymentMethod || null,
+      receipt_data: s.receiptData || null,
+      notes: s.notes || null,
+      discount_value: s.discount_value || null
+    }));
 
     if (splitsToInsert.length > 0) {
       const { error: insertError } = await supabase
@@ -298,51 +269,8 @@ export const supabaseService = {
         .insert(splitsToInsert);
 
       if (insertError) {
-        console.error('Error inserting new splits:', JSON.stringify(insertError, null, 2));
-        console.error('Insert error details:', {
-          message: insertError.message,
-          details: insertError.details,
-          hint: insertError.hint,
-          code: insertError.code
-        });
+        console.error('Error inserting new splits:', insertError);
         return false;
-      }
-    }
-
-    // 3. Update existing matched splits (preserving payment history if existing has it)
-    for (const existing of existingSplits) {
-      const dbRole = mapUiRoleToDbRole(existing.role || '');
-      const key = `${existing.broker_id || ''}::${dbRole}::${existing.installment_number ?? 1}`;
-      const incoming = incomingMap.get(key);
-
-      if (incoming) {
-        const hasPayment = isPaidOrHasPayment(existing);
-
-        const updatedFields = {
-          broker_id: (incoming.brokerId === 'AGENCY' || !incoming.brokerId) ? null : incoming.brokerId,
-          broker_name: incoming.brokerName,
-          percentage: incoming.percentage,
-          calculated_value: incoming.calculatedValue,
-          total_installments: incoming.total_installments,
-          forecast_date: incoming.forecastDate || null,
-          role: mapUiRoleToDbRole(incoming.role || ''),
-          notes: incoming.notes || null,
-          discount_value: incoming.discount_value,
-          status: hasPayment ? existing.status : (incoming.status || 'PENDING'),
-          payment_date: hasPayment ? existing.payment_date : (incoming.paymentDate || null),
-          payment_method: hasPayment ? existing.payment_method : (incoming.paymentMethod || null),
-          receipt_data: hasPayment ? existing.receipt_data : (incoming.receiptData || null)
-        };
-
-        const { error: updateError } = await supabase
-          .from('broker_splits')
-          .update(updatedFields)
-          .eq('id', existing.id);
-
-        if (updateError) {
-          console.error(`Error updating split ${existing.id}:`, updateError);
-          return false;
-        }
       }
     }
 
