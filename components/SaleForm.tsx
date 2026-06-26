@@ -435,7 +435,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
     return team.filter(b => {
       const nameLower = b.name?.toLowerCase() || '';
       const emailLower = b.email?.toLowerCase() || '';
-      const isCompany = nameLower === 'fidelité imobiliária' || emailLower === 'fideliteimobiliaria@gmail.com';
+      const isCompany = nameLower === 'fidelité imobiliária' || nameLower === 'fidelite imobiliaria';
       return !isCompany;
     });
   }, [team]);
