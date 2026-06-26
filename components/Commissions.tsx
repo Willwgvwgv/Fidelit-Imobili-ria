@@ -54,6 +54,16 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   const [statementBroker, setStatementBroker] = useState<User | null>(null);
   const [openStatusMenu, setOpenStatusMenu] = useState<string | null>(null);
 
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+
+  const toggleExpand = (key: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
   const isAdmin = currentUser.role === UserRole.ADMIN;
 
   const commissionList = useMemo(() => {
@@ -87,7 +97,9 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
             paymentMethod: split.paymentMethod,
             forecastDate: split.forecastDate,
             receiptData: split.receiptData,
-            role: split.role
+            role: split.role,
+            installment_number: split.installment_number,
+            total_installments: split.total_installments
           });
         }
       });
@@ -177,6 +189,97 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
         (c.status === CommissionStatus.PENDING || c.status === CommissionStatus.OVERDUE))
       .reduce((sum, c) => sum + c.value, 0);
   }, [commissionList, statementBroker]);
+
+  const groupedCommissions = useMemo(() => {
+    const map = new Map<string, {
+      key: string;
+      saleId: string;
+      brokerId?: string;
+      brokerName: string;
+      property: string;
+      date: string;
+      role?: string;
+      totalValue: number;
+      paidValue: number;
+      pendingValue: number;
+      groupStatus: string;
+      installments: any[];
+    }>();
+
+    commissionList.forEach(comm => {
+      const key = `${comm.saleId}::${comm.brokerId || comm.brokerName}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          saleId: comm.saleId,
+          brokerId: comm.brokerId,
+          brokerName: comm.brokerName,
+          property: comm.property,
+          date: comm.date,
+          role: comm.role,
+          totalValue: 0,
+          paidValue: 0,
+          pendingValue: 0,
+          groupStatus: '',
+          installments: [],
+        });
+      }
+      const g = map.get(key)!;
+      g.installments.push(comm);
+      g.totalValue += comm.value || 0;
+      if (comm.status === CommissionStatus.PAID) g.paidValue += comm.value || 0;
+      else g.pendingValue += comm.value || 0;
+    });
+
+    map.forEach(g => {
+      const allPaid = g.installments.every(c => c.status === CommissionStatus.PAID);
+      const nonePaid = g.installments.every(c => c.status !== CommissionStatus.PAID);
+      const hasOverdue = g.installments.some(c => c.status === CommissionStatus.OVERDUE);
+      if (allPaid) g.groupStatus = CommissionStatus.PAID;
+      else if (nonePaid && hasOverdue) g.groupStatus = CommissionStatus.OVERDUE;
+      else if (nonePaid) g.groupStatus = CommissionStatus.PENDING;
+      else g.groupStatus = 'PARTIAL';
+    });
+
+    return Array.from(map.values());
+  }, [commissionList]);
+
+  const filteredGroups = useMemo(() => {
+    return groupedCommissions.filter(group => {
+      const matchesStatus = statusFilter === 'ALL' || group.groupStatus === statusFilter;
+      const matchesSearch =
+        group.property.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        group.brokerName.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesBroker = brokerFilter === 'ALL' || group.brokerId === brokerFilter;
+      const matchesPeriod = (() => {
+        if (period === 'all') return true;
+        const dateStr = group.date || '';
+        if (!dateStr) return true;
+        const d = new Date(dateStr + 'T00:00:00');
+        if (isNaN(d.getTime())) return true;
+        const now = new Date();
+        if (period === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        if (period === 'prev_month') {
+          const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          return d.getMonth() === prev.getMonth() && d.getFullYear() === prev.getFullYear();
+        }
+        if (period === 'quarter') {
+          const q = Math.floor(now.getMonth() / 3);
+          return Math.floor(d.getMonth() / 3) === q && d.getFullYear() === now.getFullYear();
+        }
+        if (period === 'year') return d.getFullYear() === now.getFullYear();
+        if (period === 'custom') {
+          const start = startDate ? new Date(startDate + 'T00:00:00') : null;
+          const end = endDate ? new Date(endDate + 'T23:59:59') : null;
+          if (start && d < start) return false;
+          if (end && d > end) return false;
+          return true;
+        }
+        return true;
+      })();
+      return matchesStatus && matchesSearch && matchesBroker && matchesPeriod;
+    });
+  }, [groupedCommissions, statusFilter, searchTerm, brokerFilter, period, startDate, endDate]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -284,6 +387,19 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
         )}
       </div>
     );
+  };
+
+  const renderGroupStatusBadge = (groupStatus: string) => {
+    switch (groupStatus) {
+      case CommissionStatus.PAID:
+        return <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-emerald-100"><CheckCircle2 size={14} /> PAGO</span>;
+      case 'PARTIAL':
+        return <span className="bg-amber-50 text-amber-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-amber-100"><TrendingUp size={14} /> PARCIAL</span>;
+      case CommissionStatus.OVERDUE:
+        return <span className="bg-red-50 text-red-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-red-100"><AlertTriangle size={14} /> ATRASADO</span>;
+      default:
+        return <span className="bg-blue-50 text-blue-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-blue-100"><Clock size={14} /> PENDENTE</span>;
+    }
   };
 
   const handleOpenForecastModal = (comm: any) => {
@@ -587,102 +703,138 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredCommissions.map((comm, idx) => (
-                <tr key={`${comm.saleId}-${comm.brokerId}-${idx}`} className="hover:bg-gray-50/50 transition-colors group">
-                  <td className="px-5 py-4">{renderStatusBadge(comm)}</td>
-                  <td className="px-5 py-4">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-semibold text-gray-950">{comm.property}</span>
-                      <span className="text-[10px] text-gray-400 uppercase tracking-tight font-medium">
-                        #{comm.saleId.slice(0, 8).toUpperCase()} • {new Date(comm.date).toLocaleDateString('pt-BR')}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                      <div className="w-6 h-6 rounded-full bg-indigo-50 flex items-center justify-center text-[10px] text-indigo-600 font-bold">
-                        {comm.brokerName.charAt(0)}
-                      </div>
-                      <div className="flex flex-col ml-1">
-                        <span className="font-semibold text-gray-900 leading-none">{comm.brokerName}</span>
-                        {comm.role && (
-                          <span className="text-[10px] text-gray-400 font-medium mt-0.5">{comm.role}</span>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-5 py-4 font-semibold text-gray-950">{formatCurrency(comm.value)}</td>
-                  <td className="px-5 py-4">
-                    {comm.paymentDate ? (
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-sm text-gray-700">{new Date(comm.paymentDate).toLocaleDateString('pt-BR')}</span>
-                          {comm.receiptData && (
-                            <button 
-                              onClick={() => setViewingReceipt(comm.receiptData)}
-                              className="text-emerald-600 hover:text-emerald-700 transition-colors"
-                              title="Ver Comprovante"
-                            >
-                              <FileText size={14} />
-                            </button>
+              {filteredGroups.map((group) => {
+                const isExpanded = expandedGroups.has(group.key);
+                const isMulti = group.installments.length > 1;
+                return (
+                  <React.Fragment key={group.key}>
+                    <tr
+                      className={`hover:bg-gray-50/50 transition-colors ${isMulti ? 'cursor-pointer select-none' : ''}`}
+                      onClick={() => isMulti && toggleExpand(group.key)}
+                    >
+                      <td className="px-5 py-4">{renderGroupStatusBadge(group.groupStatus)}</td>
+                      <td className="px-5 py-4">
+                        <div className="flex flex-col">
+                          <span className="text-sm font-semibold text-gray-950">{group.property}</span>
+                          <span className="text-[10px] text-gray-400 uppercase tracking-tight font-medium">
+                            #{group.saleId.slice(0, 8).toUpperCase()} • {new Date(group.date).toLocaleDateString('pt-BR')}
+                            {isMulti && (
+                              <span className="ml-2 text-indigo-500 font-bold">
+                                {isExpanded ? '▲' : '▼'} {group.installments.length} parcelas
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-indigo-50 flex items-center justify-center text-[10px] text-indigo-600 font-bold">
+                            {group.brokerName.charAt(0)}
+                          </div>
+                          <div className="flex flex-col ml-1">
+                            <span className="font-semibold text-gray-900 text-sm leading-none">{group.brokerName}</span>
+                            {group.role && <span className="text-[10px] text-gray-400 font-medium mt-0.5">{group.role}</span>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-gray-950">{formatCurrency(group.totalValue)}</span>
+                          {isMulti && group.paidValue > 0 && (
+                            <span className="text-[10px] text-emerald-600 font-medium">Pago: {formatCurrency(group.paidValue)}</span>
+                          )}
+                          {isMulti && group.pendingValue > 0 && (
+                            <span className="text-[10px] text-gray-400 font-medium">Saldo: {formatCurrency(group.pendingValue)}</span>
                           )}
                         </div>
-                        <span className="text-[10px] text-emerald-600 font-bold uppercase">{comm.paymentMethod}</span>
-                      </div>
-                    ) : comm.forecastDate ? (
-                      <div className="flex flex-col">
-                        <span className="text-sm text-indigo-600 font-bold">{new Date(comm.forecastDate).toLocaleDateString('pt-BR')}</span>
-                        <span className="text-[10px] text-gray-400 font-bold uppercase flex items-center gap-1 mt-0.5">
-                          <Clock size={10} /> Previsão
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-sm text-gray-400">---</span>
-                    )}
-                  </td>
-                  <td className="px-5 py-4 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {isAdmin && comm.status !== CommissionStatus.PAID && (
-                        <button 
-                          onClick={() => handleOpenForecastModal(comm)}
-                          className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                          title="Editar Previsão"
-                        >
-                          <Calendar size={15} />
-                        </button>
-                      )}
-                      
-                      {isAdmin && comm.status !== CommissionStatus.PAID ? (
-                        <button 
-                          onClick={() => handleOpenPaymentModal(comm)}
-                          className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
-                          title="Concretizar Pagamento"
-                        >
-                          <DollarSign size={15} />
-                        </button>
-                      ) : (
-                        <div className="flex items-center justify-end gap-1">
-                           {comm.receiptData && (
-                            <button 
-                              onClick={() => setViewingReceipt(comm.receiptData)}
-                              className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all animate-none"
-                              title="Visualizar Comprovante"
-                            >
-                              <Eye size={15} />
-                            </button>
-                           )}
-                           <button className={`p-1.5 transition-all text-gray-300 ${comm.status === CommissionStatus.PAID ? 'hover:text-gray-500 hover:bg-gray-50 rounded-lg' : 'cursor-not-allowed'}`}>
-                             <ArrowUpRight size={15} />
-                           </button>
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                      </td>
+                      <td className="px-5 py-4">
+                        {isMulti ? (
+                          <span className="text-xs text-gray-400 italic">Clique para ver parcelas</span>
+                        ) : (() => {
+                          const comm = group.installments[0];
+                          return comm.paymentDate ? (
+                            <div className="flex flex-col">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-sm text-gray-700">{new Date(comm.paymentDate).toLocaleDateString('pt-BR')}</span>
+                                {comm.receiptData && (
+                                  <button onClick={e => { e.stopPropagation(); setViewingReceipt(comm.receiptData); }} className="text-emerald-600 hover:text-emerald-700" title="Ver Comprovante"><FileText size={14} /></button>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-emerald-600 font-bold uppercase">{comm.paymentMethod}</span>
+                            </div>
+                          ) : comm.forecastDate ? (
+                            <div className="flex flex-col">
+                              <span className="text-sm text-indigo-600 font-bold">{new Date(comm.forecastDate).toLocaleDateString('pt-BR')}</span>
+                              <span className="text-[10px] text-gray-400 font-bold uppercase flex items-center gap-1 mt-0.5"><Clock size={10} /> Previsão</span>
+                            </div>
+                          ) : <span className="text-sm text-gray-400">---</span>;
+                        })()}
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        {!isMulti && (() => {
+                          const comm = group.installments[0];
+                          return (
+                            <div className="flex items-center justify-end gap-1">
+                              {isAdmin && comm.status !== CommissionStatus.PAID && (
+                                <button onClick={e => { e.stopPropagation(); handleOpenForecastModal(comm); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Editar Previsão"><Calendar size={15} /></button>
+                              )}
+                              {isAdmin && comm.status !== CommissionStatus.PAID && (
+                                <button onClick={e => { e.stopPropagation(); handleOpenPaymentModal(comm); }} className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title="Registrar Pagamento"><DollarSign size={15} /></button>
+                              )}
+                              {comm.receiptData && (
+                                <button onClick={e => { e.stopPropagation(); setViewingReceipt(comm.receiptData); }} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Ver Comprovante"><Eye size={15} /></button>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                    </tr>
+
+                    {isMulti && isExpanded && group.installments.map((comm, i) => (
+                      <tr key={`${group.key}-${i}`} className="bg-indigo-50/30 border-l-4 border-indigo-200 hover:bg-indigo-50/60 transition-colors">
+                        <td className="px-5 py-3 pl-10">{renderStatusBadge(comm)}</td>
+                        <td className="px-5 py-3 pl-10">
+                          <span className="text-xs text-indigo-600 font-bold">
+                            Parcela {comm.installment_number ?? i + 1}/{comm.total_installments ?? group.installments.length}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3"></td>
+                        <td className="px-5 py-3 text-sm font-semibold text-gray-800">{formatCurrency(comm.value)}</td>
+                        <td className="px-5 py-3">
+                          {comm.paymentDate ? (
+                            <div className="flex flex-col">
+                              <span className="text-xs text-gray-700">{new Date(comm.paymentDate).toLocaleDateString('pt-BR')}</span>
+                              <span className="text-[10px] text-emerald-600 font-bold uppercase">{comm.paymentMethod}</span>
+                            </div>
+                          ) : comm.forecastDate ? (
+                            <div className="flex flex-col">
+                              <span className="text-xs text-indigo-600 font-bold">{new Date(comm.forecastDate).toLocaleDateString('pt-BR')}</span>
+                              <span className="text-[10px] text-gray-400 font-bold uppercase flex items-center gap-1"><Clock size={9} /> Previsão</span>
+                            </div>
+                          ) : <span className="text-xs text-gray-400">---</span>}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            {isAdmin && comm.status !== CommissionStatus.PAID && (
+                              <button onClick={e => { e.stopPropagation(); handleOpenForecastModal(comm); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Editar Previsão"><Calendar size={15} /></button>
+                            )}
+                            {isAdmin && comm.status !== CommissionStatus.PAID && (
+                              <button onClick={e => { e.stopPropagation(); handleOpenPaymentModal(comm); }} className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title="Registrar Pagamento"><DollarSign size={15} /></button>
+                            )}
+                            {comm.receiptData && (
+                              <button onClick={e => { e.stopPropagation(); setViewingReceipt(comm.receiptData); }} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Ver Comprovante"><Eye size={15} /></button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
-          {filteredCommissions.length === 0 && (
+          {filteredGroups.length === 0 && (
             <div className="p-16 text-center">
               <div className="bg-gray-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
                 <Wallet className="text-gray-300" size={40} />
