@@ -48,6 +48,10 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
   const [showCanceledSales, setShowCanceledSales] = useState(false);
   const [sortDateDir, setSortDateDir] = useState<'desc' | 'asc'>('desc');
 
+  const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false);
+  const [invoiceSale, setInvoiceSale] = useState<Sale | null>(null);
+  const [invoiceNumberInput, setInvoiceNumberInput] = useState('');
+
   // Lógica de Filtragem
   const filteredSales = useMemo(() => {
     let result = [...sales];
@@ -259,28 +263,88 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
   };
 
   const handleExportCSV = () => {
-    const headers = ["Data", "Imóvel", "Vendedor", "Comprador", "VGV", "Comissão Total", "NF Nº"];
-    const rows = filteredSales.map(s => [
-      s.saleDate || '',
-      (s.propertyAddress || '').replace(/,/g, ' '),
-      (s.sellerName || '').replace(/,/g, ' '),
-      (s.buyerName || '').replace(/,/g, ' '),
-      s.vgv.toString(),
-      s.totalCommissionValue.toString(),
-      s.invoiceNumber || (s.invoiceIssued ? 'Emitida' : 'Não emitida')
-    ]);
-    
-    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
-      + headers.join(",") + "\n"
-      + rows.map(e => e.join(",")).join("\n");
-      
-    const encodedUri = encodeURI(csvContent);
+    const headers = [
+      "Data",
+      "Imóvel",
+      "Comprador",
+      "CPF/CNPJ Comprador",
+      "Vendedor/Construtora",
+      "CPF/CNPJ Vendedor",
+      "VGV",
+      "% Comissão",
+      "Comissão Total",
+      "Corretores",
+      "NF Nº",
+      "Parcelas"
+    ];
+
+    const rows = filteredSales.map(s => {
+      const dateParts = (s.saleDate || '').split('-');
+      const dateFormatted = dateParts.length === 3
+        ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`
+        : s.saleDate || '';
+
+      const commissionPct = s.vgv > 0
+        ? ((s.totalCommissionValue / s.vgv) * 100).toFixed(2).replace('.', ',') + '%'
+        : '0%';
+
+      const brokers = (s.splits || [])
+        .map(sp => `${sp.brokerName} (${sp.role || 'Corretor'})`)
+        .join(' | ');
+
+      const installmentCount = Array.isArray(s.installments)
+        ? s.installments.length
+        : (typeof s.installments === 'number' ? s.installments : 0);
+
+      const installments = installmentCount > 1
+        ? `${installmentCount}x`
+        : 'À vista';
+
+      return [
+        dateFormatted,
+        `"${(s.propertyAddress || '').replace(/"/g, '')}"`,
+        `"${(s.buyerName || '').replace(/"/g, '')}"`,
+        s.buyer_cpf || '',
+        `"${(s.sellerName || '').replace(/"/g, '')}"`,
+        s.seller_cpf || '',
+        s.vgv.toFixed(2).replace('.', ','),
+        commissionPct,
+        s.totalCommissionValue.toFixed(2).replace('.', ','),
+        `"${brokers}"`,
+        s.invoiceNumber || (s.invoiceIssued ? 'Emitida' : 'Não emitida'),
+        installments
+      ];
+    });
+
+    const csvContent = "\uFEFF" + headers.join(";") + "\n"
+      + rows.map(r => r.join(";")).join("\n");
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `vendas_filtradas_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `vendas_contabilidade_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSaveInvoice = async () => {
+    if (!invoiceSale) return;
+    try {
+      await supabaseService.updateSale(
+        invoiceSale.id,
+        { invoiceIssued: true, invoiceNumber: invoiceNumberInput.trim() },
+        invoiceSale.splits as any
+      );
+      await onRefresh();
+      setIsInvoiceModalOpen(false);
+      setInvoiceSale(null);
+      setInvoiceNumberInput('');
+    } catch (err) {
+      alert('Erro ao registrar nota fiscal.');
+    }
   };
 
   return (
@@ -478,13 +542,13 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                   <td className="px-6 py-8">
                     <span className="text-sm font-semibold text-slate-700 block">{sale.buyerName || 'Não Informado'}</span>
                     <span className="text-[10px] text-slate-400 block tracking-wide mt-0.5">
-                      {sale.buyer_cpf ? sale.buyer_cpf : '***.***.021-**'}
+                      {sale.buyer_cpf || ''}
                     </span>
                   </td>
                   <td className="px-6 py-8">
                     <span className="text-sm font-semibold text-slate-700 block">{sale.sellerName || 'Não Informado'}</span>
                     <span className="text-[10px] text-slate-400 block tracking-wide mt-0.5">
-                      {sale.seller_cpf ? sale.seller_cpf : '05124311000186'}
+                      {sale.seller_cpf || ''}
                     </span>
                   </td>
                   <td className="px-6 py-8 whitespace-nowrap">
@@ -500,12 +564,20 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                   <td className="px-6 py-8">
                     {sale.invoiceIssued ? (
                       <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-emerald-100">
-                        <FileCheck size={11} /> Sim
+                        <FileCheck size={11} /> {sale.invoiceNumber ? `Nº ${sale.invoiceNumber}` : 'Sim'}
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1.5 bg-rose-50 text-rose-500 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-rose-100">
-                        <FileX size={11} /> Não
-                      </span>
+                      <button
+                        onClick={() => {
+                          setInvoiceSale(sale);
+                          setInvoiceNumberInput('');
+                          setIsInvoiceModalOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 bg-rose-50 text-rose-500 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border border-rose-100 hover:bg-rose-100 transition-all cursor-pointer"
+                        title="Registrar Nota Fiscal"
+                      >
+                        <FileX size={11} /> NÃO
+                      </button>
                     )}
                   </td>
                   <td className="px-6 py-8 text-right whitespace-nowrap">
@@ -745,6 +817,59 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                 className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isInvoiceModalOpen && invoiceSale && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-sm rounded-xl border border-gray-200 shadow-xl overflow-hidden animate-in zoom-in duration-200">
+            <div className="p-5 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">Registrar Nota Fiscal</h3>
+                <p className="text-xs text-gray-500 mt-0.5 truncate max-w-[220px]">{invoiceSale.propertyAddress}</p>
+              </div>
+              <button
+                onClick={() => { setIsInvoiceModalOpen(false); setInvoiceSale(null); }}
+                className="bg-gray-50 p-1.5 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-indigo-50/50 p-4 rounded-lg border border-indigo-100">
+                <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-1">VGV</p>
+                <p className="text-lg font-black text-gray-900">
+                  {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(invoiceSale.vgv)}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1">
+                  Número da NFS-e (opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: 265"
+                  value={invoiceNumberInput}
+                  onChange={e => setInvoiceNumberInput(e.target.value)}
+                  className="w-full px-4 h-[38px] bg-white border border-gray-200 rounded-lg outline-none text-sm font-semibold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                />
+              </div>
+            </div>
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex gap-3">
+              <button
+                onClick={() => { setIsInvoiceModalOpen(false); setInvoiceSale(null); }}
+                className="flex-1 h-[38px] text-gray-500 font-semibold hover:text-gray-700 transition-colors text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveInvoice}
+                className="flex-1 h-[38px] bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-all text-sm"
+              >
+                Confirmar NF Emitida
               </button>
             </div>
           </div>

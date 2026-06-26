@@ -87,34 +87,91 @@ const Reports: React.FC<ReportsProps> = ({ sales, team, currentUser }) => {
 
   // 2. Agregação por Corretor
   const brokerPerformance = useMemo(() => {
-    const map: Record<string, any> = {};
-    
-    // Inicializa com todos os membros da equipe para mostrar mesmo os que não venderam
-    team.forEach(u => {
-      if (u.role === UserRole.BROKER) {
-        map[u.id] = { name: u.name, vgv: 0, comm: 0, salesCount: 0 };
-      }
-    });
+    const map: Record<string, { name: string; vgv: number; comm: number; salesCount: number }> = {};
 
+    // Inicializar com todos que têm brokerId nos splits das vendas filtradas
+    // Isso inclui BROKER, ADMIN e qualquer participante com nome
     filteredData.forEach(sale => {
       sale.splits.forEach(split => {
-        if (map[split.brokerId]) {
-          map[split.brokerId].vgv += (sale.vgv * (split.percentage / 100));
-          map[split.brokerId].comm += split.calculatedValue;
-          map[split.brokerId].salesCount += 1;
+        const id = split.brokerId || split.brokerName;
+        if (!id) return;
+        if (!map[id]) {
+          map[id] = {
+            name: split.brokerName,
+            vgv: 0,
+            comm: 0,
+            salesCount: 0,
+          };
         }
       });
     });
 
-    return Object.values(map).sort((a: any, b: any) => b.vgv - a.vgv);
-  }, [filteredData, team]);
+    // Agregar VGV total da venda (não proporcional) e comissão real do split
+    // salesCount = vendas únicas (deduplicado por saleId)
+    filteredData.forEach(sale => {
+      const seenBrokers = new Set<string>();
+      sale.splits.forEach(split => {
+        const id = split.brokerId || split.brokerName;
+        if (!id || !map[id]) return;
 
-  // 3. Agregação Mensal (MOCK de meses anteriores para o gráfico de linha ficar bonito)
-  const monthlyTrend = [
-    { name: 'Set', vgv: 850000, comm: 51000 },
-    { name: 'Out', vgv: 1200000, comm: 72000 },
-    { name: 'Nov', vgv: filteredData.reduce((acc, s) => acc + s.vgv, 0), comm: filteredData.reduce((acc, s) => acc + s.totalCommissionValue, 0) },
-  ];
+        // Comissão: soma o valor calculado do split
+        map[id].comm += split.calculatedValue || 0;
+
+        // VGV: conta o VGV total da venda uma vez por corretor
+        if (!seenBrokers.has(id)) {
+          map[id].vgv += sale.vgv || 0;
+          map[id].salesCount += 1;
+          seenBrokers.add(id);
+        }
+      });
+    });
+
+    return Object.values(map).sort((a, b) => b.vgv - a.vgv);
+  }, [filteredData]);
+
+  // 3. Agregação Mensal real por mês/ano
+  const monthlyTrend = useMemo(() => {
+    const map: Record<string, { name: string; sortKey: string; vgv: number; comm: number }> = {};
+
+    filteredData.forEach(sale => {
+      const d = new Date(sale.saleDate + 'T00:00:00');
+      if (isNaN(d.getTime())) return;
+      const year = d.getFullYear();
+      const month = d.getMonth();
+      const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+      const label = d.toLocaleString('pt-BR', { month: 'short', year: '2-digit' });
+      if (!map[key]) map[key] = { name: label, sortKey: key, vgv: 0, comm: 0 };
+      map[key].vgv += sale.vgv || 0;
+      map[key].comm += sale.totalCommissionValue || 0;
+    });
+
+    return Object.values(map).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+  }, [filteredData]);
+
+  const conversionRate = useMemo(() => {
+    const allSplits = filteredData.flatMap(s => s.splits);
+    if (!allSplits.length) return 0;
+    const paid = allSplits.filter(sp => sp.status === CommissionStatus.PAID).length;
+    return Math.round((paid / allSplits.length) * 100);
+  }, [filteredData]);
+
+  const ticketComparison = useMemo(() => {
+    const now = new Date();
+    const thisMonth = filteredData.filter(s => {
+      const d = new Date(s.saleDate + 'T00:00:00');
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    });
+    const prevMonth = filteredData.filter(s => {
+      const d = new Date(s.saleDate + 'T00:00:00');
+      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      return d.getMonth() === prev.getMonth() && d.getFullYear() === prev.getFullYear();
+    });
+    const avgThis = thisMonth.length ? thisMonth.reduce((a, s) => a + s.vgv, 0) / thisMonth.length : 0;
+    const avgPrev = prevMonth.length ? prevMonth.reduce((a, s) => a + s.vgv, 0) / prevMonth.length : 0;
+    if (!avgPrev) return null;
+    const pct = Math.round(((avgThis - avgPrev) / avgPrev) * 100);
+    return pct;
+  }, [filteredData]);
 
   const handleExportPDF = () => {
     window.print();
@@ -229,9 +286,12 @@ const Reports: React.FC<ReportsProps> = ({ sales, team, currentUser }) => {
             <p className="text-xl font-black text-slate-800">
               {formatCurrency(filteredData.length ? filteredData.reduce((acc, s) => acc + s.vgv, 0) / filteredData.length : 0)}
             </p>
-            <p className="text-[10px] text-emerald-500 font-bold flex items-center gap-1 mt-1">
-              <ArrowUpRight size={12} /> +4.2% vs mês ant.
-            </p>
+            {ticketComparison !== null && (
+              <p className={`text-[10px] font-bold flex items-center gap-1 mt-1 ${ticketComparison >= 0 ? 'text-emerald-500' : 'text-red-400'}`}>
+                {ticketComparison >= 0 ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                {ticketComparison >= 0 ? '+' : ''}{ticketComparison}% vs mês ant.
+              </p>
+            )}
           </div>
         </div>
 
@@ -241,7 +301,7 @@ const Reports: React.FC<ReportsProps> = ({ sales, team, currentUser }) => {
           </div>
           <div>
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">Conversão de Recebimento</p>
-            <p className="text-xl font-black text-slate-800">88.5%</p>
+            <p className="text-xl font-black text-slate-800">{conversionRate}%</p>
             <p className="text-[10px] text-slate-400 font-bold flex items-center gap-1 mt-1">
               Meta da Agência: 95%
             </p>
