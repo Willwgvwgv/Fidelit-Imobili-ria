@@ -255,7 +255,6 @@ export const supabaseService = {
       forecast_date: s.forecastDate || null,
       installment_number: s.installment_number ?? 1,
       total_installments: s.total_installments ?? 1,
-      agency_id: (s as any).agencyId || (s as any).agency_id || sale.agencyId || (sale as any).agency_id || '11111111-1111-1111-1111-111111111111',
       payment_date: s.paymentDate || null,
       payment_method: s.paymentMethod || null,
       receipt_data: s.receiptData || null
