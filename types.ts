@@ -52,6 +52,10 @@ export interface Sale {
   agencyId: string; // Map to agency_id
   saleDate: string; // Map to sale_date
   propertyAddress: string; // Map to property_address
+  propertyCity: string;
+  propertyCep: string;
+  propertyUf: string;
+  propertyType: 'urbano' | 'rural';
   buyerName: string; // Map to buyer_name
   sellerName: string; // Map to seller_name
   vgv: number;

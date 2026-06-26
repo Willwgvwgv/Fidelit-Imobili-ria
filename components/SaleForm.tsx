@@ -79,6 +79,10 @@ export const SaleForm: React.FC<SaleFormProps> = ({
 }) => {
   // Main fields
   const [propertyAddress, setPropertyAddress] = useState('');
+  const [propertyCity, setPropertyCity] = useState('');
+  const [propertyCep, setPropertyCep] = useState('');
+  const [propertyUf, setPropertyUf] = useState('GO');
+  const [propertyType, setPropertyType] = useState<'urbano' | 'rural'>('urbano');
   const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   
@@ -114,6 +118,10 @@ export const SaleForm: React.FC<SaleFormProps> = ({
   useEffect(() => {
     if (editingSale) {
       setPropertyAddress(editingSale.propertyAddress || '');
+      setPropertyCity(editingSale.propertyCity || '');
+      setPropertyCep(editingSale.propertyCep || '');
+      setPropertyUf(editingSale.propertyUf || 'GO');
+      setPropertyType(editingSale.propertyType || 'urbano');
       setSaleDate(editingSale.saleDate || new Date().toISOString().split('T')[0]);
       setNotes(editingSale.notes || '');
       setBuyerName(editingSale.buyerName || '');
@@ -186,6 +194,10 @@ export const SaleForm: React.FC<SaleFormProps> = ({
           role: SplitRole.AGENCY
         }
       ]);
+      setPropertyCity('');
+      setPropertyCep('');
+      setPropertyUf('GO');
+      setPropertyType('urbano');
       setHasLoadedEditingSale(true);
     }
   }, [editingSale]);
@@ -541,6 +553,10 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       agencyId,
       saleDate,
       propertyAddress,
+      propertyCity,
+      propertyCep,
+      propertyUf,
+      propertyType,
       buyerName,
       sellerName,
       vgv,
@@ -657,6 +673,64 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                   className="w-full px-3 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-medium text-slate-800 shadow-sm"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Cidade, CEP, UF, Tipo */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#1e3a5f] block">
+                Município *
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: Goiânia"
+                value={propertyCity}
+                onChange={e => setPropertyCity(e.target.value)}
+                className="w-full px-3 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-medium text-slate-800 shadow-sm"
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#1e3a5f] block">
+                CEP *
+              </label>
+              <input
+                type="text"
+                placeholder="Ex: 74000-000"
+                value={propertyCep}
+                onChange={e => setPropertyCep(e.target.value)}
+                className="w-full px-3 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-medium text-slate-800 shadow-sm"
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#1e3a5f] block">
+                UF *
+              </label>
+              <select
+                value={propertyUf}
+                onChange={e => setPropertyUf(e.target.value)}
+                className="w-full px-3 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-medium text-slate-800 shadow-sm"
+                required
+              >
+                {['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'].map(uf => (
+                  <option key={uf} value={uf}>{uf}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase tracking-widest text-[#1e3a5f] block">
+                Tipo de Imóvel *
+              </label>
+              <select
+                value={propertyType}
+                onChange={e => setPropertyType(e.target.value as 'urbano' | 'rural')}
+                className="w-full px-3 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-medium text-slate-800 shadow-sm"
+              >
+                <option value="urbano">Urbano</option>
+                <option value="rural">Rural</option>
+              </select>
             </div>
           </div>
 

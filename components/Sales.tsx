@@ -21,6 +21,7 @@ import {
 import { Sale, User, UserRole, CommissionStatus, BrokerSplit, SplitRole } from '../types';
 import { supabaseService } from '../services/supabaseService';
 import { SaleForm } from './SaleForm';
+import * as XLSX from 'xlsx';
 
 interface SalesProps {
   sales: Sale[];
@@ -330,6 +331,75 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
     URL.revokeObjectURL(url);
   };
 
+  const handleExportXLSX = () => {
+    const headers = [
+      'Intermediação da venda',
+      'Data assinatura',
+      'Nº Nota fiscal',
+      'CPF/CNPJ Vendedor',
+      'Nome do Vendedor',
+      'Valor da Venda',
+      'Urbano',
+      'Rural',
+      'CPF/CNPJ Comprador',
+      'Nome do Comprador',
+      'Valor da comissão',
+      'Endereço do Imóvel',
+      'Município',
+      'CEP',
+      'UF',
+    ];
+
+    const rows = filteredSales.map(s => {
+      const dateParts = (s.saleDate || '').split('-');
+      const dateFormatted = dateParts.length === 3
+        ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`
+        : s.saleDate || '';
+
+      return [
+        'Fidelité Negócios Imobiliários',
+        dateFormatted,
+        s.invoiceNumber || '',
+        s.seller_cpf || '',
+        s.sellerName || '',
+        s.vgv,
+        s.propertyType === 'urbano' ? true : false,
+        s.propertyType === 'rural' ? true : false,
+        s.buyer_cpf || '',
+        s.buyerName || '',
+        s.totalCommissionValue,
+        s.propertyAddress || '',
+        s.propertyCity || '',
+        s.propertyCep || '',
+        s.propertyUf || '',
+      ];
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+    ws['!cols'] = [
+      { wch: 32 }, // Intermediação
+      { wch: 14 }, // Data
+      { wch: 12 }, // NF
+      { wch: 20 }, // CPF Vendedor
+      { wch: 30 }, // Nome Vendedor
+      { wch: 16 }, // Valor Venda
+      { wch: 8  }, // Urbano
+      { wch: 8  }, // Rural
+      { wch: 20 }, // CPF Comprador
+      { wch: 30 }, // Nome Comprador
+      { wch: 16 }, // Valor Comissão
+      { wch: 50 }, // Endereço
+      { wch: 25 }, // Município
+      { wch: 12 }, // CEP
+      { wch: 5  }, // UF
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Vendas');
+    XLSX.writeFile(wb, `vendas_contabilidade_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   const handleSaveInvoice = async () => {
     if (!invoiceSale) return;
     try {
@@ -442,9 +512,9 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
             </div>
 
             <button 
-              onClick={handleExportCSV}
+              onClick={handleExportXLSX}
               className="flex items-center justify-center p-2.5 bg-white border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-55 hover:text-slate-800 transition-all shadow-sm"
-              title="Exportar Listados"
+              title="Exportar Planilha Excel"
             >
               <Download size={18} />
             </button>
