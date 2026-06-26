@@ -243,8 +243,19 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
     setEditingSale(null);
   };
 
-  const confirmDeleteSale = () => {
-    setSaleToDelete(null);
+  const confirmDeleteSale = async () => {
+    if (!saleToDelete) return;
+    try {
+      const { error } = await supabaseService.deleteSale(saleToDelete);
+      if (!error) {
+        await onRefresh();
+        setSaleToDelete(null);
+      } else {
+        alert('Erro ao excluir venda.');
+      }
+    } catch (err) {
+      alert('Erro ao excluir venda.');
+    }
   };
 
   const handleExportCSV = () => {

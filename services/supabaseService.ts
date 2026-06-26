@@ -274,6 +274,15 @@ export const supabaseService = {
     return true;
   },
 
+  async deleteSale(saleId: string): Promise<{ error: any }> {
+    if (!supabase) return { error: new Error('Supabase not initialized') };
+    const { error } = await supabase
+      .from('sales')
+      .delete()
+      .eq('id', saleId);
+    return { error };
+  },
+
   // Update commission status
   async updateSplitStatus(
     splitId: string, 
