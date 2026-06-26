@@ -131,7 +131,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
 
   // KPIs baseados nos dados de vendas do sistema (totalizadores reais combinando com o Comissone Real)
   const kpis = useMemo(() => {
-    const totalAgencyComm = allActiveSales.reduce((acc, sale) => {
+    const totalAgencyComm = filteredSales.reduce((acc, sale) => {
       const agencySplits = (sale.splits || []).filter(split => 
         !split.brokerId || 
         split.brokerId === 'AGENCY' || 
@@ -141,9 +141,9 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
       return acc + agencySplits.reduce((sum, sp) => sum + sp.calculatedValue, 0);
     }, 0);
 
-    const totalComm = allActiveSales.reduce((acc, s) => acc + s.totalCommissionValue, 0);
-    const invoicePendingCount = allActiveSales.filter(s => !s.invoiceIssued).length;
-    const totalSalesCount = allActiveSales.length;
+    const totalComm = filteredSales.reduce((acc, s) => acc + s.totalCommissionValue, 0);
+    const invoicePendingCount = filteredSales.filter(s => !s.invoiceIssued).length;
+    const totalSalesCount = filteredSales.length;
 
     return {
       totalAgencyComm,
@@ -151,7 +151,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
       invoicePendingCount,
       totalSalesCount
     };
-  }, [allActiveSales]);
+  }, [filteredSales]);
 
   // Estado para Nova Venda / Edição
   const [newSale, setNewSale] = useState<Partial<Sale>>({
