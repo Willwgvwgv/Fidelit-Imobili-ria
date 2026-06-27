@@ -37,6 +37,7 @@ import {
   Star,
   Pencil,
   Sparkles,
+  Zap,
   X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -230,6 +231,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [selectedImportedIndex, setSelectedImportedIndex] = useState<number | null>(null);
   const [selectedSystemTxId, setSelectedSystemTxId] = useState<string | null>(null);
   const [matchedPairs, setMatchedPairs] = useState<Array<{ importedIdx: number, systemId: string }>>([]);
+  const [autoMatchScore, setAutoMatchScore] = useState<number | null>(null);
   const [quickCategoryId, setQuickCategoryId] = useState<string>('');
   const [quickAccountId, setQuickAccountId] = useState<string>('');
   const [quickDescription, setQuickDescription] = useState<string>('');
@@ -1092,7 +1094,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
   };
 
-  const computeAutoMatch = (importedItem: any, systemTxs: FinancialTransaction[]) => {
+  const computeAutoMatch = (importedItem: any, systemTxs: FinancialTransaction[]): { id: string; score: number } | null => {
     if (!importedItem || systemTxs.length === 0) return null;
 
     let bestId: string | null = null;
@@ -1132,7 +1134,55 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       }
     });
 
-    return bestId;
+    return bestId ? { id: bestId, score: bestScore } : null;
+  };
+
+  const handleAutoConciliateAll = async () => {
+    const pendingItems = reconciliationItems.filter(item => !item.matched);
+    if (pendingItems.length === 0) {
+      showToast('Nenhum item pendente para conciliar.', 'error');
+      return;
+    }
+
+    let matchCount = 0;
+    const updatedItems = [...reconciliationItems];
+
+    for (let i = 0; i < updatedItems.length; i++) {
+      if (updatedItems[i].matched) continue;
+
+      const suggested = computeAutoMatch(
+        updatedItems[i],
+        transactions.filter(t => !(t as any).reconciled && !(t as any).matched)
+      );
+
+      if (suggested && suggested.score >= 85) {
+        // Parear localmente
+        updatedItems[i] = { ...updatedItems[i], matched: true, matchedTxId: suggested.id };
+
+        // Persistir no banco
+        if (updatedItems[i].id) {
+          await supabaseService.matchReconciliationItem(updatedItems[i].id, suggested.id);
+        }
+
+        // Atualizar transação local como paga
+        setTransactions(prev =>
+          prev.map(t => t.id === suggested.id
+            ? { ...t, status: TransactionStatus.PAID, payment_date: updatedItems[i].date }
+            : t
+          )
+        );
+
+        matchCount++;
+      }
+    }
+
+    setReconciliationItems(updatedItems);
+
+    if (matchCount > 0) {
+      showToast(`${matchCount} item(s) conciliado(s) automaticamente!`, 'success');
+    } else {
+      showToast('Nenhuma correspondência com alta confiança encontrada.', 'error');
+    }
   };
 
   const handleAutoConciliation = () => {
@@ -1966,6 +2016,16 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             
             <div className="flex items-center gap-3">
               {importedFile && (
+                <button
+                  onClick={handleAutoConciliateAll}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                  title="Conciliar automaticamente itens com alta confiança (≥85%)"
+                >
+                  <Zap size={14} />
+                  Conciliar Automaticamente
+                </button>
+              )}
+              {importedFile && (
                 <button 
                   onClick={handleAutoConciliation}
                   className="flex items-center gap-2 bg-emerald-600 text-white rounded-xl px-4 py-2 text-xs font-bold hover:bg-emerald-700 transition-all shadow-md cursor-pointer"
@@ -2033,11 +2093,17 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         onClick={() => {
                           setSelectedImportedIndex(idx);
                           setSelectedSystemTxId(null);
+                          setAutoMatchScore(null);
                           const suggested = computeAutoMatch(
                             reconciliationItems[idx],
                             transactions
                           );
-                          if (suggested) setSelectedSystemTxId(suggested);
+                          if (suggested) {
+                            setSelectedSystemTxId(suggested.id);
+                            setAutoMatchScore(suggested.score);
+                          } else {
+                            setAutoMatchScore(null);
+                          }
                         }}
                         className={`p-4 flex flex-col justify-between cursor-pointer transition-all ${
                           item.matched 
@@ -2124,7 +2190,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               return (
                                 <div 
                                   key={tx.id}
-                                  onClick={() => setSelectedSystemTxId(tx.id)}
+                                  onClick={() => {
+                                    setSelectedSystemTxId(tx.id);
+                                    setAutoMatchScore(null);
+                                  }}
                                   className={`p-3 bg-white rounded-xl border cursor-pointer transition-all flex items-center justify-between gap-3 ${
                                     isChecked 
                                       ? 'border-blue-500 ring-2 ring-blue-50 bg-blue-50/10' 
@@ -2173,6 +2242,23 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 manualCompatibilityScore >= 80 ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
                               }`}>{manualCompatibilityScore}%</span>
                             </div>
+
+                            {autoMatchScore !== null && selectedSystemTxId && (
+                              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold mb-3 ${
+                                autoMatchScore >= 85
+                                  ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                  : autoMatchScore >= 60
+                                  ? 'bg-amber-50 text-amber-600 border border-amber-100'
+                                  : 'bg-gray-50 text-gray-500 border border-gray-200'
+                              }`}>
+                                {autoMatchScore >= 85 ? '🟢' : autoMatchScore >= 60 ? '🟡' : '🔴'}
+                                {autoMatchScore >= 85
+                                  ? `Alta confiança — ${autoMatchScore}%`
+                                  : autoMatchScore >= 60
+                                  ? `Possível correspondência — ${autoMatchScore}%`
+                                  : `Verificar manualmente — ${autoMatchScore}%`}
+                              </div>
+                            )}
                             <button 
                               onClick={handlePairReconciliation}
                               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black text-xs py-2.5 rounded-xl shadow-md cursor-pointer text-center"
@@ -2260,7 +2346,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     return (
                       <div 
                         key={tx.id} 
-                        onClick={() => setSelectedSystemTxId(tx.id)}
+                        onClick={() => {
+                          setSelectedSystemTxId(tx.id);
+                          setAutoMatchScore(null);
+                        }}
                         className={`p-4 flex flex-col justify-between cursor-pointer transition-all ${
                           isSelected 
                             ? 'bg-blue-50/80 border-l-4 border-blue-500 shadow-inner' 
