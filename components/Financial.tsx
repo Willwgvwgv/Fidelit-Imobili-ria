@@ -238,7 +238,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [editingCategory, setEditingCategory] = useState<FinancialCategory | null>(null);
 
   // Extrato dynamic states
-  const [currentPeriod, setCurrentPeriod] = useState<Date>(new Date(2026, 3, 1)); // Default: Abril de 2026
+  const [currentPeriod, setCurrentPeriod] = useState<Date>(new Date());
   const [kpiFilter, setKpiFilter] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
@@ -451,14 +451,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   useEffect(() => {
     if (activeView === 'financial-conciliacao') {
-      setImportedFile(null);
-      setReconciliationItems([]);
-      setSelectedImportedIndex(null);
-      setSelectedSystemTxId(null);
-      setMatchedPairs([]);
+      supabaseService.getReconciliationItems().then(items => {
+        if (items.length > 0) {
+          setReconciliationItems(items);
+          setSelectedImportedIndex(null);
+        }
+      });
     }
   }, [activeView]);
-
   // Compute stats dynamically for current period (selected month/year)
   const stats = useMemo(() => {
     const todayStr = getLocalTodayStr();
@@ -904,6 +904,35 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         });
       }
     }
+
+    // Estratégia 2: OFX sem tags de fechamento (Sicoob, Bradesco antigo, BB)
+    if (parsed.length === 0) {
+      const blocks = text.split(/<STMTTRN>/i).slice(1);
+      for (const block of blocks) {
+        const dtpostedMatch = /<DTPOSTED>(\d{8})/i.exec(block);
+        const memoMatch = /<MEMO>([^<\r\n]+)/i.exec(block);
+        const nameMatch = /<NAME>([^<\r\n]+)/i.exec(block);
+        const trnamtMatch = /<TRNAMT>([^<\r\n]+)/i.exec(block);
+        const fitidMatch = /<FITID>([^<\r\n]+)/i.exec(block);
+
+        if (dtpostedMatch && trnamtMatch) {
+          const rawDate = dtpostedMatch[1];
+          const dateStr = `${rawDate.substring(0,4)}-${rawDate.substring(4,6)}-${rawDate.substring(6,8)}`;
+          const desc = memoMatch ? memoMatch[1].trim() : (nameMatch ? nameMatch[1].trim() : 'Transação Bancária');
+          const rawAmt = parseFloat(trnamtMatch[1].trim());
+          const amount = Math.abs(rawAmt);
+          const type = rawAmt < 0 ? TransactionType.EXPENSE : TransactionType.INCOME;
+          parsed.push({
+            id: fitidMatch ? `ext-${fitidMatch[1]}` : `ext-${Math.random().toString(36).substr(2,9)}`,
+            date: dateStr,
+            description: desc,
+            amount,
+            type,
+            matched: false
+          });
+        }
+      }
+    }
     
     if (parsed.length === 0) {
       const dtMatches = [...text.matchAll(/<DTPOSTED>(\d{8})/gi)];
@@ -952,6 +981,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       if (parsed.length > 0) {
         setImportedFile(file.name);
         setReconciliationItems(parsed);
+        supabaseService.saveReconciliationItems(
+          parsed.map((item: any) => ({
+            statement_date: item.date,
+            description: item.description,
+            amount: item.amount,
+            type: item.type,
+            external_id: item.id.startsWith('ext-') ? item.id : undefined,
+          }))
+        ).then(() => {
+          supabaseService.getReconciliationItems().then(dbItems => {
+            if (dbItems.length > 0) {
+              setReconciliationItems(dbItems);
+            }
+          });
+        });
         setSelectedImportedIndex(0);
         setSelectedSystemTxId(null);
         showToast(`${parsed.length} lançamentos extraídos do extrato bancário!`, 'success');
@@ -960,20 +1004,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       }
     };
     reader.readAsText(file);
-  };
-
-  // Open OFX or CSV statement template
-  const handleBankfileImport = () => {
-    setImportedFile('extrato_demonstrativo_abril_2026.ofx');
-    setReconciliationItems([
-      { id: 'ext-demo-1', date: '2026-04-10', description: 'CRED PIX LOTEAMENTO SOL', amount: 35000, type: TransactionType.INCOME, matched: false },
-      { id: 'ext-demo-2', date: '2026-04-15', description: 'DEB PAGAMENTO GOOGLE ADS', amount: 4800, type: TransactionType.EXPENSE, matched: false },
-      { id: 'ext-demo-3', date: '2026-04-20', description: 'DEB TARIFA MENSALIDADE CONTA', amount: 75, type: TransactionType.EXPENSE, matched: false },
-      { id: 'ext-demo-4', date: '2026-04-22', description: 'CRED INFRAESTRUTURA REF', amount: 6200, type: TransactionType.INCOME, matched: false }
-    ]);
-    setSelectedImportedIndex(0);
-    setSelectedSystemTxId(null);
-    showToast('Extrato demonstrativo carregado com sucesso!', 'success');
   };
 
   // Perform a reconciliation pairing
@@ -988,6 +1018,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       
       setMatchedPairs(prev => [...prev, { importedIdx: selectedImportedIndex, systemId: selectedSystemTxId }]);
       setReconciliationItems(prev => prev.map((item, idx) => idx === selectedImportedIndex ? { ...item, matched: true, matchedTxId: selectedSystemTxId } : item));
+      const reconciledItem = reconciliationItems[selectedImportedIndex];
+      if (reconciledItem?.id) {
+        supabaseService.matchReconciliationItem(reconciledItem.id, selectedSystemTxId);
+      }
       setTransactions(prev => prev.map(t => t.id === selectedSystemTxId ? { ...t, status: TransactionStatus.PAID, payment_date: imported.date } : t));
 
       showToast('Conciliação realizada e lançamento liquidado!', 'success');
@@ -1025,6 +1059,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       if (result) {
         setMatchedPairs(prev => [...prev, { importedIdx: selectedImportedIndex, systemId: result.id }]);
         setReconciliationItems(prev => prev.map((item, idx) => idx === selectedImportedIndex ? { ...item, matched: true, matchedTxId: result.id } : item));
+        const quickItem = reconciliationItems[selectedImportedIndex];
+        if (quickItem?.id && result.id) {
+          supabaseService.matchReconciliationItem(quickItem.id, result.id);
+        }
         setTransactions(prev => [result, ...prev]);
         showToast('Lançamento criado e conciliado com sucesso!', 'success');
       } else {
@@ -1036,6 +1074,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         };
         setMatchedPairs(prev => [...prev, { importedIdx: selectedImportedIndex, systemId: mockId }]);
         setReconciliationItems(prev => prev.map((item, idx) => idx === selectedImportedIndex ? { ...item, matched: true, matchedTxId: mockId } : item));
+        const quickItem = reconciliationItems[selectedImportedIndex];
+        if (quickItem?.id) {
+          supabaseService.matchReconciliationItem(quickItem.id, mockId);
+        }
         setTransactions(prev => [mockTx, ...prev]);
         showToast('Lançamento criado (local) e conciliado com sucesso!', 'success');
       }
@@ -1048,6 +1090,49 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     } finally {
       setLoading(false);
     }
+  };
+
+  const computeAutoMatch = (importedItem: any, systemTxs: FinancialTransaction[]) => {
+    if (!importedItem || systemTxs.length === 0) return null;
+
+    let bestId: string | null = null;
+    let bestScore = 0;
+
+    systemTxs.forEach(tx => {
+      // Ignorar apenas se já conciliada
+      const jasConciliada = (tx as any).reconciled === true || (tx as any).matched === true;
+      if (jasConciliada) return;
+      let score = 0;
+
+      // Peso 60% — valor igual (tolerância 1 centavo)
+      if (Math.abs(tx.amount - importedItem.amount) < 0.01) score += 60;
+      else if (importedItem.amount > 0 && Math.abs(tx.amount - importedItem.amount) / importedItem.amount < 0.05) score += 30;
+
+      // Peso 30% — data próxima (até 3 dias)
+      // Usar o campo de data real de FinancialTransaction
+      const txDateStr = (tx as any).due_date || (tx as any).date || (tx as any).transaction_date || '';
+      if (txDateStr) {
+        const txDate = new Date(txDateStr + 'T00:00:00');
+        const impDate = new Date(importedItem.date + 'T00:00:00');
+        const diffDays = Math.abs((txDate.getTime() - impDate.getTime()) / 86400000);
+        if (diffDays === 0) score += 30;
+        else if (diffDays <= 1) score += 20;
+        else if (diffDays <= 3) score += 10;
+      }
+
+      // Peso 10% — palavras em comum na descrição (mínimo 4 chars)
+      const impWords = importedItem.description.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
+      const txWords = tx.description.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
+      const common = impWords.filter((w: string) => txWords.includes(w));
+      if (common.length > 0) score += Math.min(10, common.length * 5);
+
+      if (score > bestScore && score >= 60) {
+        bestScore = score;
+        bestId = tx.id;
+      }
+    });
+
+    return bestId;
   };
 
   const handleAutoConciliation = () => {
@@ -1924,19 +2009,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               </div>
               <p className="font-black text-slate-700 text-sm relative z-20 pointer-events-none">Arraste seu extrato bancário aqui ou clique para selecionar</p>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2 relative z-20 pointer-events-none">Suporta formatos OFX e CSV de qualquer banco</p>
-              <div className="mt-6 flex gap-3 relative z-20">
-                <button 
-                  type="button" 
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleBankfileImport();
-                  }}
-                  className="px-4 py-2.5 bg-slate-900 text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition-all shadow-sm cursor-pointer"
-                >
-                  Carregar Extrato de Demonstração
-                </button>
-              </div>
+
             </div>
           ) : (
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
@@ -1957,7 +2030,15 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     return (
                       <div 
                         key={item.id || idx} 
-                        onClick={() => setSelectedImportedIndex(idx)}
+                        onClick={() => {
+                          setSelectedImportedIndex(idx);
+                          setSelectedSystemTxId(null);
+                          const suggested = computeAutoMatch(
+                            reconciliationItems[idx],
+                            transactions
+                          );
+                          if (suggested) setSelectedSystemTxId(suggested);
+                        }}
                         className={`p-4 flex flex-col justify-between cursor-pointer transition-all ${
                           item.matched 
                             ? 'bg-emerald-50/20 opacity-65 border-l-4 border-emerald-500' 

@@ -480,6 +480,90 @@ export const supabaseService = {
     return !error;
   },
 
+  // Salvar itens do extrato importado
+  async saveReconciliationItems(
+    items: Array<{
+      statement_date: string;
+      description: string;
+      amount: number;
+      type: string;
+      external_id?: string;
+      account_id?: string;
+    }>
+  ): Promise<boolean> {
+    if (!supabase) return false;
+    const agencyId = '11111111-1111-1111-1111-111111111111';
+    const rows = items.map(item => ({
+      agency_id: agencyId,
+      account_id: item.account_id || null,
+      statement_date: item.statement_date,
+      description: item.description,
+      amount: item.amount,
+      type: item.type,
+      external_id: item.external_id || null,
+      status: 'PENDING',
+    }));
+    // upsert por agency_id + external_id para evitar duplicar FITID
+    const { error } = await supabase
+      .from('financial_reconciliations')
+      .upsert(rows, { onConflict: 'agency_id,external_id', ignoreDuplicates: true });
+    if (error) { console.error('saveReconciliationItems:', error); return false; }
+    return true;
+  },
+
+  // Buscar itens pendentes de conciliação
+  async getReconciliationItems(): Promise<any[]> {
+    if (!supabase) return [];
+    const agencyId = '11111111-1111-1111-1111-111111111111';
+    const { data, error } = await supabase
+      .from('financial_reconciliations')
+      .select('*')
+      .eq('agency_id', agencyId)
+      .neq('status', 'IGNORED')
+      .order('statement_date', { ascending: false });
+    if (error) { console.error('getReconciliationItems:', error); return []; }
+    return (data || []).map(r => ({
+      id: r.id,
+      date: r.statement_date,
+      description: r.description,
+      amount: r.amount,
+      type: r.type,
+      external_id: r.external_id,
+      matched: r.status === 'MATCHED',
+      matchedTxId: r.matched_transaction_id,
+      status: r.status,
+    }));
+  },
+
+  // Marcar item como conciliado
+  async matchReconciliationItem(
+    reconciliationId: string,
+    transactionId: string
+  ): Promise<boolean> {
+    if (!supabase) return false;
+    const { error } = await supabase
+      .from('financial_reconciliations')
+      .update({
+        matched_transaction_id: transactionId,
+        status: 'MATCHED',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', reconciliationId);
+    if (error) { console.error('matchReconciliationItem:', error); return false; }
+    return true;
+  },
+
+  // Marcar item como ignorado
+  async ignoreReconciliationItem(reconciliationId: string): Promise<boolean> {
+    if (!supabase) return false;
+    const { error } = await supabase
+      .from('financial_reconciliations')
+      .update({ status: 'IGNORED', updated_at: new Date().toISOString() })
+      .eq('id', reconciliationId);
+    if (error) { console.error('ignoreReconciliationItem:', error); return false; }
+    return true;
+  },
+
   // Seed default data into Supabase if empty
   async seedDefaultData(): Promise<{ success: boolean; message: string }> {
     if (!supabase) return { success: false, message: 'Supabase client is not initialized.' };
