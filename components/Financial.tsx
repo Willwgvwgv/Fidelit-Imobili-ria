@@ -254,6 +254,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [markAsPaid, setMarkAsPaid] = useState<boolean>(false);
   const monthInputRef = useRef<HTMLInputElement>(null);
 
+  // Real Cash Flow & DRE States
+  const [fluxoTab, setFluxoTab] = useState<'fluxo' | 'dre'>('fluxo');
+  const [fluxoGroupMode, setFluxoGroupMode] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY'>('WEEKLY');
+  const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+
   const handleCloseModal = () => {
     setIsModalOpen(false);
     setEditingAccount(null);
@@ -1571,9 +1576,17 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       </td>
                       <td className="px-6 py-5">
                         <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${
-                          isPaid ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-amber-50 text-amber-600 border border-amber-100'
+                          isPaid 
+                            ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' 
+                            : (tx.status === TransactionStatus.PENDING && tx.due_date < getLocalTodayStr())
+                              ? 'bg-rose-50 text-rose-600 border border-rose-100'
+                              : 'bg-amber-50 text-amber-600 border border-amber-100'
                         }`}>
-                          {isPaid ? 'Liquidado' : 'Pendente'}
+                          {isPaid 
+                            ? 'Liquidado' 
+                            : (tx.status === TransactionStatus.PENDING && tx.due_date < getLocalTodayStr())
+                              ? 'Vencido'
+                              : 'Pendente'}
                         </span>
                       </td>
                       <td className="px-6 py-5">
@@ -1625,20 +1638,154 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   // 2. View: Fluxo de Caixa (Cash Flow Analyzer)
   const renderFluxodeCaixa = () => {
-    // Math for Cash Flow
-    const paidIncome = transactions.filter(t => t.type === TransactionType.INCOME && t.status === TransactionStatus.PAID).reduce((a, b) => a + b.amount, 0);
-    const paidExpense = transactions.filter(t => t.type === TransactionType.EXPENSE && t.status === TransactionStatus.PAID).reduce((a, b) => a + b.amount, 0);
-    const expectedIncome = transactions.filter(t => t.type === TransactionType.INCOME && t.status === TransactionStatus.PENDING).reduce((a, b) => a + b.amount, 0);
-    const expectedExpense = transactions.filter(t => t.type === TransactionType.EXPENSE && t.status === TransactionStatus.PENDING).reduce((a, b) => a + b.amount, 0);
+    // Determine active account IDs (default to all if none explicitly selected)
+    const activeAccountIds = selectedAccountIds.length > 0 ? selectedAccountIds : accounts.map(a => a.id);
+    const selectedAccountsList = accounts.filter(a => activeAccountIds.includes(a.id));
+    
+    // Total consolidated initial and current balances of selected accounts
+    const totalInitialBalance = selectedAccountsList.reduce((acc, curr) => acc + (curr.initial_balance || 0), 0);
+    const totalCurrentBalance = selectedAccountsList.reduce((acc, curr) => acc + (curr.current_balance || 0), 0);
 
-    const netRealized = paidIncome - paidExpense;
-    const netProjected = (paidIncome + expectedIncome) - (paidExpense + expectedExpense);
+    // Filter transactions using period, category, type, and selected accounts
+    const filteredTxsForCashFlow = transactions.filter(t => {
+      // Account filter
+      if (selectedAccountIds.length > 0 && !selectedAccountIds.includes(t.account_id || '')) {
+        return false;
+      }
+      
+      // Period filter (Month/Year)
+      const parts = t.due_date.split('-');
+      const txYear = parseInt(parts[0], 10);
+      const txMonth = parseInt(parts[1], 10) - 1;
+      const matchesPeriod = txYear === currentPeriod.getFullYear() && txMonth === currentPeriod.getMonth();
+      if (!matchesPeriod) return false;
 
-    // Grouping by categories for nice horizontal chart meters
+      // Category filter
+      if (categoryFilter !== 'ALL' && t.category_id !== categoryFilter) {
+        return false;
+      }
+
+      // Type filter
+      if (typeFilter !== 'ALL' && t.type !== typeFilter) {
+        return false;
+      }
+
+      return true;
+    });
+
+    const getTxCashFlowDate = (tx: any) => {
+      if (tx.status === TransactionStatus.PAID && tx.payment_date) {
+        return tx.payment_date;
+      }
+      return tx.due_date;
+    };
+
+    const getGroupKeyAndLabel = (dateStr: string, mode: 'DAILY' | 'WEEKLY' | 'MONTHLY') => {
+      if (!dateStr) return { key: 'Sem Data', label: 'Sem Data' };
+      const [year, month, day] = dateStr.split('-');
+      
+      if (mode === 'DAILY') {
+        return {
+          key: dateStr,
+          label: `${day}/${month}/${year}`
+        };
+      } else if (mode === 'WEEKLY') {
+        const d = new Date(`${dateStr}T12:00:00`);
+        const dayOfWeek = d.getDay();
+        const diff = d.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+        const monday = new Date(d.setDate(diff));
+        const startStr = monday.toISOString().split('T')[0];
+        const [mY, mM, mD] = startStr.split('-');
+        return {
+          key: startStr,
+          label: `Semana de ${mD}/${mM}`
+        };
+      } else {
+        const months = [
+          'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+          'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+        ];
+        const monthIndex = parseInt(month, 10) - 1;
+        return {
+          key: `${year}-${month}`,
+          label: `${months[monthIndex]} / ${year}`
+        };
+      }
+    };
+
+    // Grouping
+    const groupedDataMap: { 
+      [key: string]: { 
+        label: string; 
+        income: number; 
+        expense: number; 
+        expectedIncome: number; 
+        expectedExpense: number; 
+      } 
+    } = {};
+
+    filteredTxsForCashFlow.forEach(tx => {
+      const dateStr = getTxCashFlowDate(tx);
+      const { key, label } = getGroupKeyAndLabel(dateStr, fluxoGroupMode);
+      
+      if (!groupedDataMap[key]) {
+        groupedDataMap[key] = {
+          label,
+          income: 0,
+          expense: 0,
+          expectedIncome: 0,
+          expectedExpense: 0
+        };
+      }
+      
+      const amt = tx.amount || 0;
+      if (tx.type === TransactionType.INCOME) {
+        if (tx.status === TransactionStatus.PAID) {
+          groupedDataMap[key].income += amt;
+        } else {
+          groupedDataMap[key].expectedIncome += amt;
+        }
+      } else if (tx.type === TransactionType.EXPENSE) {
+        if (tx.status === TransactionStatus.PAID) {
+          groupedDataMap[key].expense += amt;
+        } else {
+          groupedDataMap[key].expectedExpense += amt;
+        }
+      }
+    });
+
+    const sortedGroupKeys = Object.keys(groupedDataMap).sort();
+    const groupedList = sortedGroupKeys.map(key => ({
+      key,
+      ...groupedDataMap[key]
+    }));
+
+    // Math for KPI Summary cards
+    const totalPaidIncome = filteredTxsForCashFlow
+      .filter(t => t.type === TransactionType.INCOME && t.status === TransactionStatus.PAID)
+      .reduce((a, b) => a + b.amount, 0);
+
+    const totalPaidExpense = filteredTxsForCashFlow
+      .filter(t => t.type === TransactionType.EXPENSE && t.status === TransactionStatus.PAID)
+      .reduce((a, b) => a + b.amount, 0);
+
+    const totalExpectedIncome = filteredTxsForCashFlow
+      .filter(t => t.type === TransactionType.INCOME && t.status === TransactionStatus.PENDING)
+      .reduce((a, b) => a + b.amount, 0);
+
+    const totalExpectedExpense = filteredTxsForCashFlow
+      .filter(t => t.type === TransactionType.EXPENSE && t.status === TransactionStatus.PENDING)
+      .reduce((a, b) => a + b.amount, 0);
+
+    const netPeriodRealized = totalPaidIncome - totalPaidExpense;
+    // Projeção futura = Saldo atual + entradas previstas - despesas previstas
+    const netPeriodProjected = totalCurrentBalance + totalExpectedIncome - totalExpectedExpense;
+
+    // Expense distribution by category
     const expenseByCat = categories
       .filter(c => c.type === TransactionType.EXPENSE)
       .map(cat => {
-        const total = transactions
+        const total = filteredTxsForCashFlow
           .filter(t => t.category_id === cat.id && t.status === TransactionStatus.PAID)
           .reduce((acc, curr) => acc + curr.amount, 0);
         return { name: cat.name, color: cat.color, total };
@@ -1648,100 +1795,306 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     const totalExpenseSum = expenseByCat.reduce((acc, curr) => acc + curr.total, 1);
 
+    // DRE calculations
+    const dreCategoriesIncome = categories
+      .filter(c => c.type === TransactionType.INCOME)
+      .map(cat => {
+        const total = filteredTxsForCashFlow
+          .filter(t => t.category_id === cat.id)
+          .reduce((acc, curr) => acc + curr.amount, 0);
+        return { name: cat.name, total };
+      })
+      .filter(c => c.total > 0)
+      .sort((a, b) => b.total - a.total);
+
+    const dreCategoriesExpense = categories
+      .filter(c => c.type === TransactionType.EXPENSE)
+      .map(cat => {
+        const total = filteredTxsForCashFlow
+          .filter(t => t.category_id === cat.id)
+          .reduce((acc, curr) => acc + curr.amount, 0);
+        return { name: cat.name, total };
+      })
+      .filter(c => c.total > 0)
+      .sort((a, b) => b.total - a.total);
+
+    const totalDreRevenue = dreCategoriesIncome.reduce((acc, curr) => acc + curr.total, 0);
+    const totalDreExpense = dreCategoriesExpense.reduce((acc, curr) => acc + curr.total, 0);
+    const dreNetResult = totalDreRevenue - totalDreExpense;
+
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Side: Analytical widgets */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
-            <h3 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2 mb-6">
-              <TrendingUp className="text-emerald-500" size={20} />
-              Demonstrativo de Resultado do Período (DRE)
-            </h3>
-
-            {/* Custom Interactive SVG Graph */}
-            <div className="relative h-64 w-full bg-slate-50/50 rounded-2xl border border-slate-100 p-4 flex flex-col justify-between mb-6">
-              <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">
-                <span>Evolução Projetada de Caixa</span>
-                <span className="text-emerald-600">Saldo Final Estimado: {formatCurrency(netProjected)}</span>
-              </div>
-              
-              <div className="flex-1 flex items-end justify-around gap-6 pt-6">
-                {[
-                  { name: 'Semana 1', income: paidIncome * 0.25, expense: paidExpense * 0.2 },
-                  { name: 'Semana 2', income: paidIncome * 0.35, expense: paidExpense * 0.4 },
-                  { name: 'Semana 3', income: expectedIncome * 0.4, expense: expectedExpense * 0.3 },
-                  { name: 'Semana 4', income: expectedIncome * 0.6, expense: expectedExpense * 0.5 },
-                ].map((item, idx) => {
-                  const maxVal = Math.max(paidIncome, expectedIncome, paidExpense, expectedExpense, 1);
-                  const incomeHeight = `${Math.max((item.income / maxVal) * 120, 15)}px`;
-                  const expenseHeight = `${Math.max((item.expense / maxVal) * 120, 15)}px`;
-
-                  return (
-                    <div key={idx} className="flex flex-col items-center space-y-2 flex-1 group relative">
-                      <div className="flex items-end justify-center gap-2 w-full">
-                        {/* Income Bar */}
-                        <div className="w-10 bg-emerald-500 hover:bg-emerald-600 rounded-t-md cursor-pointer transition-all shadow-sm" style={{ height: incomeHeight }} title={`Entrada: ${formatCurrency(item.income)}`} />
-                        {/* Expense Bar */}
-                        <div className="w-10 bg-rose-500 hover:bg-rose-600 rounded-t-md cursor-pointer transition-all shadow-sm" style={{ height: expenseHeight }} title={`Saída: ${formatCurrency(item.expense)}`} />
-                      </div>
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{item.name}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="flex items-center justify-center gap-6 mt-4 pt-2 border-t border-slate-100/60 text-xs font-bold text-slate-500">
-                <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-emerald-500 rounded-sm" />Receitas</div>
-                <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-rose-500 rounded-sm" />Despesas</div>
-              </div>
+      <div className="space-y-6">
+        {/* Account Selector Section */}
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h4 className="text-sm font-black text-slate-800 uppercase tracking-wider">Contas para Análise</h4>
+              <p className="text-xs text-slate-400 font-medium">Selecione as contas financeiras para compor os saldos e projeções.</p>
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 bg-emerald-50/50 rounded-2xl border border-emerald-100 flex flex-col justify-center">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">REALIZADO (PAGO)</span>
-                <span className="text-2xl font-black text-emerald-700 mt-1">{formatCurrency(netRealized)}</span>
-              </div>
-              <div className="p-4 bg-blue-50/50 rounded-2xl border border-blue-100 flex flex-col justify-center">
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">PROJETADO (CONCILIADO)</span>
-                <span className="text-2xl font-black text-blue-700 mt-1">{formatCurrency(netProjected)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Side: Expense categories break-down */}
-        <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-            <h3 className="text-base font-black text-slate-900 mb-6 uppercase tracking-wider text-center border-b border-slate-50 pb-4">
-              Distribuição de Despesas
-            </h3>
-            
-            <div className="space-y-4">
-              {expenseByCat.map((item, idx) => {
-                const percentage = Math.round((item.total / totalExpenseSum) * 100);
+            <div className="flex flex-wrap gap-2">
+              {accounts.map(acc => {
+                const isSelected = selectedAccountIds.includes(acc.id);
                 return (
-                  <div key={idx} className="space-y-2">
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-600">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color || '#3b82f6' }} />
-                        <span>{item.name}</span>
-                      </div>
-                      <span>{percentage}% ({formatCurrency(item.total)})</span>
-                    </div>
-                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all duration-500" style={{ backgroundColor: item.color || '#3b82f6', width: `${percentage}%` }} />
-                    </div>
-                  </div>
+                  <button
+                    key={acc.id}
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedAccountIds(selectedAccountIds.filter(id => id !== acc.id));
+                      } else {
+                        setSelectedAccountIds([...selectedAccountIds, acc.id]);
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer ${
+                      isSelected 
+                        ? 'bg-slate-900 border-slate-900 text-white shadow-sm' 
+                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: acc.color || '#94a3b8' }} />
+                    <span>{acc.name}</span>
+                    <span className="opacity-80">({formatCurrency(acc.current_balance)})</span>
+                  </button>
                 );
               })}
-              {expenseByCat.length === 0 && (
-                <div className="text-center py-10 text-slate-400 uppercase tracking-widest text-xs">
-                   Nenhuma despesa liquidada neste período.
-                </div>
-              )}
             </div>
           </div>
         </div>
+
+        {/* Tab Selection */}
+        <div className="flex items-center justify-between border-b border-slate-100">
+          <div className="flex gap-4">
+            <button 
+              onClick={() => setFluxoTab('fluxo')}
+              className={`pb-3 text-sm font-black uppercase tracking-wider border-b-2 px-4 transition-all cursor-pointer ${
+                fluxoTab === 'fluxo' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              Fluxo de Caixa
+            </button>
+            <button 
+              onClick={() => setFluxoTab('dre')}
+              className={`pb-3 text-sm font-black uppercase tracking-wider border-b-2 px-4 transition-all cursor-pointer ${
+                fluxoTab === 'dre' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'
+              }`}
+            >
+              DRE
+            </button>
+          </div>
+
+          {fluxoTab === 'fluxo' && (
+            <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl mb-2">
+              {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setFluxoGroupMode(mode)}
+                  className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                    fluxoGroupMode === mode
+                      ? 'bg-white text-slate-800 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {mode === 'DAILY' ? 'Diário' : mode === 'WEEKLY' ? 'Semanal' : 'Mensal'}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Dynamic Area based on chosen tab */}
+        {fluxoTab === 'fluxo' ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Column: Flow Evolution */}
+            <div className="lg:col-span-2 space-y-6">
+              <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
+                <h3 className="text-base font-black text-slate-900 tracking-tight flex items-center gap-2 mb-6 uppercase">
+                  <TrendingUp className="text-emerald-500" size={18} />
+                  Evolução do Fluxo de Caixa Realizado e Previsto
+                </h3>
+
+                {/* Custom SVG/HTML Chart from Real Grouped Data */}
+                {groupedList.length > 0 ? (
+                  <div className="relative w-full bg-slate-50/50 rounded-2xl border border-slate-100 p-6 flex flex-col justify-between mb-6">
+                    <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-3 mb-4">
+                      <span>Projeção de Caixa por Período</span>
+                      <span className="text-blue-600">Saldo Atual das Contas: {formatCurrency(totalCurrentBalance)}</span>
+                    </div>
+                    
+                    <div className="h-64 flex items-end justify-around gap-4 pt-4 overflow-x-auto">
+                      {groupedList.map((item, idx) => {
+                        const totalPeriodIncome = item.income + item.expectedIncome;
+                        const totalPeriodExpense = item.expense + item.expectedExpense;
+                        const maxVal = Math.max(...groupedList.map(g => Math.max(g.income + g.expectedIncome, g.expense + g.expectedExpense)), 1);
+                        
+                        const incomeHeight = `${Math.max((totalPeriodIncome / maxVal) * 140, 6)}px`;
+                        const expenseHeight = `${Math.max((totalPeriodExpense / maxVal) * 140, 6)}px`;
+
+                        return (
+                          <div key={idx} className="flex flex-col items-center space-y-2 flex-1 min-w-[60px] group relative">
+                            <div className="flex items-end justify-center gap-1.5 w-full">
+                              {/* Income Bar (realizado + previsto stacked) */}
+                              <div className="w-8 flex flex-col justify-end rounded-t-md overflow-hidden shadow-sm hover:opacity-90 transition-opacity" style={{ height: incomeHeight }}>
+                                {item.expectedIncome > 0 && (
+                                  <div className="bg-emerald-300 w-full" style={{ height: `${(item.expectedIncome / totalPeriodIncome) * 100}%` }} title={`Receita Prevista: ${formatCurrency(item.expectedIncome)}`} />
+                                )}
+                                {item.income > 0 && (
+                                  <div className="bg-emerald-600 w-full" style={{ height: `${(item.income / totalPeriodIncome) * 100}%` }} title={`Receita Realizada: ${formatCurrency(item.income)}`} />
+                                )}
+                              </div>
+
+                              {/* Expense Bar (realizado + previsto stacked) */}
+                              <div className="w-8 flex flex-col justify-end rounded-t-md overflow-hidden shadow-sm hover:opacity-90 transition-opacity" style={{ height: expenseHeight }}>
+                                {item.expectedExpense > 0 && (
+                                  <div className="bg-rose-300 w-full" style={{ height: `${(item.expectedExpense / totalPeriodExpense) * 100}%` }} title={`Despesa Prevista: ${formatCurrency(item.expectedExpense)}`} />
+                                )}
+                                {item.expense > 0 && (
+                                  <div className="bg-rose-600 w-full" style={{ height: `${(item.expense / totalPeriodExpense) * 100}%` }} title={`Despesa Realizada: ${formatCurrency(item.expense)}`} />
+                                )}
+                              </div>
+                            </div>
+                            <span className="text-[9px] font-bold text-slate-500 text-center uppercase tracking-wider truncate w-full">{item.label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-6 pt-3 border-t border-slate-100 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                      <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-emerald-600 rounded-sm" />Receitas Realizadas</div>
+                      <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-emerald-300 rounded-sm" />Receitas Previstas</div>
+                      <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-rose-600 rounded-sm" />Despesas Realizadas</div>
+                      <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-rose-300 rounded-sm" />Despesas Previstas</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-16 text-center text-slate-400 font-bold uppercase tracking-wider text-xs mb-6">
+                    Nenhum lançamento encontrado para os filtros selecionados.
+                  </div>
+                )}
+
+                {/* Period Summary Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-5 bg-emerald-50/50 rounded-2xl border border-emerald-100/50 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[9px] font-black text-emerald-800/60 uppercase tracking-widest">Saldo do Período (PAGO)</span>
+                      <h4 className="text-2xl font-black text-emerald-800 mt-1">{formatCurrency(netPeriodRealized)}</h4>
+                    </div>
+                    <div className="mt-3 text-[10px] text-emerald-700 font-medium border-t border-emerald-100/50 pt-2 flex justify-between">
+                      <span>Total Recebido: {formatCurrency(totalPaidIncome)}</span>
+                      <span>Total Pago: {formatCurrency(totalPaidExpense)}</span>
+                    </div>
+                  </div>
+                  <div className="p-5 bg-blue-50/50 rounded-2xl border border-blue-100/50 flex flex-col justify-between">
+                    <div>
+                      <span className="text-[9px] font-black text-blue-800/60 uppercase tracking-widest">Saldo Projetado Final</span>
+                      <h4 className="text-2xl font-black text-blue-800 mt-1">{formatCurrency(netPeriodProjected)}</h4>
+                    </div>
+                    <div className="mt-3 text-[10px] text-blue-700 font-medium border-t border-blue-100/50 pt-2 flex justify-between">
+                      <span>Saldo Atual: {formatCurrency(totalCurrentBalance)}</span>
+                      <span>Previsto Líquido: {formatCurrency(totalExpectedIncome - totalExpectedExpense)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Expense Category Distribution */}
+            <div className="space-y-6">
+              <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                <h3 className="text-sm font-black text-slate-900 mb-6 uppercase tracking-wider text-center border-b border-slate-50 pb-4">
+                  Distribuição de Despesas Pagas
+                </h3>
+                
+                <div className="space-y-4">
+                  {expenseByCat.map((item, idx) => {
+                    const percentage = Math.round((item.total / totalExpenseSum) * 100);
+                    return (
+                      <div key={idx} className="space-y-2">
+                        <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color || '#3b82f6' }} />
+                            <span>{item.name}</span>
+                          </div>
+                          <span>{percentage}% ({formatCurrency(item.total)})</span>
+                        </div>
+                        <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all duration-500" style={{ backgroundColor: item.color || '#3b82f6', width: `${percentage}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {expenseByCat.length === 0 && (
+                    <div className="text-center py-10 text-slate-400 uppercase tracking-widest text-xs">
+                      Nenhuma despesa liquidada neste período.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* DRE Content */
+          <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="text-base font-black text-slate-900 uppercase tracking-wider">Demonstração do Resultado do Exercício (DRE)</h3>
+                <p className="text-xs text-slate-400 font-medium">Competência: receitas e despesas reconhecidas pela data de vencimento/competência no período selecionado.</p>
+              </div>
+              <div className="bg-slate-50 px-4 py-2 rounded-xl border border-slate-100 text-right">
+                <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Resultado Líquido</span>
+                <p className={`text-lg font-black ${dreNetResult >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{formatCurrency(dreNetResult)}</p>
+              </div>
+            </div>
+
+            <div className="divide-y divide-slate-100 text-sm">
+              {/* Revenue Section */}
+              <div className="py-4">
+                <div className="flex justify-between font-black text-slate-800 uppercase tracking-wider text-xs mb-3">
+                  <span>(+) RECEITAS OPERACIONAIS</span>
+                  <span className="text-emerald-600">{formatCurrency(totalDreRevenue)}</span>
+                </div>
+                <div className="space-y-2 pl-4">
+                  {dreCategoriesIncome.map((item, idx) => (
+                    <div key={idx} className="flex justify-between text-slate-600 text-xs font-semibold">
+                      <span>{item.name}</span>
+                      <span>{formatCurrency(item.total)}</span>
+                    </div>
+                  ))}
+                  {dreCategoriesIncome.length === 0 && (
+                    <p className="text-xs text-slate-400 italic">Nenhuma receita registrada neste período.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Expense Section */}
+              <div className="py-4">
+                <div className="flex justify-between font-black text-slate-800 uppercase tracking-wider text-xs mb-3">
+                  <span>(-) DESPESAS OPERACIONAIS</span>
+                  <span className="text-rose-600">{formatCurrency(totalDreExpense)}</span>
+                </div>
+                <div className="space-y-2 pl-4">
+                  {dreCategoriesExpense.map((item, idx) => (
+                    <div key={idx} className="flex justify-between text-slate-600 text-xs font-semibold">
+                      <span>{item.name}</span>
+                      <span>{formatCurrency(item.total)}</span>
+                    </div>
+                  ))}
+                  {dreCategoriesExpense.length === 0 && (
+                    <p className="text-xs text-slate-400 italic">Nenhuma despesa registrada neste período.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Net Result Footer */}
+              <div className="py-6 pt-6">
+                <div className="flex justify-between font-black text-slate-900 uppercase tracking-widest text-sm bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <span>(=) RESULTADO LÍQUIDO DO EXERCÍCIO</span>
+                  <span className={dreNetResult >= 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                    {formatCurrency(dreNetResult)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
