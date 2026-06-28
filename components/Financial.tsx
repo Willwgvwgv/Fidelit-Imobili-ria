@@ -38,8 +38,12 @@ import {
   Pencil,
   Sparkles,
   Zap,
-  X
+  X,
+  Receipt,
+  Activity,
+  FileDown
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   User, 
@@ -258,6 +262,15 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [fluxoTab, setFluxoTab] = useState<'fluxo' | 'dre'>('fluxo');
   const [fluxoGroupMode, setFluxoGroupMode] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY'>('WEEKLY');
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
+  
+  // Accounts payable and receivable states
+  const [pagamentosTab, setPagamentosTab] = useState<'todas' | 'pagar' | 'receber' | 'vencidas'>('todas');
+  const [localActiveView, setLocalActiveView] = useState<string>(activeView);
+  const [centroCustoTab, setCentroCustoTab] = useState<'todos' | 'despesas' | 'receitas'>('todos');
+
+  useEffect(() => {
+    setLocalActiveView(activeView);
+  }, [activeView]);
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
@@ -2099,6 +2112,1162 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     );
   };
 
+  const renderContasPagarReceber = () => {
+    const hoje = getLocalTodayStr();
+
+    // Helper to calculate difference in days
+    const getDaysDiff = (d1Str: string, d2Str: string): number => {
+      if (!d1Str || !d2Str) return 0;
+      const t1 = new Date(d1Str + 'T12:00:00').getTime();
+      const t2 = new Date(d2Str + 'T12:00:00').getTime();
+      return Math.floor((t1 - t2) / (1000 * 60 * 60 * 24));
+    };
+
+    // Helper for formatting dates cleanly
+    const formatDateStr = (dateStr: string) => {
+      if (!dateStr) return '';
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+      return new Date(dateStr).toLocaleDateString('pt-BR');
+    };
+
+    // Helper to calculate interest and penalty
+    const calculateInterest = (amount: number, dueDateStr: string, status: TransactionStatus, type: TransactionType) => {
+      if (status !== TransactionStatus.PENDING || type !== TransactionType.EXPENSE || dueDateStr >= hoje) {
+        return null;
+      }
+      const diasAtraso = getDaysDiff(hoje, dueDateStr);
+      if (diasAtraso <= 0) return null;
+
+      const multaValor = amount * 0.02;
+      const jurosValor = amount * (0.00033 * diasAtraso);
+      const totalComJuros = amount + multaValor + jurosValor;
+
+      return {
+        diasAtraso,
+        multaValor,
+        jurosValor,
+        totalComJuros
+      };
+    };
+
+    const handleQuickPay = async (tx: FinancialTransaction) => {
+      const success = await supabaseService.updateTransactionStatus(tx.id, TransactionStatus.PAID);
+      if (success) {
+        showToast('Lançamento liquidado com sucesso!', 'success');
+        loadFinancialData();
+      } else {
+        setTransactions(prev => prev.map(t => t.id === tx.id ? { ...t, status: TransactionStatus.PAID, payment_date: hoje } : t));
+        showToast('Lançamento liquidado localmente!', 'success');
+      }
+    };
+
+    const handlePostponeTransaction = async (tx: FinancialTransaction) => {
+      const currentDueDate = new Date(tx.due_date + 'T12:00:00');
+      currentDueDate.setDate(currentDueDate.getDate() + 7);
+      const newDueDateStr = currentDueDate.toISOString().split('T')[0];
+      
+      if (supabase) {
+        const { error } = await supabase
+          .from('financial_transactions')
+          .update({ due_date: newDueDateStr })
+          .eq('id', tx.id);
+        
+        if (error) {
+          console.error('Error postponing transaction:', error);
+          showToast('Erro ao adiar lançamento.', 'error');
+        } else {
+          showToast(`Vencimento adiado para ${formatDateStr(newDueDateStr)}!`, 'success');
+          loadFinancialData();
+        }
+      } else {
+        setTransactions(prev => prev.map(t => t.id === tx.id ? { ...t, due_date: newDueDateStr } : t));
+        showToast(`Vencimento adiado localmente para ${formatDateStr(newDueDateStr)}!`, 'success');
+      }
+    };
+
+    // Compute KPI cards totals
+    const txsVencidas = transactions.filter(t => t.status === TransactionStatus.PENDING && t.due_date < hoje && t.type === TransactionType.EXPENSE);
+    const txsHoje = transactions.filter(t => t.status === TransactionStatus.PENDING && t.due_date === hoje && t.type === TransactionType.EXPENSE);
+    const txsSeteDias = transactions.filter(t => t.status === TransactionStatus.PENDING && t.type === TransactionType.EXPENSE && getDaysDiff(t.due_date, hoje) > 0 && getDaysDiff(t.due_date, hoje) <= 7);
+    const txsAReceber = transactions.filter(t => t.type === TransactionType.INCOME && t.status === TransactionStatus.PENDING);
+
+    const countVencidas = txsVencidas.length;
+    const sumVencidas = txsVencidas.reduce((a, b) => a + b.amount, 0);
+
+    const countHoje = txsHoje.length;
+    const sumHoje = txsHoje.reduce((a, b) => a + b.amount, 0);
+
+    const countSeteDias = txsSeteDias.length;
+    const sumSeteDias = txsSeteDias.reduce((a, b) => a + b.amount, 0);
+
+    const countAReceber = txsAReceber.length;
+    const sumAReceber = txsAReceber.reduce((a, b) => a + b.amount, 0);
+
+    // Apply filters based on pagamentosTab and search term
+    const filteredList = transactions.filter(t => {
+      // Search filter
+      if (searchTerm.trim() !== '') {
+        const term = searchTerm.toLowerCase();
+        const descMatches = t.description.toLowerCase().includes(term);
+        const catName = categories.find(c => c.id === t.category_id)?.name.toLowerCase() || '';
+        const accName = accounts.find(a => a.id === t.account_id)?.name.toLowerCase() || '';
+        if (!descMatches && !catName.includes(term) && !accName.includes(term)) {
+          return false;
+        }
+      }
+
+      // Tab filter
+      if (pagamentosTab === 'pagar') {
+        return t.type === TransactionType.EXPENSE && t.status === TransactionStatus.PENDING;
+      }
+      if (pagamentosTab === 'receber') {
+        return t.type === TransactionType.INCOME && t.status === TransactionStatus.PENDING;
+      }
+      if (pagamentosTab === 'vencidas') {
+        return t.status === TransactionStatus.PENDING && t.due_date < hoje;
+      }
+      
+      // If 'todas' tab, show all pending, plus paid transactions that are in the current month/year
+      if (t.status === TransactionStatus.PENDING) {
+        return true;
+      } else {
+        const parts = t.due_date.split('-');
+        if (parts.length >= 2) {
+          const txYear = parseInt(parts[0], 10);
+          const txMonth = parseInt(parts[1], 10) - 1;
+          return txYear === currentPeriod.getFullYear() && txMonth === currentPeriod.getMonth();
+        }
+        return false;
+      }
+    });
+
+    // Grouping
+    const groups: { [key: string]: { title: string; colorClass: string; transactions: FinancialTransaction[] } } = {
+      vencidas: { title: 'Contas Vencidas', colorClass: 'bg-rose-50 border-rose-200 text-rose-800', transactions: [] },
+      hoje: { title: 'Vence Hoje', colorClass: 'bg-orange-50 border-orange-200 text-orange-800', transactions: [] },
+      proximos7: { title: 'Próximos 7 Dias', colorClass: 'bg-amber-50 border-amber-200 text-amber-800', transactions: [] },
+      futuro: { title: 'Futuro', colorClass: 'bg-slate-50 border-slate-200 text-slate-800', transactions: [] },
+      liquidadas: { title: 'Liquidadas', colorClass: 'bg-emerald-50 border-emerald-200 text-emerald-800', transactions: [] },
+    };
+
+    filteredList.forEach(t => {
+      if (t.status === TransactionStatus.PAID) {
+        groups.liquidadas.transactions.push(t);
+      } else if (t.due_date < hoje) {
+        groups.vencidas.transactions.push(t);
+      } else if (t.due_date === hoje) {
+        groups.hoje.transactions.push(t);
+      } else if (getDaysDiff(t.due_date, hoje) > 0 && getDaysDiff(t.due_date, hoje) <= 7) {
+        groups.proximos7.transactions.push(t);
+      } else {
+        groups.futuro.transactions.push(t);
+      }
+    });
+
+    // Sort within groups
+    groups.vencidas.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
+    groups.hoje.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
+    groups.proximos7.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
+    groups.futuro.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
+    groups.liquidadas.transactions.sort((a, b) => (b.payment_date || b.due_date).localeCompare(a.payment_date || a.due_date));
+
+    const totalVisibleTxs = Object.values(groups).reduce((acc, g) => acc + g.transactions.length, 0);
+
+    return (
+      <div className="space-y-8">
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="bg-rose-50/60 border border-rose-100 p-6 rounded-3xl shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start">
+              <span className="text-[10px] font-black text-rose-800/60 uppercase tracking-widest">Vencidas</span>
+              <span className="bg-rose-100 text-rose-800 text-xs font-black px-2 py-0.5 rounded-full">{countVencidas}</span>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-2xl font-black text-rose-950">{formatCurrency(sumVencidas)}</h3>
+              <p className="text-[10px] text-rose-700/80 font-bold uppercase tracking-wider mt-1">Contas em atraso</p>
+            </div>
+          </div>
+
+          <div className="bg-orange-50/60 border border-orange-100 p-6 rounded-3xl shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start">
+              <span className="text-[10px] font-black text-orange-800/60 uppercase tracking-widest">Vence Hoje</span>
+              <span className="bg-orange-100 text-orange-800 text-xs font-black px-2 py-0.5 rounded-full">{countHoje}</span>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-2xl font-black text-orange-950">{formatCurrency(sumHoje)}</h3>
+              <p className="text-[10px] text-orange-700/80 font-bold uppercase tracking-wider mt-1">Vencimentos de hoje</p>
+            </div>
+          </div>
+
+          <div className="bg-amber-50/60 border border-amber-100 p-6 rounded-3xl shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start">
+              <span className="text-[10px] font-black text-amber-800/60 uppercase tracking-widest">Próximos 7 Dias</span>
+              <span className="bg-amber-100 text-amber-800 text-xs font-black px-2 py-0.5 rounded-full">{countSeteDias}</span>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-2xl font-black text-amber-950">{formatCurrency(sumSeteDias)}</h3>
+              <p className="text-[10px] text-amber-700/80 font-bold uppercase tracking-wider mt-1">Vencimentos na semana</p>
+            </div>
+          </div>
+
+          <div className="bg-emerald-50/60 border border-emerald-100 p-6 rounded-3xl shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start">
+              <span className="text-[10px] font-black text-emerald-800/60 uppercase tracking-widest">A Receber</span>
+              <span className="bg-emerald-100 text-emerald-800 text-xs font-black px-2 py-0.5 rounded-full">{countAReceber}</span>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-2xl font-black text-emerald-950">{formatCurrency(sumAReceber)}</h3>
+              <p className="text-[10px] text-emerald-700/80 font-bold uppercase tracking-wider mt-1">Entradas em aberto</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs of Filter */}
+        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+          <div className="flex gap-4">
+            {(['todas', 'pagar', 'receber', 'vencidas'] as const).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setPagamentosTab(tab)}
+                className={`pb-3 text-sm font-black uppercase tracking-wider border-b-2 px-4 transition-all cursor-pointer ${
+                  pagamentosTab === tab ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                {tab === 'todas' ? 'Todas' : tab === 'pagar' ? 'A Pagar' : tab === 'receber' ? 'A Receber' : 'Vencidas'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* List of Grouped transactions */}
+        <div className="space-y-6">
+          {totalVisibleTxs === 0 ? (
+            <div className="bg-white rounded-3xl border border-slate-100 p-12 shadow-sm text-center flex flex-col items-center justify-center space-y-4">
+              <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center shadow-inner">
+                <CheckSquare size={32} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-lg font-black text-slate-800">Nenhum lançamento encontrado</h3>
+                <p className="text-sm text-slate-400 font-medium">Nenhum vencimento corresponde aos filtros selecionados.</p>
+              </div>
+            </div>
+          ) : (
+            ['vencidas', 'hoje', 'proximos7', 'futuro', 'liquidadas'].map(groupKey => {
+              const grp = groups[groupKey];
+              if (grp.transactions.length === 0) return null;
+
+              return (
+                <div key={groupKey} className="space-y-3">
+                  <div className={`px-4 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-widest w-fit shadow-sm ${grp.colorClass}`}>
+                    {grp.title} ({grp.transactions.length})
+                  </div>
+
+                  <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden divide-y divide-slate-100/60">
+                    {grp.transactions.map(tx => {
+                      const category = categories.find(c => c.id === tx.category_id);
+                      const account = accounts.find(a => a.id === tx.account_id);
+                      const isIncome = tx.type === TransactionType.INCOME;
+                      const isPaid = tx.status === TransactionStatus.PAID;
+                      const isOverdue = tx.status === TransactionStatus.PENDING && tx.due_date < hoje;
+                      const isToday = tx.status === TransactionStatus.PENDING && tx.due_date === hoje;
+                      const interestInfo = calculateInterest(tx.amount, tx.due_date, tx.status, tx.type);
+
+                      return (
+                        <div key={tx.id} className="p-5 hover:bg-slate-50/30 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          <div className="flex items-start gap-4 flex-1">
+                            <div className={`p-3 rounded-2xl ${isIncome ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'} flex-shrink-0`}>
+                              {isIncome ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex items-center flex-wrap gap-2">
+                                <span className="text-sm font-black text-slate-800 tracking-tight">{tx.description}</span>
+                                {tx.installment_number && tx.total_installments && (
+                                  <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 font-bold px-1.5 py-0.5 rounded">
+                                    Parcela {tx.installment_number}/{tx.total_installments}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400 font-semibold">
+                                <div className="flex items-center gap-1.5">
+                                  <Tag size={12} style={{ color: category?.color || '#94a3b8' }} />
+                                  <span style={{ color: category?.color || '#64748b' }}>{category?.name || 'Sem Categoria'}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <Wallet size={12} />
+                                  <span>{account?.name || 'Sem Conta'}</span>
+                                </div>
+                              </div>
+
+                              {interestInfo && (
+                                <div className="mt-2 text-[10px] font-bold text-rose-600 flex items-center gap-1.5 bg-rose-50 px-2.5 py-1 rounded-xl border border-rose-100 w-fit">
+                                  <AlertCircle size={12} />
+                                  <span>Atraso de {interestInfo.diasAtraso} {interestInfo.diasAtraso === 1 ? 'dia' : 'dias'}: Multa: {formatCurrency(interestInfo.multaValor)} | Juros: {formatCurrency(interestInfo.jurosValor)} | Total: {formatCurrency(interestInfo.totalComJuros)}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between md:justify-end gap-4 flex-shrink-0">
+                            <div className="text-left sm:text-right">
+                              <p className="text-sm font-black text-slate-900">{formatCurrency(tx.amount)}</p>
+                              <div className="flex items-center gap-1.5 text-xs text-slate-400 font-bold mt-0.5">
+                                <Calendar size={12} />
+                                <span>Vence em {formatDateStr(tx.due_date)}</span>
+                              </div>
+                            </div>
+
+                            <div>
+                              <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
+                                isPaid 
+                                  ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                                  : isOverdue
+                                    ? 'bg-rose-50 text-rose-600 border-rose-100'
+                                    : isToday
+                                      ? 'bg-orange-50 text-orange-600 border-orange-100'
+                                      : 'bg-amber-50 text-amber-600 border-amber-100'
+                              }`}>
+                                {isPaid 
+                                  ? 'Liquidado' 
+                                  : isOverdue
+                                    ? 'Vencido'
+                                    : isToday
+                                      ? 'Hoje'
+                                      : 'Pendente'}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              {!isPaid && (
+                                <>
+                                  <button
+                                    onClick={() => handleQuickPay(tx)}
+                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-lg transition-all shadow-sm flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Check size={12} /> Pagar
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      if (window.confirm(`Deseja adiar o vencimento do lançamento "${tx.description}" em 7 dias?`)) {
+                                        handlePostponeTransaction(tx);
+                                      }
+                                    }}
+                                    className="px-3 py-1.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Clock size={12} /> Adiar
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                onClick={() => handleEditTransactionClick(tx)}
+                                className="px-3 py-1.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                              >
+                                <Sliders size={12} /> Detalhes
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCentroCusto = () => {
+    // Period filter (Month/Year) using due_date
+    const periodTransactions = transactions.filter(t => {
+      if (!t.due_date) return false;
+      const parts = t.due_date.split('-');
+      if (parts.length < 2) return false;
+      const txYear = parseInt(parts[0], 10);
+      const txMonth = parseInt(parts[1], 10) - 1;
+      return txYear === currentPeriod.getFullYear() && txMonth === currentPeriod.getMonth();
+    });
+
+    const grouped: Record<string, {
+      groupName: string;
+      transactions: FinancialTransaction[];
+      totalPago: number;
+      totalPendente: number;
+      totalReceita: number;
+      totalDespesa: number;
+      resultado: number;
+      categoryMap: Record<string, {
+        categoryId: string;
+        categoryName: string;
+        categoryColor: string;
+        total: number;
+        transactionCount: number;
+        type: TransactionType;
+      }>;
+    }> = {};
+
+    periodTransactions.forEach(t => {
+      const categoryId = t.category_id || '';
+      const groupName = (categoryId && categoryGroups[categoryId]) ? categoryGroups[categoryId].trim() : 'Sem Centro de Custo';
+
+      if (!grouped[groupName]) {
+        grouped[groupName] = {
+          groupName,
+          transactions: [],
+          totalPago: 0,
+          totalPendente: 0,
+          totalReceita: 0,
+          totalDespesa: 0,
+          resultado: 0,
+          categoryMap: {}
+        };
+      }
+
+      const group = grouped[groupName];
+      group.transactions.push(t);
+
+      if (t.status === TransactionStatus.PAID) {
+        group.totalPago += t.amount;
+      } else if (t.status === TransactionStatus.PENDING) {
+        group.totalPendente += t.amount;
+      }
+
+      if (t.type === TransactionType.INCOME) {
+        group.totalReceita += t.amount;
+      } else if (t.type === TransactionType.EXPENSE) {
+        group.totalDespesa += t.amount;
+      }
+
+      // Category grouping
+      const catObj = categories.find(c => c.id === categoryId);
+      const catId = categoryId || 'sem-categoria';
+      const catName = catObj?.name || 'Sem Categoria';
+      const catColor = catObj?.color || '#94a3b8';
+      const catType = t.type;
+
+      if (!group.categoryMap[catId]) {
+        group.categoryMap[catId] = {
+          categoryId: catId,
+          categoryName: catName,
+          categoryColor: catColor,
+          total: 0,
+          transactionCount: 0,
+          type: catType
+        };
+      }
+      group.categoryMap[catId].total += t.amount;
+      group.categoryMap[catId].transactionCount += 1;
+    });
+
+    // Calculate outcomes
+    Object.values(grouped).forEach(g => {
+      g.resultado = g.totalReceita - g.totalDespesa;
+    });
+
+    // Overall metrics for KPIs & percentages
+    const overallTotalDespesas = Object.values(grouped).reduce((sum, g) => sum + g.totalDespesa, 0);
+    const overallTotalReceitas = Object.values(grouped).reduce((sum, g) => sum + g.totalReceita, 0);
+    const overallResultadoLiquido = overallTotalReceitas - overallTotalDespesas;
+
+    // Filter and sort groups
+    const sortedGroups = Object.values(grouped)
+      .filter(g => {
+        if (centroCustoTab === 'despesas') return g.totalDespesa > 0;
+        if (centroCustoTab === 'receitas') return g.totalReceita > 0;
+        return true; // 'todos'
+      })
+      .sort((a, b) => {
+        if (centroCustoTab === 'receitas') {
+          return b.totalReceita - a.totalReceita;
+        }
+        return b.totalDespesa - a.totalDespesa;
+      });
+
+    return (
+      <div className="space-y-8">
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          {/* Card: Despesas */}
+          <div className="bg-rose-50/60 border border-rose-100 p-6 rounded-3xl shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start">
+              <span className="text-[10px] font-black text-rose-800/60 uppercase tracking-widest">Total Despesas</span>
+              <span className="p-1.5 bg-rose-100/80 rounded-xl text-rose-700">
+                <ArrowDownRight size={16} />
+              </span>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-2xl font-black text-rose-950">{formatCurrency(overallTotalDespesas)}</h3>
+              <p className="text-[10px] text-rose-700/80 font-bold uppercase tracking-wider mt-1">Soma de todos os centros de custo</p>
+            </div>
+          </div>
+
+          {/* Card: Receitas */}
+          <div className="bg-emerald-50/60 border border-emerald-100 p-6 rounded-3xl shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start">
+              <span className="text-[10px] font-black text-emerald-800/60 uppercase tracking-widest">Total Receitas</span>
+              <span className="p-1.5 bg-emerald-100/80 rounded-xl text-emerald-700">
+                <ArrowUpRight size={16} />
+              </span>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-2xl font-black text-emerald-950">{formatCurrency(overallTotalReceitas)}</h3>
+              <p className="text-[10px] text-emerald-700/80 font-bold uppercase tracking-wider mt-1">Soma de todos os centros de custo</p>
+            </div>
+          </div>
+
+          {/* Card: Resultado Líquido */}
+          <div className={`${overallResultadoLiquido >= 0 ? 'bg-emerald-50/60 border-emerald-100' : 'bg-rose-50/60 border-rose-100'} p-6 rounded-3xl shadow-sm flex flex-col justify-between`}>
+            <div className="flex justify-between items-start">
+              <span className="text-[10px] font-black text-slate-800/60 uppercase tracking-widest">Resultado Líquido</span>
+              <span className={`p-1.5 rounded-xl ${overallResultadoLiquido >= 0 ? 'bg-emerald-100/80 text-emerald-700' : 'bg-rose-100/80 text-rose-700'}`}>
+                <Activity size={16} />
+              </span>
+            </div>
+            <div className="mt-4">
+              <h3 className={`text-2xl font-black ${overallResultadoLiquido >= 0 ? 'text-emerald-950' : 'text-rose-950'}`}>{formatCurrency(overallResultadoLiquido)}</h3>
+              <p className="text-[10px] text-slate-700/80 font-bold uppercase tracking-wider mt-1">Receitas menos despesas</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs Filter */}
+        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+          <div className="flex gap-4">
+            {([
+              { id: 'todos', label: 'Todos' },
+              { id: 'despesas', label: 'Despesas' },
+              { id: 'receitas', label: 'Receitas' }
+            ] as const).map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setCentroCustoTab(tab.id)}
+                className={`pb-3 text-sm font-black uppercase tracking-wider border-b-2 px-4 transition-all cursor-pointer ${
+                  centroCustoTab === tab.id ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Groups List */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {sortedGroups.length === 0 ? (
+            <div className="col-span-full bg-white rounded-3xl border border-slate-100 p-12 shadow-sm text-center flex flex-col items-center justify-center space-y-4">
+              <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center shadow-inner animate-pulse">
+                <Layers size={32} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-lg font-black text-slate-800">Nenhum centro de custo</h3>
+                <p className="text-sm text-slate-400 font-medium">Nenhum lançamento com grupo de categoria no período.</p>
+              </div>
+            </div>
+          ) : (
+            sortedGroups.map((g, idx) => {
+              const totalForPercent = (centroCustoTab === 'receitas') ? overallTotalReceitas : overallTotalDespesas;
+              const groupValueForPercent = (centroCustoTab === 'receitas') ? g.totalReceita : g.totalDespesa;
+              const percent = totalForPercent > 0 ? (groupValueForPercent / totalForPercent) * 100 : 0;
+              const roundedPercent = Math.round(percent * 10) / 10;
+
+              // Filter category list inside the group based on active tab
+              const groupCats = Object.values(g.categoryMap).filter(cat => {
+                if (centroCustoTab === 'despesas') return cat.type === TransactionType.EXPENSE;
+                if (centroCustoTab === 'receitas') return cat.type === TransactionType.INCOME;
+                return true;
+              });
+
+              // Sort categories in the list by highest total descending
+              groupCats.sort((a, b) => b.total - a.total);
+
+              return (
+                <div key={idx} className="bg-white rounded-3xl border border-slate-100 p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-all duration-300">
+                  <div className="space-y-5">
+                    {/* Header */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="p-2 bg-slate-50 rounded-xl text-slate-700">
+                          <Layers size={16} />
+                        </span>
+                        <h4 className="text-base font-black text-slate-900 tracking-tight">{g.groupName}</h4>
+                      </div>
+                      <span className="bg-slate-100 text-slate-700 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border border-slate-200">
+                        {g.transactions.length} {g.transactions.length === 1 ? 'Lançamento' : 'Lançamentos'}
+                      </span>
+                    </div>
+
+                    {/* Totals Sub-grid */}
+                    <div className="grid grid-cols-3 gap-2 bg-slate-50/50 p-4 rounded-2xl border border-slate-100">
+                      <div>
+                        <span className="text-[8px] font-black text-rose-800/60 uppercase tracking-widest block">Despesas</span>
+                        <span className="text-xs font-bold text-rose-700 mt-1 block">{formatCurrency(g.totalDespesa)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[8px] font-black text-emerald-800/60 uppercase tracking-widest block">Receitas</span>
+                        <span className="text-xs font-bold text-emerald-700 mt-1 block">{formatCurrency(g.totalReceita)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[8px] font-black text-slate-800/60 uppercase tracking-widest block">Resultado</span>
+                        <span className={`text-xs font-bold mt-1 block ${g.resultado >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                          {formatCurrency(g.resultado)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-slate-500">
+                        <span>Representação no Total</span>
+                        <span>{roundedPercent}%</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-500 ${centroCustoTab === 'receitas' ? 'bg-emerald-500' : 'bg-rose-500'}`} 
+                          style={{ width: `${Math.min(100, roundedPercent)}%` }} 
+                        />
+                      </div>
+                    </div>
+
+                    {/* Category List */}
+                    <div className="space-y-2.5 pt-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 block">Distribuição por Categoria</span>
+                      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                        {groupCats.map((cat, cIdx) => (
+                          <div key={cIdx} className="flex items-center justify-between py-2 px-3 bg-slate-50/30 rounded-xl hover:bg-slate-50 border border-slate-100/60 transition-all text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.categoryColor }} />
+                              <span className="font-bold text-slate-700">{cat.categoryName}</span>
+                              <span className="text-[9px] text-slate-400 font-bold">({cat.transactionCount})</span>
+                            </div>
+                            <span className={`font-black ${cat.type === TransactionType.INCOME ? 'text-emerald-700' : 'text-slate-800'}`}>
+                              {cat.type === TransactionType.INCOME ? '+' : '-'} {formatCurrency(cat.total)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const handleExportFinanceiroXLSX = () => {
+    const todayStr = getLocalTodayStr();
+    const headers = [
+      'Data Vencimento',
+      'Data Pagamento',
+      'Descrição',
+      'Tipo (Receita/Despesa)',
+      'Categoria',
+      'Centro de Custo',
+      'Conta Bancária',
+      'Valor',
+      'Status (Pago/Pendente/Vencido)'
+    ];
+
+    const rows = filteredTransactions.map(tx => {
+      const catObj = categories.find(c => c.id === tx.category_id);
+      const categoryName = catObj?.name || 'Sem Categoria';
+      const groupName = (tx.category_id && categoryGroups[tx.category_id]) ? categoryGroups[tx.category_id].trim() : 'Sem Centro de Custo';
+      const accountName = accounts.find(a => a.id === tx.account_id)?.name || 'Sem Conta';
+      
+      let statusLabel = 'Pendente';
+      if (tx.status === TransactionStatus.PAID) {
+        statusLabel = 'Pago';
+      } else if (tx.status === TransactionStatus.PENDING && tx.due_date < todayStr) {
+        statusLabel = 'Vencido';
+      }
+
+      // Format Date dd/mm/aaaa
+      const formatDateBR = (dateStr: string | null | undefined) => {
+        if (!dateStr) return '';
+        const parts = dateStr.split('-');
+        if (parts.length !== 3) return dateStr;
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      };
+
+      const valStr = tx.amount.toFixed(2).replace('.', ',');
+
+      return [
+        formatDateBR(tx.due_date),
+        formatDateBR(tx.payment_date),
+        tx.description,
+        tx.type === TransactionType.INCOME ? 'Receita' : 'Despesa',
+        categoryName,
+        groupName,
+        accountName,
+        valStr,
+        statusLabel
+      ];
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Extrato');
+    
+    const formattedMonth = String(currentPeriod.getMonth() + 1).padStart(2, '0');
+    const formattedYear = currentPeriod.getFullYear();
+    XLSX.writeFile(wb, `extrato_financeiro_${formattedMonth}_${formattedYear}.xlsx`);
+  };
+
+  const handleExportCentroCustoXLSX = () => {
+    const periodTransactions = transactions.filter(t => {
+      if (!t.due_date) return false;
+      const parts = t.due_date.split('-');
+      if (parts.length < 2) return false;
+      const txYear = parseInt(parts[0], 10);
+      const txMonth = parseInt(parts[1], 10) - 1;
+      return txYear === currentPeriod.getFullYear() && txMonth === currentPeriod.getMonth();
+    });
+
+    const grouped: Record<string, {
+      groupName: string;
+      totalReceita: number;
+      totalDespesa: number;
+      resultado: number;
+      categoryMap: Record<string, {
+        categoryName: string;
+        type: TransactionType;
+        total: number;
+        transactionCount: number;
+      }>;
+    }> = {};
+
+    periodTransactions.forEach(t => {
+      const categoryId = t.category_id || '';
+      const groupName = (categoryId && categoryGroups[categoryId]) ? categoryGroups[categoryId].trim() : 'Sem Centro de Custo';
+
+      if (!grouped[groupName]) {
+        grouped[groupName] = {
+          groupName,
+          totalReceita: 0,
+          totalDespesa: 0,
+          resultado: 0,
+          categoryMap: {}
+        };
+      }
+
+      const group = grouped[groupName];
+
+      if (t.type === TransactionType.INCOME) {
+        group.totalReceita += t.amount;
+      } else if (t.type === TransactionType.EXPENSE) {
+        group.totalDespesa += t.amount;
+      }
+
+      const catObj = categories.find(c => c.id === categoryId);
+      const catId = categoryId || 'sem-categoria';
+      const catName = catObj?.name || 'Sem Categoria';
+
+      if (!group.categoryMap[catId]) {
+        group.categoryMap[catId] = {
+          categoryName: catName,
+          type: t.type,
+          total: 0,
+          transactionCount: 0
+        };
+      }
+      group.categoryMap[catId].total += t.amount;
+      group.categoryMap[catId].transactionCount += 1;
+    });
+
+    // Calculate outcomes
+    Object.values(grouped).forEach(g => {
+      g.resultado = g.totalReceita - g.totalDespesa;
+    });
+
+    const rows: any[][] = [];
+
+    // Seção 1 — Resumo por Centro de Custo
+    rows.push(['SEÇÃO 1 - RESUMO POR CENTRO DE CUSTO']);
+    rows.push(['Centro de Custo', 'Total Receitas', 'Total Despesas', 'Resultado']);
+    
+    Object.values(grouped).forEach(g => {
+      rows.push([
+        g.groupName,
+        g.totalReceita.toFixed(2).replace('.', ','),
+        g.totalDespesa.toFixed(2).replace('.', ','),
+        g.resultado.toFixed(2).replace('.', ',')
+      ]);
+    });
+
+    rows.push([]);
+    rows.push([]);
+
+    // Seção 2 — Detalhe por Categoria
+    rows.push(['SEÇÃO 2 - DETALHE POR CATEGORIA']);
+    rows.push(['Centro de Custo', 'Categoria', 'Tipo', 'Total', 'Qtd Lançamentos']);
+
+    Object.values(grouped).forEach(g => {
+      Object.values(g.categoryMap).forEach(cat => {
+        rows.push([
+          g.groupName,
+          cat.categoryName,
+          cat.type === TransactionType.INCOME ? 'Receita' : 'Despesa',
+          cat.total.toFixed(2).replace('.', ','),
+          cat.transactionCount
+        ]);
+      });
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Centro de Custo');
+
+    const formattedMonth = String(currentPeriod.getMonth() + 1).padStart(2, '0');
+    const formattedYear = currentPeriod.getFullYear();
+    XLSX.writeFile(wb, `centro_custo_${formattedMonth}_${formattedYear}.xlsx`);
+  };
+
+  const handleExportFinanceiroPDF = () => {
+    const printDiv = document.createElement('div');
+    printDiv.className = 'print-container p-8 text-slate-800 font-sans';
+    
+    const style = document.createElement('style');
+    style.innerHTML = `
+      @media print {
+        body > *:not(.print-container) {
+          display: none !important;
+        }
+        .print-container {
+          display: block !important;
+          width: 100% !important;
+          font-family: system-ui, -apple-system, sans-serif !important;
+        }
+        @page {
+          margin: 1.5cm;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
+    const formattedPeriod = `${String(currentPeriod.getMonth() + 1).padStart(2, '0')}/${currentPeriod.getFullYear()}`;
+    const todayStr = getLocalTodayStr();
+
+    let totalReceitas = 0;
+    let totalDespesas = 0;
+
+    const formatDateBR = (dateStr: string | null | undefined) => {
+      if (!dateStr) return '';
+      const parts = dateStr.split('-');
+      if (parts.length !== 3) return dateStr;
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    };
+
+    const rowsHtml = filteredTransactions.map(tx => {
+      const catObj = categories.find(c => c.id === tx.category_id);
+      const categoryName = catObj?.name || 'Sem Categoria';
+      const groupName = (tx.category_id && categoryGroups[tx.category_id]) ? categoryGroups[tx.category_id].trim() : 'Sem Centro de Custo';
+      const accountName = accounts.find(a => a.id === tx.account_id)?.name || 'Sem Conta';
+      
+      let statusLabel = 'Pendente';
+      if (tx.status === TransactionStatus.PAID) {
+        statusLabel = 'Pago';
+      } else if (tx.status === TransactionStatus.PENDING && tx.due_date < todayStr) {
+        statusLabel = 'Vencido';
+      }
+
+      if (tx.type === TransactionType.INCOME) {
+        totalReceitas += tx.amount;
+      } else {
+        totalDespesas += tx.amount;
+      }
+
+      return `
+        <tr style="border-bottom: 1px solid #e2e8f0; font-size: 10px;">
+          <td style="padding: 6px; white-space: nowrap;">${formatDateBR(tx.due_date)}</td>
+          <td style="padding: 6px; white-space: nowrap;">${formatDateBR(tx.payment_date) || '-'}</td>
+          <td style="padding: 6px; font-weight: 500;">${tx.description}</td>
+          <td style="padding: 6px; color: ${tx.type === TransactionType.INCOME ? '#047857' : '#b91c1c'}; font-weight: bold;">
+            ${tx.type === TransactionType.INCOME ? 'Receita' : 'Despesa'}
+          </td>
+          <td style="padding: 6px;">${categoryName}</td>
+          <td style="padding: 6px;">${groupName}</td>
+          <td style="padding: 6px;">${accountName}</td>
+          <td style="padding: 6px; text-align: right; font-weight: bold;">${formatCurrency(tx.amount)}</td>
+          <td style="padding: 6px; font-weight: bold;">${statusLabel}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const saldo = totalReceitas - totalDespesas;
+
+    printDiv.innerHTML = `
+      <div style="border-bottom: 2px solid #0f172a; padding-bottom: 16px; margin-bottom: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-end;">
+          <div>
+            <h1 style="font-size: 20px; font-weight: 900; color: #0f172a; margin: 0; letter-spacing: -0.025em;">
+              Fidelité Negócios Imobiliários
+            </h1>
+            <p style="font-size: 12px; font-weight: 600; color: #64748b; margin: 4px 0 0 0;">
+              Extrato Financeiro Completo
+            </p>
+          </div>
+          <div style="text-align: right;">
+            <p style="font-size: 11px; font-weight: 700; color: #475569; margin: 0;">Período: ${formattedPeriod}</p>
+            <p style="font-size: 9px; font-weight: 500; color: #94a3b8; margin: 2px 0 0 0;">Gerado em: ${new Date().toLocaleDateString('pt-BR')}</p>
+          </div>
+        </div>
+      </div>
+
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 32px;">
+        <thead>
+          <tr style="border-bottom: 2px solid #94a3b8; text-align: left; background-color: #f8fafc; font-size: 10px; font-weight: 800; color: #1e293b;">
+            <th style="padding: 8px;">Vencimento</th>
+            <th style="padding: 8px;">Pagamento</th>
+            <th style="padding: 8px;">Descrição</th>
+            <th style="padding: 8px;">Tipo</th>
+            <th style="padding: 8px;">Categoria</th>
+            <th style="padding: 8px;">Centro de Custo</th>
+            <th style="padding: 8px;">Conta</th>
+            <th style="padding: 8px; text-align: right;">Valor</th>
+            <th style="padding: 8px;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml || '<tr><td colspan="9" style="text-align: center; padding: 24px; color: #94a3b8;">Nenhuma transação encontrada para este período.</td></tr>'}
+        </tbody>
+      </table>
+
+      <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-top: 24px; page-break-inside: avoid;">
+        <h3 style="font-size: 12px; font-weight: 800; color: #0f172a; margin: 0 0 12px 0; text-transform: uppercase; letter-spacing: 0.05em;">Resumo de Totais</h3>
+        <div style="display: flex; justify-content: space-between; gap: 16px;">
+          <div style="flex: 1;">
+            <span style="font-size: 9px; font-weight: 800; color: #64748b; text-transform: uppercase; tracking-wider: 0.05em; display: block;">Total Receitas</span>
+            <span style="font-size: 14px; font-weight: 900; color: #047857; margin-top: 4px; display: block;">${formatCurrency(totalReceitas)}</span>
+          </div>
+          <div style="flex: 1; border-left: 1px solid #e2e8f0; padding-left: 16px;">
+            <span style="font-size: 9px; font-weight: 800; color: #64748b; text-transform: uppercase; tracking-wider: 0.05em; display: block;">Total Despesas</span>
+            <span style="font-size: 14px; font-weight: 900; color: #b91c1c; margin-top: 4px; display: block;">${formatCurrency(totalDespesas)}</span>
+          </div>
+          <div style="flex: 1; border-left: 1px solid #e2e8f0; padding-left: 16px;">
+            <span style="font-size: 9px; font-weight: 800; color: #64748b; text-transform: uppercase; tracking-wider: 0.05em; display: block;">Saldo Líquido</span>
+            <span style="font-size: 14px; font-weight: 900; color: ${saldo >= 0 ? '#047857' : '#b91c1c'}; margin-top: 4px; display: block;">${formatCurrency(saldo)}</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(printDiv);
+    window.print();
+    document.body.removeChild(printDiv);
+    document.head.removeChild(style);
+  };
+
+  const renderRelatorios = () => {
+    // Filter transactions in current period using due_date
+    const periodTransactions = transactions.filter(t => {
+      if (!t.due_date) return false;
+      const parts = t.due_date.split('-');
+      if (parts.length < 2) return false;
+      const txYear = parseInt(parts[0], 10);
+      const txMonth = parseInt(parts[1], 10) - 1;
+      return txYear === currentPeriod.getFullYear() && txMonth === currentPeriod.getMonth();
+    });
+
+    const todayStr = getLocalTodayStr();
+
+    // Calculate metrics
+    const totalReceitasPagas = periodTransactions
+      .filter(t => t.type === TransactionType.INCOME && t.status === TransactionStatus.PAID)
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const totalDespesasPagas = periodTransactions
+      .filter(t => t.type === TransactionType.EXPENSE && t.status === TransactionStatus.PAID)
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const saldoRealizado = totalReceitasPagas - totalDespesasPagas;
+
+    const totalPendente = periodTransactions
+      .filter(t => t.status === TransactionStatus.PENDING)
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    // Latest 20 transactions sorted by due_date desc
+    const latestTransactions = [...periodTransactions]
+      .sort((a, b) => b.due_date.localeCompare(a.due_date))
+      .slice(0, 20);
+
+    const formatDateBR = (dateStr: string | null | undefined) => {
+      if (!dateStr) return '';
+      const parts = dateStr.split('-');
+      if (parts.length !== 3) return dateStr;
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    };
+
+    return (
+      <div className="space-y-8">
+        {/* KPI Cards (4 cards) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {/* Card: Receitas Pagas */}
+          <div className="bg-emerald-50/60 border border-emerald-100 p-5 rounded-3xl shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start">
+              <span className="text-[10px] font-black text-emerald-800/60 uppercase tracking-widest">Receitas Recebidas</span>
+              <span className="p-1.5 bg-emerald-100/80 rounded-xl text-emerald-700">
+                <ArrowUpRight size={16} />
+              </span>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-xl font-black text-emerald-950">{formatCurrency(totalReceitasPagas)}</h3>
+              <p className="text-[9px] text-emerald-700/80 font-bold uppercase tracking-wider mt-1">Realizado (Pago) no período</p>
+            </div>
+          </div>
+
+          {/* Card: Despesas Pagas */}
+          <div className="bg-rose-50/60 border border-rose-100 p-5 rounded-3xl shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start">
+              <span className="text-[10px] font-black text-rose-800/60 uppercase tracking-widest">Despesas Pagas</span>
+              <span className="p-1.5 bg-rose-100/80 rounded-xl text-rose-700">
+                <ArrowDownRight size={16} />
+              </span>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-xl font-black text-rose-950">{formatCurrency(totalDespesasPagas)}</h3>
+              <p className="text-[9px] text-rose-700/80 font-bold uppercase tracking-wider mt-1">Realizado (Pago) no período</p>
+            </div>
+          </div>
+
+          {/* Card: Saldo Realizado */}
+          <div className={`${saldoRealizado >= 0 ? 'bg-sky-50/60 border-sky-100' : 'bg-rose-50/60 border-rose-100'} p-5 rounded-3xl shadow-sm flex flex-col justify-between`}>
+            <div className="flex justify-between items-start">
+              <span className="text-[10px] font-black text-slate-800/60 uppercase tracking-widest">Saldo Realizado</span>
+              <span className={`p-1.5 rounded-xl ${saldoRealizado >= 0 ? 'bg-sky-100/80 text-sky-700' : 'bg-rose-100/80 text-rose-700'}`}>
+                <Activity size={16} />
+              </span>
+            </div>
+            <div className="mt-4">
+              <h3 className={`text-xl font-black ${saldoRealizado >= 0 ? 'text-sky-950' : 'text-rose-950'}`}>{formatCurrency(saldoRealizado)}</h3>
+              <p className="text-[9px] text-slate-700/80 font-bold uppercase tracking-wider mt-1">Receitas pagas menos despesas pagas</p>
+            </div>
+          </div>
+
+          {/* Card: Total Pendente */}
+          <div className="bg-amber-50/60 border border-amber-100 p-5 rounded-3xl shadow-sm flex flex-col justify-between">
+            <div className="flex justify-between items-start">
+              <span className="text-[10px] font-black text-amber-800/60 uppercase tracking-widest">Total Pendente</span>
+              <span className="p-1.5 bg-amber-100/80 rounded-xl text-amber-700">
+                <Clock size={16} />
+              </span>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-xl font-black text-amber-950">{formatCurrency(totalPendente)}</h3>
+              <p className="text-[9px] text-amber-700/80 font-bold uppercase tracking-wider mt-1">Todos a pagar e receber pendentes</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Export Buttons */}
+        <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm">
+          <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4">Exportações Disponíveis</h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button
+              onClick={handleExportFinanceiroXLSX}
+              className="px-5 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2.5 cursor-pointer hover:shadow-md active:scale-[0.98]"
+            >
+              <FileDown size={16} />
+              Exportar Extrato Excel
+            </button>
+            <button
+              onClick={handleExportFinanceiroPDF}
+              className="px-5 py-4 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2.5 cursor-pointer hover:shadow-md active:scale-[0.98]"
+            >
+              <FileText size={16} />
+              Exportar PDF (Imprimir)
+            </button>
+            <button
+              onClick={handleExportCentroCustoXLSX}
+              className="px-5 py-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2.5 cursor-pointer hover:shadow-md active:scale-[0.98]"
+            >
+              <Layers size={16} />
+              Exportar Centro de Custo Excel
+            </button>
+          </div>
+        </div>
+
+        {/* Preview Table */}
+        <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider">
+              Prévia do Extrato do Mês <span className="text-slate-400">({latestTransactions.length} lançamentos)</span>
+            </h4>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                  <th className="py-3 px-4">Data Venc.</th>
+                  <th className="py-3 px-4">Descrição</th>
+                  <th className="py-3 px-4">Categoria</th>
+                  <th className="py-3 px-4 text-right">Valor</th>
+                  <th className="py-3 px-4 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {latestTransactions.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-xs text-slate-400 font-medium">
+                      Nenhum lançamento encontrado para o mês selecionado.
+                    </td>
+                  </tr>
+                ) : (
+                  latestTransactions.map((tx) => {
+                    const catObj = categories.find(c => c.id === tx.category_id);
+                    const categoryName = catObj?.name || 'Sem Categoria';
+                    const categoryColor = catObj?.color || '#cbd5e1';
+                    
+                    let statusStyle = 'bg-amber-50 text-amber-700 border-amber-100';
+                    let statusLabel = 'Pendente';
+                    if (tx.status === TransactionStatus.PAID) {
+                      statusStyle = 'bg-emerald-50 text-emerald-700 border-emerald-100';
+                      statusLabel = 'Pago';
+                    } else if (tx.status === TransactionStatus.PENDING && tx.due_date < todayStr) {
+                      statusStyle = 'bg-rose-50 text-rose-700 border-rose-100';
+                      statusLabel = 'Vencido';
+                    }
+
+                    return (
+                      <tr key={tx.id} className="text-xs hover:bg-slate-50/50 transition-colors">
+                        <td className="py-3.5 px-4 text-slate-500 font-medium whitespace-nowrap">
+                          {formatDateBR(tx.due_date)}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-800 font-bold max-w-xs truncate">
+                          {tx.description}
+                        </td>
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: categoryColor }} />
+                            <span className="text-slate-600 font-medium">{categoryName}</span>
+                          </div>
+                        </td>
+                        <td className={`py-3.5 px-4 text-right font-bold whitespace-nowrap ${tx.type === TransactionType.INCOME ? 'text-emerald-700' : 'text-slate-800'}`}>
+                          {tx.type === TransactionType.INCOME ? '+' : '-'} {formatCurrency(tx.amount)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${statusStyle}`}>
+                            {statusLabel}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // 3. View: Cartões (Credit Card Wallet)
   const renderCartoes = () => {
     const cardAccounts = accounts.filter(a => a.type === 'credit_card' || a.type === 'CREDIT' || a.name.toLowerCase().includes('cartão'));
@@ -3108,10 +4277,45 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   return (
     <div className="space-y-6 pb-20">
+      {/* Local view switcher horizontal toolbar */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-3 border-b border-slate-100/80 mb-4 select-none scrollbar-none">
+        {[
+          { id: 'financial-extrato', label: 'Extrato', icon: FileText },
+          { id: 'financial-fluxo', label: 'Fluxo de Caixa', icon: TrendingUp },
+          { id: 'financial-cartoes', label: 'Cartões', icon: CreditCard },
+          { id: 'financial-contas', label: 'Contas Bancárias', icon: Landmark },
+          { id: 'financial-conciliacao', label: 'Conciliação Bancária', icon: CheckCircle2 },
+          { id: 'financial-categorias', label: 'Categorias', icon: Tag },
+          { id: 'financial-pagamentos', label: 'Contas a Pagar/Receber', icon: Receipt, isNew: true },
+          { id: 'financial-centrocusto', label: 'Centro de Custo', icon: Layers },
+          { id: 'financial-relatorios', label: 'Relatórios', icon: FileDown },
+        ].map(item => {
+          const isSelected = localActiveView === item.id || (item.id === 'financial-extrato' && (localActiveView === 'financial' || localActiveView === 'financial-extrato'));
+          const IconComponent = item.icon || Receipt;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setLocalActiveView(item.id)}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer shrink-0 border ${
+                isSelected
+                  ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+                  : 'bg-white text-slate-500 hover:text-slate-800 border-slate-100 hover:bg-slate-50'
+              }`}
+            >
+              <IconComponent size={14} className={item.isNew ? 'text-emerald-500' : 'text-slate-400'} />
+              {item.label}
+              {item.isNew && (
+                <span className="bg-emerald-500 text-white text-[8px] font-black uppercase px-1 py-0.5 rounded animate-pulse">Novo</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Dynamic Subheader matching requested view */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         
-        {(activeView === 'financial-extrato' || activeView === 'financial') && (
+        {(localActiveView === 'financial-extrato' || localActiveView === 'financial') && (
           <div className="flex items-center gap-2">
             <button 
               onClick={() => {
@@ -3145,18 +4349,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       ) : (
         <AnimatePresence mode="wait">
           <motion.div 
-            key={activeView}
+            key={localActiveView}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
           >
-            {activeView === 'financial-fluxo' && renderFluxodeCaixa()}
-            {activeView === 'financial-cartoes' && renderCartoes()}
-            {activeView === 'financial-contas' && renderContas()}
-            {activeView === 'financial-conciliacao' && renderConciliacao()}
-            {activeView === 'financial-categorias' && renderCategorias()}
-            {(activeView === 'financial-extrato' || activeView === 'financial') && renderExtrato()}
+            {localActiveView === 'financial-fluxo' && renderFluxodeCaixa()}
+            {localActiveView === 'financial-cartoes' && renderCartoes()}
+            {localActiveView === 'financial-contas' && renderContas()}
+            {localActiveView === 'financial-conciliacao' && renderConciliacao()}
+            {localActiveView === 'financial-categorias' && renderCategorias()}
+            {localActiveView === 'financial-pagamentos' && renderContasPagarReceber()}
+            {localActiveView === 'financial-centrocusto' && renderCentroCusto()}
+            {localActiveView === 'financial-relatorios' && renderRelatorios()}
+            {(localActiveView === 'financial-extrato' || localActiveView === 'financial' || localActiveView === 'financial-extrato') && renderExtrato()}
           </motion.div>
         </AnimatePresence>
       )}
