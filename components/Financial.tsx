@@ -456,6 +456,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       supabaseService.getReconciliationItems().then(items => {
         if (items.length > 0) {
           setReconciliationItems(items);
+          setImportedFile('Extrato Salvo');
           setSelectedImportedIndex(null);
         }
       });
@@ -582,7 +583,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       amount: parsedAmount,
       agency_id: currentUser.agencyId,
       account_id: !newTransaction.account_id || newTransaction.account_id === '' ? null : newTransaction.account_id,
-      financial_account_id: !newTransaction.account_id || newTransaction.account_id === '' ? null : newTransaction.account_id,
       category_id: !newTransaction.category_id || newTransaction.category_id === '' ? null : newTransaction.category_id,
       // 3. Robust "Marcar como Pago/Recebido" mapping
       status: markAsPaid ? TransactionStatus.PAID : TransactionStatus.PENDING,
@@ -806,6 +806,18 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
   };
 
+  const generateExternalId = (date: string, amount: number, description: string, fitid?: string | null): string => {
+    if (fitid) {
+      return fitid.trim();
+    }
+    const cleanDesc = description
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '_')
+      .replace(/__+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    return `${date}_${amount}_${cleanDesc}`;
+  };
+
   const parseCsvExtrato = (text: string) => {
     const lines = text.split(/\r?\n/);
     if (lines.length === 0) return [];
@@ -860,8 +872,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       
       const isExpense = valNum < 0 || desc.toUpperCase().includes('DEB') || desc.toUpperCase().includes('PAG') || desc.toUpperCase().includes('TARIFA') || desc.toUpperCase().includes('DEBITO') || desc.toUpperCase().includes('TRANSF. PAGO') || desc.toUpperCase().includes('PIX OUT');
       
+      const extId = generateExternalId(dateStr, amount, desc, null);
       parsed.push({
-        id: 'ext-' + Math.random().toString(36).substr(2, 9),
+        id: extId,
         date: dateStr,
         description: desc,
         amount,
@@ -883,6 +896,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const dtpostedMatch = /<DTPOSTED>(\d{8})/i.exec(block);
       const memoMatch = /<MEMO>([^<\r\n]+)/i.exec(block);
       const trnamtMatch = /<TRNAMT>([^<\r\n]+)/i.exec(block);
+      const fitidMatch = /<FITID>([^<\r\n]+)/i.exec(block);
       
       if (dtpostedMatch && trnamtMatch) {
         const rawDate = dtpostedMatch[1];
@@ -895,9 +909,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         const rawAmt = parseFloat(trnamtMatch[1].trim());
         const amount = Math.abs(rawAmt);
         const type = rawAmt < 0 ? TransactionType.EXPENSE : TransactionType.INCOME;
+        const fitid = fitidMatch ? fitidMatch[1].trim() : null;
         
+        const extId = generateExternalId(dateStr, amount, desc, fitid);
         parsed.push({
-          id: 'ext-' + Math.random().toString(36).substr(2, 9),
+          id: extId,
           date: dateStr,
           description: desc,
           amount,
@@ -924,8 +940,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           const rawAmt = parseFloat(trnamtMatch[1].trim());
           const amount = Math.abs(rawAmt);
           const type = rawAmt < 0 ? TransactionType.EXPENSE : TransactionType.INCOME;
+          const fitid = fitidMatch ? fitidMatch[1].trim() : null;
+          
+          const extId = generateExternalId(dateStr, amount, desc, fitid);
           parsed.push({
-            id: fitidMatch ? `ext-${fitidMatch[1]}` : `ext-${Math.random().toString(36).substr(2,9)}`,
+            id: extId,
             date: dateStr,
             description: desc,
             amount,
@@ -940,6 +959,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const dtMatches = [...text.matchAll(/<DTPOSTED>(\d{8})/gi)];
       const memoMatches = [...text.matchAll(/<MEMO>([^<\r\n]+)/gi)];
       const amtMatches = [...text.matchAll(/<TRNAMT>([^<\r\n]+)/gi)];
+      const fitidMatches = [...text.matchAll(/<FITID>([^<\r\n]+)/gi)];
       
       const count = Math.min(dtMatches.length, memoMatches.length, amtMatches.length);
       for (let i = 0; i < count; i++) {
@@ -947,15 +967,18 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         const year = rawDate.substring(0, 4);
         const month = rawDate.substring(4, 6);
         const day = rawDate.substring(6, 8);
+        const dateStr = `${year}-${month}-${day}`;
         
         const desc = memoMatches[i][1].trim();
         const rawAmt = parseFloat(amtMatches[i][1].trim());
         const amount = Math.abs(rawAmt);
         const type = rawAmt < 0 ? TransactionType.EXPENSE : TransactionType.INCOME;
+        const fitid = fitidMatches[i] ? fitidMatches[i][1].trim() : null;
         
+        const extId = generateExternalId(dateStr, amount, desc, fitid);
         parsed.push({
-          id: 'ext-' + Math.random().toString(36).substr(2, 9),
-          date: `${year}-${month}-${day}`,
+          id: extId,
+          date: dateStr,
           description: desc,
           amount,
           type,
@@ -989,7 +1012,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             description: item.description,
             amount: item.amount,
             type: item.type,
-            external_id: item.id.startsWith('ext-') ? item.id : undefined,
+            external_id: item.id,
           }))
         ).then(() => {
           supabaseService.getReconciliationItems().then(dbItems => {
@@ -1016,19 +1039,54 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const systemTx = transactions.find(t => t.id === selectedSystemTxId);
 
     if (systemTx) {
-      await supabaseService.updateTransactionStatus(systemTx.id, TransactionStatus.PAID);
-      
-      setMatchedPairs(prev => [...prev, { importedIdx: selectedImportedIndex, systemId: selectedSystemTxId }]);
-      setReconciliationItems(prev => prev.map((item, idx) => idx === selectedImportedIndex ? { ...item, matched: true, matchedTxId: selectedSystemTxId } : item));
-      const reconciledItem = reconciliationItems[selectedImportedIndex];
-      if (reconciledItem?.id) {
-        supabaseService.matchReconciliationItem(reconciledItem.id, selectedSystemTxId);
-      }
-      setTransactions(prev => prev.map(t => t.id === selectedSystemTxId ? { ...t, status: TransactionStatus.PAID, payment_date: imported.date } : t));
+      setLoading(true);
+      try {
+        // 1 - Salvar relacionamento primeiro
+        if (imported?.id) {
+          await supabaseService.matchReconciliationItem(imported.id, systemTx.id);
+        }
 
-      showToast('Conciliação realizada e lançamento liquidado!', 'success');
+        // 2 - Atualizar lançamento financeiro
+        await supabaseService.updateTransactionStatus(systemTx.id, TransactionStatus.PAID);
+
+        // Atualizar estados locais
+        setMatchedPairs(prev => [...prev, { importedIdx: selectedImportedIndex, systemId: systemTx.id }]);
+        setReconciliationItems(prev => prev.map((item, idx) => idx === selectedImportedIndex ? { ...item, matched: true, matchedTxId: systemTx.id } : item));
+        setTransactions(prev => prev.map(t => t.id === systemTx.id ? { ...t, status: TransactionStatus.PAID, payment_date: imported.date } : t));
+
+        showToast('Conciliação realizada e lançamento liquidado!', 'success');
+        setSelectedImportedIndex(null);
+        setSelectedSystemTxId(null);
+        setAutoMatchScore(null);
+      } catch (err) {
+        console.error(err);
+        showToast('Erro ao realizar a conciliação.', 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  // Ignore a reconciliation item
+  const handleIgnoreReconciliation = async () => {
+    if (selectedImportedIndex === null) return;
+    const item = reconciliationItems[selectedImportedIndex];
+    
+    setLoading(true);
+    try {
+      if (item?.id) {
+        await supabaseService.ignoreReconciliationItem(item.id);
+      }
+      setReconciliationItems(prev => prev.filter((_, idx) => idx !== selectedImportedIndex));
       setSelectedImportedIndex(null);
       setSelectedSystemTxId(null);
+      setAutoMatchScore(null);
+      showToast('Item ignorado com sucesso!', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao ignorar item.', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1495,7 +1553,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           >
                             {category?.name || 'Geral'}
                           </span>
-                          {(!tx.account_id && !tx.financial_account_id) || !account ? (
+                          {!tx.account_id || !account ? (
                             <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[9px] font-medium uppercase tracking-wider mt-1 select-none">
                               Sem conta
                             </span>
@@ -1899,7 +1957,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       return acc + (tx.type === TransactionType.INCOME ? tx.amount : -tx.amount);
     }, 0);
 
-    const kpiDiff = importedBalance - systemBalance;
+    const totalImportedAmt = reconciliationItems.reduce((acc, item) => acc + item.amount, 0);
+    const conciliatedAmt = reconciliationItems.filter(item => item.matched).reduce((acc, item) => acc + item.amount, 0);
+    const pendingAmt = reconciliationItems.filter(item => !item.matched).reduce((acc, item) => acc + item.amount, 0);
+    const diffAmt = totalImportedAmt - conciliatedAmt;
+
     const countConciliated = reconciliationItems.filter(item => item.matched).length;
     const countPending = reconciliationItems.filter(item => !item.matched).length;
 
@@ -1977,33 +2039,40 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return (
       <div className="space-y-6">
         {/* Dynamic Conciliation Dashboard */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Saldo Extrato</p>
-            <p className="text-xl font-black text-slate-800">{formatCurrency(importedBalance)}</p>
-            <p className="text-[10px] text-slate-400 font-medium mt-1">Soma do extrato carregado</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Total Movimentado</p>
+            <p className="text-xl font-black text-slate-800">{formatCurrency(totalImportedAmt)}</p>
+            <p className="text-[10px] text-slate-400 font-medium mt-1">Soma absoluta das transações</p>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Saldo Sistema</p>
-            <p className="text-xl font-black text-slate-800">{formatCurrency(systemBalance)}</p>
-            <p className="text-[10px] text-slate-400 font-medium mt-1">Soma de lançamentos ERP</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Saldo Líquido Extrato</p>
+            <p className={`text-xl font-black ${importedBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {formatCurrency(importedBalance)}
+            </p>
+            <p className="text-[10px] text-slate-400 font-medium mt-1">Entradas menos saídas</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Conciliado</p>
+            <p className="text-xl font-black text-emerald-600">{formatCurrency(conciliatedAmt)}</p>
+            <p className="text-[10px] text-slate-400 font-medium mt-1">{countConciliated} lançamentos vinculados</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Pendentes</p>
+            <p className="text-xl font-black text-amber-600">{formatCurrency(pendingAmt)}</p>
+            <p className="text-[10px] text-slate-400 font-medium mt-1">{countPending} aguardando conciliação</p>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Diferença</p>
-            <p className={`text-xl font-black ${Math.abs(kpiDiff) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {formatCurrency(kpiDiff)}
+            <p className={`text-xl font-black ${Math.abs(diffAmt) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {formatCurrency(diffAmt)}
             </p>
             <p className="text-[10px] text-slate-400 font-medium mt-1">Diferença entre saldos</p>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Conciliado</p>
-            <p className="text-xl font-black text-emerald-600">{countConciliated}</p>
-            <p className="text-[10px] text-slate-400 font-medium mt-1">Lançamentos vinculados</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Pendências</p>
-            <p className="text-xl font-black text-amber-600">{countPending}</p>
-            <p className="text-[10px] text-slate-400 font-medium mt-1">Aguardando conciliação</p>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Saldo Sistema (ERP)</p>
+            <p className="text-xl font-black text-slate-800">{formatCurrency(systemBalance)}</p>
+            <p className="text-[10px] text-slate-400 font-medium mt-1">Soma de lançamentos ERP</p>
           </div>
         </div>
 
@@ -2162,9 +2231,20 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <div className="space-y-4">
                     {/* Selected Item Details */}
                     <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm space-y-2">
-                      <span className="text-[9px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded uppercase tracking-wider">Transação do Banco</span>
-                      <h4 className="text-sm font-black text-slate-800 leading-tight">{activeImportedItem.description}</h4>
-                      <div className="flex justify-between items-center text-xs">
+                      <div className="flex justify-between items-start">
+                        <span className="text-[9px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded uppercase tracking-wider font-sans">Transação do Banco</span>
+                        {!activeImportedItem.matched && (
+                          <button
+                            onClick={handleIgnoreReconciliation}
+                            className="text-[10px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 transition-all cursor-pointer font-sans"
+                            title="Ignorar esta transação"
+                          >
+                            <Trash2 size={12} /> Ignorar
+                          </button>
+                        )}
+                      </div>
+                      <h4 className="text-sm font-black text-slate-800 leading-tight font-sans">{activeImportedItem.description}</h4>
+                      <div className="flex justify-between items-center text-xs font-sans">
                         <span className="text-slate-400 font-semibold">Data: {new Date(activeImportedItem.date).toLocaleDateString('pt-BR')}</span>
                         <span className={`font-black ${activeImportedItem.type === TransactionType.INCOME ? 'text-emerald-600' : 'text-rose-600'}`}>
                           {activeImportedItem.type === TransactionType.INCOME ? '+' : '-'} {formatCurrency(activeImportedItem.amount)}
@@ -2231,46 +2311,47 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                         {/* Confirmation button for suggestions/selections */}
                         {selectedSystemTx && (selectedSystemTx.type === activeImportedItem.type) && (
-                          <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 space-y-2">
-                            <p className="text-[10px] font-black text-blue-800 uppercase tracking-wider">Confirmar Conciliação</p>
-                            <p className="text-[10px] text-slate-600 font-medium leading-relaxed">
-                              Vincular o extrato com o lançamento ERP <strong className="text-slate-800">"{selectedSystemTx.description}"</strong>?
+                          <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 space-y-3 shadow-sm">
+                            <p className="text-xs font-black text-blue-800 uppercase tracking-wider flex items-center gap-1">
+                              <Zap size={14} className="text-blue-600" /> Possível correspondência
                             </p>
-                            <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 mb-2">
-                              <span>Compatibilidade:</span>
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${
-                                manualCompatibilityScore >= 80 ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
-                              }`}>{manualCompatibilityScore}%</span>
+                            
+                            <div className="bg-white rounded-lg p-3 border border-blue-100/50 space-y-1.5">
+                              <div className="flex justify-between items-start">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-sans">Lançamento Encontrado</span>
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-black font-sans ${
+                                  manualCompatibilityScore >= 85 ? 'bg-emerald-100 text-emerald-800' : manualCompatibilityScore >= 60 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-800'
+                                }`}>
+                                  Confiança: {manualCompatibilityScore}%
+                                </span>
+                              </div>
+                              <p className="text-xs font-bold text-slate-800 font-sans">{selectedSystemTx.description}</p>
+                              <div className="flex justify-between text-[10px] text-slate-500 font-semibold pt-1 border-t border-slate-50 font-sans">
+                                <span>Data: {new Date(selectedSystemTx.due_date).toLocaleDateString('pt-BR')}</span>
+                                <span className="text-slate-700 font-bold">Valor: {formatCurrency(selectedSystemTx.amount)}</span>
+                              </div>
                             </div>
 
-                            {autoMatchScore !== null && selectedSystemTxId && (
-                              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold mb-3 ${
-                                autoMatchScore >= 85
-                                  ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
-                                  : autoMatchScore >= 60
-                                  ? 'bg-amber-50 text-amber-600 border border-amber-100'
-                                  : 'bg-gray-50 text-gray-500 border border-gray-200'
-                              }`}>
-                                {autoMatchScore >= 85 ? '🟢' : autoMatchScore >= 60 ? '🟡' : '🔴'}
-                                {autoMatchScore >= 85
-                                  ? `Alta confiança — ${autoMatchScore}%`
-                                  : autoMatchScore >= 60
-                                  ? `Possível correspondência — ${autoMatchScore}%`
-                                  : `Verificar manualmente — ${autoMatchScore}%`}
-                              </div>
-                            )}
-                            <button 
-                              onClick={handlePairReconciliation}
-                              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black text-xs py-2.5 rounded-xl shadow-md cursor-pointer text-center"
-                            >
-                              Confirmar Vínculo e Liquidar
-                            </button>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button 
+                                onClick={handlePairReconciliation}
+                                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs py-2.5 rounded-xl shadow-md cursor-pointer text-center font-sans"
+                              >
+                                Conciliar
+                              </button>
+                              <button 
+                                onClick={handleIgnoreReconciliation}
+                                className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-black text-xs py-2.5 rounded-xl cursor-pointer text-center font-sans"
+                              >
+                                Ignorar
+                              </button>
+                            </div>
                           </div>
                         )}
 
                         {/* 2. Quick Create Form */}
                         <div className="bg-white border border-slate-100 rounded-xl p-4 space-y-3">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Ou Criar Novo Lançamento Rápido</span>
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Novo lançamento</span>
                           
                           <div className="space-y-3.5">
                             <div>
@@ -2832,8 +2913,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 const val = e.target.value;
                                 setNewTransaction({
                                   ...newTransaction,
-                                  account_id: val,
-                                  financial_account_id: val
+                                  account_id: val
                                 });
                               }}
                             >

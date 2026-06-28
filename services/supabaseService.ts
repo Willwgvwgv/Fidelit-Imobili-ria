@@ -377,10 +377,10 @@ export const supabaseService = {
 
   async createFinancialTransaction(transaction: Omit<FinancialTransaction, 'id' | 'created_at'>): Promise<FinancialTransaction | null> {
     if (!supabase) return null;
+    const { financial_account_id, ...rest } = transaction as any;
     const payload = {
-      ...transaction,
-      financial_account_id: transaction.financial_account_id || transaction.account_id || null,
-      account_id: transaction.account_id || transaction.financial_account_id || null
+      ...rest,
+      account_id: transaction.account_id || financial_account_id || null
     };
     const { data, error } = await supabase.from('financial_transactions').insert(payload).select().single();
     if (error) {
