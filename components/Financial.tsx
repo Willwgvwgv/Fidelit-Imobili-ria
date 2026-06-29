@@ -246,6 +246,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     status: 'prepared' | 'confirmed';
   }>>([]);
   const [reconciliationSearch, setReconciliationSearch] = useState<string>('');
+  const [showQuickCreateForm, setShowQuickCreateForm] = useState(false);
 
   const [ofxBankName, setOfxBankName] = useState<string | null>(null);
   const [ofxAgency, setOfxAgency] = useState<string | null>(null);
@@ -831,6 +832,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     
     // Replace typical UTF-8 read as Latin1 / CP1252 glitches
     const replacements: { [key: string]: string } = {
+      '▲▲': 'ÇÃ',
       'â€“': '-',
       'â€”': '-',
       'Ã¡': 'á',
@@ -1505,49 +1507,43 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   const calculateMatchScore = (importedItem: any, tx: any): number => {
-    // Must be same type
+    // 1. Must be same type (25%)
     if (tx.type !== importedItem.type) return 0;
+    const tipoScore = 25;
 
-    let score = 0;
-
-    // 1. Value matching (Prioridade 1: valor igual)
+    // 2. Value must be within ±5% (50%)
     const diffVal = Math.abs(tx.amount - importedItem.amount);
-    if (diffVal < 0.01) {
-      score += 60; // Max value score
+    const maxAllowedDiff = importedItem.amount * 0.05;
+    if (diffVal > maxAllowedDiff) return 0;
+
+    const valPct = importedItem.amount > 0 ? diffVal / importedItem.amount : 0;
+    const valorScore = (1 - (valPct / 0.05)) * 50;
+
+    // 3. Description: 20%
+    let descScore = 0;
+    const impDescNorm = normalizeDescription(importedItem.description || '').toLowerCase().trim();
+    const txDescNorm = normalizeDescription(tx.description || '').toLowerCase().trim();
+    if (impDescNorm === txDescNorm && impDescNorm !== '') {
+      descScore = 20;
     } else {
-      // If not equal, but similar (within 5%), we can give a smaller score
-      const diffPct = diffVal / importedItem.amount;
-      if (diffPct <= 0.05) {
-        score += Math.max(0, (1 - diffPct / 0.05) * 30);
-      }
+      const impWords = impDescNorm.split(/\s+/).filter((w: string) => w.length > 3);
+      const txWords = txDescNorm.split(/\s+/).filter((w: string) => w.length > 3);
+      const common = impWords.filter((w: string) => txWords.includes(w));
+      descScore = impWords.length > 0 ? Math.min(20, (common.length / impWords.length) * 20) : 0;
     }
 
-    // 2. Date matching (Prioridade 2: diferença de data até 30 dias)
+    // 4. Data: 5% (difference up to 30 days)
     const txDateStr = tx.due_date || tx.date || tx.transaction_date || '';
-    if (!txDateStr) return 0;
-    const txDate = new Date(txDateStr + 'T00:00:00');
-    const impDate = new Date(importedItem.date + 'T00:00:00');
-    const diffTime = Math.abs(txDate.getTime() - impDate.getTime());
-    const diffDays = diffTime / (1000 * 60 * 60 * 24);
-
-    if (diffDays > 30) {
-      // Acima de 30 dias: não sugerir.
-      return 0;
+    let dataScore = 0;
+    if (txDateStr) {
+      const txDate = new Date(txDateStr + 'T00:00:00');
+      const impDate = new Date(importedItem.date + 'T00:00:00');
+      const diffTime = Math.abs(txDate.getTime() - impDate.getTime());
+      const diffDays = diffTime / (1000 * 60 * 60 * 24);
+      dataScore = diffDays <= 30 ? (1 - diffDays / 30) * 5 : 0;
     }
 
-    // 0 dias = maior pontuação, linear decay from 30 points down to 0 at 30 days
-    let dateScore = Math.max(0, (1 - diffDays / 30) * 30);
-    score += dateScore;
-
-    // 3. Description similarity (Prioridade 3: descrição semelhante)
-    const impWords = (importedItem.description || '').toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
-    const txWords = (tx.description || '').toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
-    const common = impWords.filter((w: string) => txWords.includes(w));
-    if (common.length > 0) {
-      score += Math.min(10, common.length * 5); // Max 10 points
-    }
-
-    return Math.round(score);
+    return Math.round(tipoScore + valorScore + descScore + dataScore);
   };
 
   const computeAutoMatch = (importedItem: any, systemTxs: FinancialTransaction[]): { id: string; score: number } | null => {
@@ -3960,61 +3956,71 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return (
       <div className="space-y-6">
         {/* Dynamic Conciliation Dashboard */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Total Movimentado</p>
-            <p className="text-xl font-black text-slate-800">{formatCurrency(totalImportedAmt)}</p>
-            <p className="text-[10px] text-slate-400 font-medium mt-1">Soma absoluta das transações</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Saldo Líquido Extrato</p>
-            <p className={`text-xl font-black ${importedBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {formatCurrency(importedBalance)}
-            </p>
-            <p className="text-[10px] text-slate-400 font-medium mt-1">Entradas menos saídas</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Conciliado</p>
-            <p className="text-xl font-black text-emerald-600">{formatCurrency(conciliatedAmt)}</p>
-            <p className="text-[10px] text-slate-400 font-medium mt-1">{countConciliated} lançamentos vinculados</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Pendentes</p>
-            <p className="text-xl font-black text-amber-600">{formatCurrency(pendingAmt)}</p>
-            <p className="text-[10px] text-slate-400 font-medium mt-1">{countPending} itens pendentes</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Diferença</p>
-            <p className={`text-xl font-black ${Math.abs(diffAmt) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {formatCurrency(diffAmt)}
-            </p>
-            <p className="text-[10px] text-slate-400 font-medium mt-1">Diferença entre saldos</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Saldo Sistema (ERP)</p>
-            <p className="text-xl font-black text-slate-800">{formatCurrency(systemBalance)}</p>
-            <p className="text-[10px] text-slate-400 font-medium mt-1">Soma de lançamentos ERP</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-between">
-            <div>
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Progresso de Conciliação</p>
-              <p className={`text-xl font-black ${
-                progressPercent >= 80 ? 'text-emerald-600' : progressPercent >= 50 ? 'text-amber-600' : 'text-rose-600'
-              }`}>{progressPercent}%</p>
-              <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-                {countConciliated} de {totalImportedCount} itens
-              </p>
+        <div className="space-y-4">
+          {/* First Row: 4 Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[110px]">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Total Movimentado</p>
+              <p className="text-lg font-black text-slate-800">{formatCurrency(totalImportedAmt || 0)}</p>
+              <p className="text-[10px] text-slate-400 font-medium mt-0.5">Soma absoluta das transações</p>
             </div>
-            {totalImportedCount > 0 && (
-              <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
+            
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[110px]">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Conciliados</p>
+              <p className="text-lg font-black text-emerald-600">{formatCurrency(conciliatedAmt || 0)}</p>
+              <p className="text-[10px] text-slate-400 font-medium mt-0.5">{(countConciliated || 0)} lançamentos vinculados</p>
+            </div>
+            
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[110px]">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pendentes</p>
+              <p className="text-lg font-black text-amber-600">{formatCurrency(pendingAmt || 0)}</p>
+              <p className="text-[10px] text-slate-400 font-medium mt-0.5">{(countPending || 0)} itens pendentes</p>
+            </div>
+            
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-between min-h-[110px]">
+              <div>
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Progresso de Conciliação</p>
+                <p className={`text-lg font-black ${
+                  (progressPercent || 0) >= 80 ? 'text-emerald-600' : (progressPercent || 0) >= 50 ? 'text-amber-600' : 'text-rose-600'
+                }`}>{(progressPercent || 0)}%</p>
+                <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                  {(countConciliated || 0)} de {(totalImportedCount || 0)} itens
+                </p>
+              </div>
+              <div className="w-full bg-slate-100 h-1.5 rounded-full mt-1.5 overflow-hidden">
                 <div 
                   className={`h-full rounded-full transition-all duration-500 ${
-                    progressPercent >= 80 ? 'bg-emerald-500' : progressPercent >= 50 ? 'bg-amber-500' : 'bg-rose-500'
+                    (progressPercent || 0) >= 80 ? 'bg-emerald-500' : (progressPercent || 0) >= 50 ? 'bg-amber-500' : 'bg-rose-500'
                   }`}
-                  style={{ width: `${progressPercent}%` }}
+                  style={{ width: `${progressPercent || 0}%` }}
                 />
               </div>
-            )}
+            </div>
+          </div>
+
+          {/* Second Row: 3 Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[90px]">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Saldo Banco</p>
+              <p className={`text-lg font-black ${(importedBalance || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {formatCurrency(importedBalance || 0)}
+              </p>
+              <p className="text-[10px] text-slate-400 font-medium mt-0.5">Saldo líquido do extrato</p>
+            </div>
+            
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[90px]">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Saldo ERP</p>
+              <p className="text-lg font-black text-slate-800">{formatCurrency(systemBalance || 0)}</p>
+              <p className="text-[10px] text-slate-400 font-medium mt-0.5">Saldo de lançamentos ERP</p>
+            </div>
+            
+            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[90px]">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Diferença</p>
+              <p className={`text-lg font-black ${Math.abs(diffAmt || 0) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {formatCurrency(diffAmt || 0)}
+              </p>
+              <p className="text-[10px] text-slate-400 font-medium mt-0.5">Diferença entre banco e ERP</p>
+            </div>
           </div>
         </div>
 
@@ -4025,34 +4031,34 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <p className="text-xs text-slate-400 font-medium">Selecione lançamentos para realizar o vínculo ou crie novos em lote.</p>
             </div>
             
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
               {importedFile && selectedMatches.length > 0 && (
                 <button
                   onClick={handleBatchConciliate}
                   disabled={loading}
-                  className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-xl transition-all shadow-md animate-bounce"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-lg transition-all shadow-sm animate-pulse"
                   title="Confirmar e salvar todas as conciliações preparadas no banco"
                 >
-                  <CheckCircle2 size={14} />
+                  <CheckCircle2 size={13} />
                   Conciliar Selecionados ({selectedMatches.length})
                 </button>
               )}
               {importedFile && (
                 <button
                   onClick={handleAutoConciliateAll}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-lg transition-all shadow-sm"
                   title="Conciliar automaticamente itens com alta confiança (≥85%)"
                 >
-                  <Zap size={14} />
-                  Conciliar Automatically
+                  <Zap size={13} />
+                  Conciliar automaticamente
                 </button>
               )}
               {importedFile && (
                 <button 
                   onClick={handleAutoConciliation}
-                  className="flex items-center gap-2 bg-emerald-600 text-white rounded-xl px-4 py-2 text-xs font-bold hover:bg-emerald-700 transition-all shadow-md cursor-pointer"
+                  className="flex items-center gap-1.5 bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-black hover:bg-emerald-700 transition-all shadow-sm cursor-pointer"
                 >
-                  <Sparkles size={14} /> Auto-Conciliar Inteligente
+                  <Sparkles size={13} /> Auto-Conciliar Inteligente
                 </button>
               )}
               {importedFile && (
@@ -4071,11 +4077,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     setReconciliationEndDate('');
                     setSelectedMatches([]);
                     setReconciliationSearch('');
+                    setShowQuickCreateForm(false);
                   }}
-                  className="flex items-center gap-1 bg-slate-100 text-slate-600 rounded-xl px-3 py-2 text-xs font-bold hover:bg-slate-200 transition-all cursor-pointer"
+                  className="flex items-center gap-1 bg-slate-100 text-slate-600 rounded-lg px-2.5 py-1.5 text-xs font-bold hover:bg-slate-200 transition-all cursor-pointer"
                   title="Trocar Extrato"
                 >
-                  <Trash2 size={13} /> Limpar
+                  <Trash2 size={12} /> Limpar
                 </button>
               )}
             </div>
@@ -4239,6 +4246,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             setSelectedImportedIndex(item.originalIndex);
                             setSelectedSystemTxId(null);
                             setAutoMatchScore(null);
+                            setShowQuickCreateForm(false);
                             
                             // Check if this item is prepared in selectedMatches
                             const prep = selectedMatches.find(m => m.reconciliation_id === itemKey);
@@ -4412,7 +4420,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         return (
                           <div className="bg-amber-50/50 border border-amber-200 rounded-xl p-4 space-y-3">
                             <div className="flex justify-between items-center">
-                              <p className="text-xs font-black text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+                              <p className="text-xs font-black text-amber-800 uppercase tracking-wider flex items-center gap-1.5 font-sans">
                                 <Clock size={14} className="text-amber-600" /> Vínculo Preparado em Fila
                               </p>
                               <button
@@ -4439,6 +4447,72 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             )}
                           </div>
                         );
+                      } else if (showQuickCreateForm) {
+                        return (
+                          <div className="bg-white border border-slate-100 rounded-2xl p-5 space-y-4 shadow-sm">
+                            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                              <span className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                                <Plus size={14} className="text-indigo-600" /> Novo lançamento
+                              </span>
+                              <button
+                                onClick={() => setShowQuickCreateForm(false)}
+                                className="text-[10px] font-bold text-slate-400 hover:text-slate-600 cursor-pointer"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                            
+                            <div className="space-y-3.5">
+                              <div>
+                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Descrição do Lançamento</label>
+                                <input 
+                                  type="text"
+                                  placeholder={normalizeDescription(activeImportedItem.description)}
+                                  value={quickDescription}
+                                  onChange={(e) => setQuickDescription(e.target.value)}
+                                  className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800 focus:border-indigo-300 focus:ring-1 focus:ring-indigo-100"
+                                />
+                              </div>
+                              
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Categoria</label>
+                                  <select 
+                                    value={quickCategoryId}
+                                    onChange={(e) => setQuickCategoryId(e.target.value)}
+                                    className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800 focus:border-indigo-300 focus:ring-1 focus:ring-indigo-100"
+                                  >
+                                    <option value="">Selecione...</option>
+                                    {categories.filter(c => c.type === activeImportedItem.type).map(cat => (
+                                      <option key={cat.id} value={cat.id}>{normalizeDescription(cat.name)}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Conta Bancária</label>
+                                  <select 
+                                    value={quickAccountId}
+                                    onChange={(e) => setQuickAccountId(e.target.value)}
+                                    className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800 focus:border-indigo-300 focus:ring-1 focus:ring-indigo-100"
+                                  >
+                                    <option value="">Selecione...</option>
+                                    {accounts.map(acc => (
+                                      <option key={acc.id} value={acc.id}>{normalizeDescription(acc.name)}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+
+                              <button 
+                                onClick={handleQuickCreateAndReconcile}
+                                disabled={loading}
+                                className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-black text-xs py-3 rounded-xl shadow-sm cursor-pointer text-center uppercase tracking-wider font-sans mt-2"
+                              >
+                                {loading ? 'Criando...' : 'Salvar no Sistema e Conciliar'}
+                              </button>
+                            </div>
+                          </div>
+                        );
                       } else if (selectedSystemTx && selectedSystemTx.type === activeImportedItem.type) {
                         let badgeBg = 'bg-rose-50 text-rose-700 border border-rose-100';
                         if (manualCompatibilityScore >= 85) {
@@ -4450,8 +4524,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         return (
                           <div className="bg-white border border-slate-100 rounded-2xl p-5 space-y-4 shadow-sm">
                             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                              <p className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                                <Zap size={14} className="text-indigo-600" /> Sugestão Selecionada
+                              <p className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5 font-sans">
+                                <Zap size={14} className="text-indigo-600" /> SUGESTÃO SELECIONADA
                               </p>
                               <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black tracking-wider ${badgeBg}`}>
                                 {manualCompatibilityScore}% CONFIANÇA
@@ -4460,7 +4534,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             
                             <div className="space-y-2">
                               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Lançamento ERP</p>
-                              <p className="text-sm font-black text-slate-800 leading-snug whitespace-normal">
+                              <p className="text-xs font-bold text-slate-800 leading-snug whitespace-normal">
                                 {normalizeDescription(selectedSystemTx.description)}
                               </p>
                               <div className="grid grid-cols-2 gap-2 text-xs text-slate-500 font-medium pt-2 border-t border-slate-50">
@@ -4479,92 +4553,53 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               </div>
                             </div>
 
-                            <div className="grid grid-cols-1 gap-2">
+                            <div className="grid grid-cols-1 gap-2 pt-2 border-t border-slate-100/60">
                               <button 
                                 onClick={handleQueueMatch}
                                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-3 rounded-xl shadow-md transition-all cursor-pointer text-center font-sans uppercase tracking-wider"
                               >
-                                Confirmar Vínculo
+                                CONFIRMAR VÍNCULO
                               </button>
                               <button 
                                 onClick={() => {
                                   setSelectedSystemTxId(null);
                                   setAutoMatchScore(null);
                                 }}
-                                className="text-center text-[10px] text-slate-400 hover:text-slate-600 font-bold mt-1 transition-all cursor-pointer"
+                                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-[10px] py-2 rounded-lg transition-all cursor-pointer text-center font-sans uppercase tracking-wider"
                               >
-                                Limpar Seleção
+                                LIMPAR SELEÇÃO
                               </button>
                             </div>
                           </div>
                         );
                       } else {
                         return (
-                          <div className="bg-white p-4 rounded-xl border border-dashed border-slate-200 text-center text-slate-500 py-6">
-                            <Zap size={20} className="mx-auto text-slate-300 mb-1 animate-pulse" />
-                            <p className="text-xs font-bold uppercase tracking-wider">Aguardando Seleção</p>
-                            <p className="text-[10px] mt-0.5">Selecione uma das sugestões ao lado para preparar o vínculo.</p>
+                          <div className="bg-white p-6 rounded-2xl border border-dashed border-slate-200 text-center space-y-4 shadow-sm">
+                            <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center mx-auto text-indigo-600">
+                              <Zap size={20} className="animate-pulse" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-black text-slate-700 uppercase tracking-wide">Aguardando Seleção</p>
+                              <p className="text-xs text-slate-400 font-medium mt-1">
+                                Selecione uma das sugestões ao lado para preparar o vínculo.
+                              </p>
+                            </div>
+                            <div className="flex flex-col gap-2 pt-2">
+                              <button
+                                onClick={() => {
+                                  setQuickDescription(activeImportedItem.description);
+                                  setShowQuickCreateForm(true);
+                                  setSelectedSystemTxId(null);
+                                }}
+                                className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-black py-2.5 px-4 rounded-xl transition-all inline-flex items-center justify-center gap-1 cursor-pointer mx-auto"
+                              >
+                                <Plus size={12} /> Criar Novo Lançamento
+                              </button>
+                            </div>
                           </div>
                         );
                       }
                     })()}
-
-                    {/* 2. Quick Create Form */}
-                    {!activeImportedItem.matched && !selectedMatches.some(m => m.reconciliation_id === (activeImportedItem.id || activeImportedItem.external_id || `temp-${selectedImportedIndex}`)) && (
-                      <div className="bg-white border border-slate-100 rounded-xl p-4 space-y-3">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Novo lançamento</span>
-                        
-                        <div className="space-y-3.5">
-                          <div>
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Descrição do Lançamento</label>
-                            <input 
-                              type="text"
-                              placeholder={normalizeDescription(activeImportedItem.description)}
-                              value={quickDescription}
-                              onChange={(e) => setQuickDescription(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800"
-                            />
-                          </div>
-                          
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Categoria</label>
-                              <select 
-                                value={quickCategoryId}
-                                onChange={(e) => setQuickCategoryId(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800"
-                              >
-                                <option value="">Selecione...</option>
-                                {categories.filter(c => c.type === activeImportedItem.type).map(cat => (
-                                  <option key={cat.id} value={cat.id}>{normalizeDescription(cat.name)}</option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Conta Bancária</label>
-                              <select 
-                                value={quickAccountId}
-                                onChange={(e) => setQuickAccountId(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800"
-                              >
-                                <option value="">Selecione...</option>
-                                {accounts.map(acc => (
-                                  <option key={acc.id} value={acc.id}>{normalizeDescription(acc.name)}</option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-
-                          <button 
-                            onClick={handleQuickCreateAndReconcile}
-                            disabled={loading}
-                            className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-black text-xs py-2.5 rounded-xl shadow-sm cursor-pointer text-center"
-                          >
-                            {loading ? 'Criando...' : 'Salvar no Sistema e Conciliar'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -4621,6 +4656,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         onClick={() => {
                           setSelectedSystemTxId(tx.id);
                           setAutoMatchScore(score);
+                          setShowQuickCreateForm(false);
                         }}
                         className={`p-4 rounded-2xl border transition-all flex flex-col justify-between cursor-pointer space-y-3 ${
                           isSelected 
@@ -4668,6 +4704,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               e.stopPropagation();
                               setSelectedSystemTxId(tx.id);
                               setAutoMatchScore(score);
+                              setShowQuickCreateForm(false);
                               // Smooth scroll to Center Panel for easy confirmation
                               document.getElementById('reconciliation-search-input')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                               showToast('Selecione e confirme o vínculo no painel central.', 'info');
@@ -4709,6 +4746,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           <button
                             onClick={() => {
                               setQuickDescription(activeImportedItem.description);
+                              setShowQuickCreateForm(true);
+                              setSelectedSystemTxId(null);
                               showToast('Utilize o formulário de Novo Lançamento no painel central.', 'info');
                             }}
                             className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-black py-2 px-4 rounded-xl transition-all cursor-pointer inline-flex items-center justify-center gap-1"
