@@ -200,6 +200,9 @@ const App: React.FC = () => {
       case 'financial-contas':
       case 'financial-conciliacao':
       case 'financial-categorias':
+      case 'financial-pagamentos':
+      case 'financial-centrocusto':
+      case 'financial-relatorios':
         return <Financial currentUser={currentUser} activeView={activeView} />;
       case 'team':
         return <Team team={team} setTeam={setTeam} currentUser={currentUser} />;
