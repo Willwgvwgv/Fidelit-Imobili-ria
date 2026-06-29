@@ -239,6 +239,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [quickCategoryId, setQuickCategoryId] = useState<string>('');
   const [quickAccountId, setQuickAccountId] = useState<string>('');
   const [quickDescription, setQuickDescription] = useState<string>('');
+  const [selectedMatches, setSelectedMatches] = useState<Array<{
+    reconciliation_id: string;
+    transaction_id: string;
+    score: number;
+    status: 'prepared' | 'confirmed';
+  }>>([]);
+  const [reconciliationSearch, setReconciliationSearch] = useState<string>('');
 
   const [ofxBankName, setOfxBankName] = useState<string | null>(null);
   const [ofxAgency, setOfxAgency] = useState<string | null>(null);
@@ -655,10 +662,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           loadFinancialData();
         }
       } else {
-        // local fallback update
-        setTransactions(prev => prev.map(t => t.id === editingTransaction.id ? { ...t, ...payload } : t));
-        setIsModalOpen(false);
-        setEditingTransaction(null);
+        alert('Conexão com o banco de dados indisponível.');
       }
     } else {
       // Insertion of new transactions or recurring batches
@@ -699,36 +703,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           }
         }
       } else {
-        // Fallback local or services without direct supabase access
-        const result = await supabaseService.createFinancialTransaction(payload);
-        if (result) {
-          if (copiesToCreate.length > 0) {
-            const mockCopies = copiesToCreate.map((c, i) => ({
-              id: 'tx-local-rec-' + i + '-' + Math.random().toString(36).substr(2, 9),
-              created_at: new Date().toISOString(),
-              ...c
-            }));
-            setTransactions(prev => [result, ...mockCopies, ...prev]);
-          } else {
-            setTransactions(prev => [result, ...prev]);
-          }
-          setIsModalOpen(false);
-          loadFinancialData();
-        } else {
-          // Entirely local fallback
-          const mockResult: FinancialTransaction = {
-            id: 'tx-local-' + Math.random().toString(36).substr(2, 9),
-            created_at: new Date().toISOString(),
-            ...payload
-          };
-          const mockCopies = copiesToCreate.map((c, i) => ({
-            id: 'tx-local-rec-' + i + '-' + Math.random().toString(36).substr(2, 9),
-            created_at: new Date().toISOString(),
-            ...c
-          }));
-          setTransactions(prev => [mockResult, ...mockCopies, ...prev]);
-          setIsModalOpen(false);
-        }
+        alert('Conexão com o banco de dados indisponível.');
       }
     }
   };
@@ -1237,6 +1212,203 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
   };
 
+  // Encontrar o próximo item pendente no extrato
+  const findNextPendingIndex = (currentIndex: number): number => {
+    const items = reconciliationItems;
+    for (let i = currentIndex + 1; i < items.length; i++) {
+      const itemId = items[i].id || items[i].external_id || `temp-${i}`;
+      const isAlreadyPrepared = selectedMatches.some(m => m.reconciliation_id === itemId);
+      if (!items[i].matched && !isAlreadyPrepared) {
+        return i;
+      }
+    }
+    for (let i = 0; i < currentIndex; i++) {
+      const itemId = items[i].id || items[i].external_id || `temp-${i}`;
+      const isAlreadyPrepared = selectedMatches.some(m => m.reconciliation_id === itemId);
+      if (!items[i].matched && !isAlreadyPrepared) {
+        return i;
+      }
+    }
+    return -1;
+  };
+
+  // Preparar um vínculo localmente para conciliação em lote
+  const handleQueueMatch = () => {
+    if (selectedImportedIndex === null || !selectedSystemTxId) {
+      showToast('Nenhum item ou lançamento selecionado para vincular.', 'error');
+      return;
+    }
+    
+    const imported = reconciliationItems[selectedImportedIndex];
+    const systemTx = transactions.find(t => t.id === selectedSystemTxId);
+    
+    if (imported && systemTx) {
+      if (systemTx.id.startsWith('tx-local-')) {
+        showToast('Não é possível conciliar com um lançamento temporário em memória.', 'error');
+        return;
+      }
+      const recId = imported.id || imported.external_id || `temp-${selectedImportedIndex}`;
+      const score = calculateMatchScore(imported, systemTx);
+      
+      setSelectedMatches(prev => {
+        const filtered = prev.filter(m => m.reconciliation_id !== recId);
+        return [...filtered, {
+          reconciliation_id: recId,
+          transaction_id: systemTx.id,
+          score,
+          status: 'prepared'
+        }];
+      });
+      
+      showToast('Vínculo preparado com sucesso! Prossiga para o próximo ou concilie em lote.', 'success');
+      
+      // Avança automaticamente para o próximo item pendente do extrato
+      const nextIndex = findNextPendingIndex(selectedImportedIndex);
+      if (nextIndex !== -1) {
+        setSelectedImportedIndex(nextIndex);
+        setSelectedSystemTxId(null);
+        setAutoMatchScore(null);
+        // Calcula a correspondência sugerida para o próximo item
+        const suggested = computeAutoMatch(
+          reconciliationItems[nextIndex],
+          transactions
+        );
+        if (suggested) {
+          setSelectedSystemTxId(suggested.id);
+          setAutoMatchScore(suggested.score);
+        } else {
+          setSelectedSystemTxId(null);
+          setAutoMatchScore(null);
+        }
+      } else {
+        setSelectedImportedIndex(null);
+        setSelectedSystemTxId(null);
+        setAutoMatchScore(null);
+      }
+    }
+  };
+
+  // Remover um vínculo preparado da fila local
+  const handleRemoveQueueMatch = (recId: string) => {
+    setSelectedMatches(prev => prev.filter(m => m.reconciliation_id !== recId));
+    showToast('Vínculo preparado removido.', 'success');
+  };
+
+  // Conciliar todos os vínculos preparados em lote no banco
+  const handleBatchConciliate = async () => {
+    if (selectedMatches.length === 0) {
+      showToast('Nenhum vínculo preparado para conciliação em lote.', 'error');
+      return;
+    }
+
+    // Garantir que somente transações existentes no Supabase entrem no selectedMatches
+    const validMatches = selectedMatches.filter(match => {
+      const tx = transactions.find(t => t.id === match.transaction_id);
+      return tx && !tx.id.startsWith('tx-local-');
+    });
+
+    if (validMatches.length === 0) {
+      showToast('Nenhum vínculo válido (com lançamentos reais no banco) foi encontrado na fila.', 'error');
+      setSelectedMatches([]);
+      return;
+    }
+    
+    setLoading(true);
+    const succeededMatches: typeof selectedMatches = [];
+    const failedMatches: Array<{ match: typeof selectedMatches[0]; errorMsg: string }> = [];
+
+    try {
+      for (const match of validMatches) {
+        const recItem = reconciliationItems.find(item => (item.id || item.external_id) === match.reconciliation_id);
+        const date = recItem ? recItem.date : new Date().toISOString().split('T')[0];
+        const payloadSingle = {
+          reconciliationId: match.reconciliation_id,
+          transactionId: match.transaction_id,
+          date
+        };
+
+        try {
+          const success = await supabaseService.matchReconciliationItemsBatch([payloadSingle]);
+          if (success) {
+            succeededMatches.push(match);
+          } else {
+            failedMatches.push({
+              match,
+              errorMsg: `Falha na API ao atualizar o extrato "${recItem?.description || match.reconciliation_id}"`
+            });
+          }
+        } catch (singleErr) {
+          console.error('Error during single batch item match:', singleErr);
+          failedMatches.push({
+            match,
+            errorMsg: singleErr instanceof Error ? singleErr.message : String(singleErr)
+          });
+        }
+      }
+
+      if (succeededMatches.length > 0) {
+        // Atualiza o estado local para marcar como conciliado apenas os que deram sucesso
+        setReconciliationItems(prev => prev.map(item => {
+          const match = succeededMatches.find(m => m.reconciliation_id === (item.id || item.external_id));
+          if (match) {
+            return { ...item, matched: true, matchedTxId: match.transaction_id };
+          }
+          return item;
+        }));
+
+        setMatchedPairs(prev => {
+          const newPairs = [...prev];
+          succeededMatches.forEach(match => {
+            const idx = reconciliationItems.findIndex(item => (item.id || item.external_id) === match.reconciliation_id);
+            if (idx !== -1) {
+              newPairs.push({ importedIdx: idx, systemId: match.transaction_id });
+            }
+          });
+          return newPairs;
+        });
+
+        setTransactions(prev => prev.map(t => {
+          const match = succeededMatches.find(m => m.transaction_id === t.id);
+          if (match) {
+            const recItem = reconciliationItems.find(item => (item.id || item.external_id) === match.reconciliation_id);
+            const date = recItem ? recItem.date : new Date().toISOString().split('T')[0];
+            return { ...t, status: TransactionStatus.PAID, payment_date: date };
+          }
+          return t;
+        }));
+
+        // Remove da fila apenas os que deram sucesso
+        setSelectedMatches(prev => prev.filter(m => !succeededMatches.some(sm => sm.reconciliation_id === m.reconciliation_id)));
+        
+        // Recarrega todos os dados financeiros de forma reativa e consistente
+        await loadFinancialData();
+      }
+
+      if (failedMatches.length > 0) {
+        const failedDescriptions = failedMatches.map(f => {
+          const recItem = reconciliationItems.find(item => (item.id || item.external_id) === f.match.reconciliation_id);
+          return `• ${recItem?.description || f.match.reconciliation_id}`;
+        }).join('\n');
+        
+        if (succeededMatches.length > 0) {
+          showToast(`Lote parcial: ${succeededMatches.length} conciliados. Erro nos seguintes itens:\n${failedDescriptions}`, 'error');
+        } else {
+          showToast(`Erro na conciliação de todos os itens selecionados:\n${failedDescriptions}`, 'error');
+        }
+      } else {
+        showToast(`${succeededMatches.length} lançamentos conciliados com sucesso em lote!`, 'success');
+        setSelectedImportedIndex(null);
+        setSelectedSystemTxId(null);
+        setAutoMatchScore(null);
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Erro ao realizar a conciliação em lote.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Ignore a reconciliation item
   const handleIgnoreReconciliation = async () => {
     if (selectedImportedIndex === null) return;
@@ -1291,38 +1463,42 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     };
     
     try {
+      // 1. Criar transação financeira
       const result = await supabaseService.createFinancialTransaction(payload);
-      if (result) {
-        setMatchedPairs(prev => [...prev, { importedIdx: selectedImportedIndex, systemId: result.id }]);
-        setReconciliationItems(prev => prev.map((item, idx) => idx === selectedImportedIndex ? { ...item, matched: true, matchedTxId: result.id } : item));
-        const quickItem = reconciliationItems[selectedImportedIndex];
-        if (quickItem?.id && result.id) {
-          supabaseService.matchReconciliationItem(quickItem.id, result.id);
-        }
-        setTransactions(prev => [result, ...prev]);
-        showToast('Lançamento criado e conciliado com sucesso!', 'success');
-      } else {
-        const mockId = 'tx-local-' + Math.random().toString(36).substr(2, 9);
-        const mockTx: FinancialTransaction = {
-          id: mockId,
-          created_at: new Date().toISOString(),
-          ...payload
-        };
-        setMatchedPairs(prev => [...prev, { importedIdx: selectedImportedIndex, systemId: mockId }]);
-        setReconciliationItems(prev => prev.map((item, idx) => idx === selectedImportedIndex ? { ...item, matched: true, matchedTxId: mockId } : item));
-        const quickItem = reconciliationItems[selectedImportedIndex];
-        if (quickItem?.id) {
-          supabaseService.matchReconciliationItem(quickItem.id, mockId);
-        }
-        setTransactions(prev => [mockTx, ...prev]);
-        showToast('Lançamento criado (local) e conciliado com sucesso!', 'success');
+      if (!result || !result.id) {
+        showToast('Erro ao criar o lançamento no servidor. Nenhuma alteração foi realizada.', 'error');
+        return;
       }
+
+      // 2. Tentar vincular com o item do extrato
+      if (importedItem?.id) {
+        try {
+          const matchSuccess = await supabaseService.matchReconciliationItem(importedItem.id, result.id);
+          if (!matchSuccess) {
+            throw new Error('Retorno falso do serviço ao vincular item.');
+          }
+        } catch (matchErr) {
+          console.error('Failed to link reconciliation item:', matchErr);
+          showToast('Lançamento criado no servidor, mas erro ao associar com o extrato. O item continua pendente para nova tentativa.', 'error');
+          // Adiciona a transação criada ao estado para que ela fique disponível na listagem manual,
+          // mas NÃO marca o item do extrato como conciliado e NÃO limpa a seleção.
+          setTransactions(prev => [result, ...prev]);
+          return;
+        }
+      }
+      
+      // 3. Sucesso completo em ambas as etapas: atualizar UI e limpar estado de seleção
+      setMatchedPairs(prev => [...prev, { importedIdx: selectedImportedIndex, systemId: result.id }]);
+      setReconciliationItems(prev => prev.map((item, idx) => idx === selectedImportedIndex ? { ...item, matched: true, matchedTxId: result.id } : item));
+      setTransactions(prev => [result, ...prev]);
+      showToast('Lançamento criado e conciliado com sucesso!', 'success');
+      
       setSelectedImportedIndex(null);
       setSelectedSystemTxId(null);
       setQuickDescription('');
     } catch (err) {
       console.error(err);
-      showToast('Erro ao criar lançamento rápido.', 'error');
+      showToast('Erro de rede ou permissão ao realizar o fluxo do lançamento rápido.', 'error');
     } finally {
       setLoading(false);
     }
@@ -3722,28 +3898,48 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const countConciliated = reconciliationItems.filter(item => item.matched).length;
     const countPending = reconciliationItems.filter(item => !item.matched).length;
 
-    const pendingSystemTxs = transactions.filter(t => t.status === TransactionStatus.PENDING && !matchedPairs.some(p => p.systemId === t.id));
-
-    // Suggestions function for selected item
-    const getMatchSuggestions = (importedItem: any) => {
-      if (!importedItem) return [];
-      
-      const suggestions = transactions
-        .filter(tx => tx.status === TransactionStatus.PENDING && !matchedPairs.some(p => p.systemId === tx.id))
-        .map(tx => {
-          const score = calculateMatchScore(importedItem, tx);
-          return { tx, score };
-        })
-        .filter(item => item.score > 0)
-        .sort((a, b) => b.score - a.score);
-        
-      return suggestions;
-    };
-
+    // Active item selected from the left side (statement)
     const activeImportedItem = selectedImportedIndex !== null ? reconciliationItems[selectedImportedIndex] : null;
-    const suggestions = activeImportedItem ? getMatchSuggestions(activeImportedItem) : [];
 
-    // If an item is selected from right side, calculate compatibility for manual pairing
+    // Filter candidate system transactions (not matched in DB, and not prepared in local batch list)
+    const availableSystemTxs = transactions.filter(t => {
+      const isPending = t.status === TransactionStatus.PENDING;
+      const isMatchedInDb = matchedPairs.some(p => p.systemId === t.id);
+      const itemKey = activeImportedItem ? (activeImportedItem.id || activeImportedItem.external_id || `temp-${selectedImportedIndex}`) : '';
+      const isPreparedInBatchForSomeoneElse = selectedMatches.some(m => m.transaction_id === t.id && m.reconciliation_id !== itemKey);
+      return isPending && !isMatchedInDb && !isPreparedInBatchForSomeoneElse;
+    });
+
+    // Calculate score for each candidate if activeImportedItem is loaded
+    let candidateTxs: Array<{ tx: any; score: number }> = [];
+    if (activeImportedItem) {
+      candidateTxs = availableSystemTxs.map(tx => {
+        const score = calculateMatchScore(activeImportedItem, tx);
+        return { tx, score };
+      });
+    }
+
+    // Filter displayed transactions based on search or compatibility score (> 0)
+    let displayedSystemTxs: Array<{ tx: any; score: number }> = [];
+    if (reconciliationSearch.trim() !== '') {
+      const query = reconciliationSearch.toLowerCase().trim();
+      displayedSystemTxs = candidateTxs.filter(({ tx }) => {
+        const descMatch = (tx.description || '').toLowerCase().includes(query);
+        const amtMatch = String(tx.amount).includes(query);
+        const dateMatch = (tx.due_date || '').includes(query);
+        return descMatch || amtMatch || dateMatch;
+      });
+    } else {
+      displayedSystemTxs = candidateTxs.filter(({ score }) => score > 0);
+    }
+
+    // Sort displayed transactions by score descending
+    displayedSystemTxs.sort((a, b) => b.score - a.score);
+
+    // Active suggestions (only scores > 0)
+    const suggestions = candidateTxs.filter(({ score }) => score > 0).sort((a, b) => b.score - a.score);
+
+    // Selected system transaction (either via click on suggestion or right column item)
     const selectedSystemTx = selectedSystemTxId ? transactions.find(t => t.id === selectedSystemTxId) : null;
     let manualCompatibilityScore = 0;
     if (activeImportedItem && selectedSystemTx) {
@@ -3798,6 +3994,17 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             </div>
             
             <div className="flex items-center gap-3">
+              {importedFile && selectedMatches.length > 0 && (
+                <button
+                  onClick={handleBatchConciliate}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-xl transition-all shadow-md animate-bounce"
+                  title="Confirmar e salvar todas as conciliações preparadas no banco"
+                >
+                  <CheckCircle2 size={14} />
+                  Conciliar Selecionados ({selectedMatches.length})
+                </button>
+              )}
               {importedFile && (
                 <button
                   onClick={handleAutoConciliateAll}
@@ -3830,6 +4037,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     setReconciliationPeriodFilter('all');
                     setReconciliationStartDate('');
                     setReconciliationEndDate('');
+                    setSelectedMatches([]);
+                    setReconciliationSearch('');
                   }}
                   className="flex items-center gap-1 bg-slate-100 text-slate-600 rounded-xl px-3 py-2 text-xs font-bold hover:bg-slate-200 transition-all cursor-pointer"
                   title="Trocar Extrato"
@@ -3859,7 +4068,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               </div>
               <p className="font-black text-slate-700 text-sm relative z-20 pointer-events-none">Arraste seu extrato bancário aqui ou clique para selecionar</p>
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2 relative z-20 pointer-events-none">Suporta formatos OFX e CSV de qualquer banco</p>
-
             </div>
           ) : (
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
@@ -3867,7 +4075,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <div className="xl:col-span-4 space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
                   <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                    Extrato Bancário ({importedFile})
+                    Extrato Bancário
                   </span>
                   <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded font-bold text-slate-500">
                     {reconciliationItems.length} itens
@@ -3922,7 +4130,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     <p className="font-bold text-[10px] uppercase text-blue-500 tracking-wider mb-1.5 flex items-center gap-1.5">
                       <Landmark size={12} /> Detalhes do Arquivo
                     </p>
-                    {ofxBankName && <p><strong>Banco:</strong> {ofxBankName}</p>}
+                    {ofxBankName && <p><strong>Banco:</strong> {normalizeDescription(ofxBankName)}</p>}
                     {(ofxAgency || ofxAccount) && (
                       <p>
                         {ofxAgency && <span className="mr-3"><strong>Agência:</strong> {ofxAgency}</span>}
@@ -3978,6 +4186,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     })
                     .map((item) => {
                       const isSelected = selectedImportedIndex === item.originalIndex;
+                      const itemKey = item.id || item.external_id || `temp-${item.originalIndex}`;
+                      const isPrepared = selectedMatches.some(m => m.reconciliation_id === itemKey);
+
                       return (
                         <div 
                           key={item.id || item.originalIndex} 
@@ -3985,59 +4196,76 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             setSelectedImportedIndex(item.originalIndex);
                             setSelectedSystemTxId(null);
                             setAutoMatchScore(null);
-                            const suggested = computeAutoMatch(
-                              reconciliationItems[item.originalIndex],
-                              transactions
-                            );
-                            if (suggested) {
-                              setSelectedSystemTxId(suggested.id);
-                              setAutoMatchScore(suggested.score);
+                            
+                            // Check if this item is prepared in selectedMatches
+                            const prep = selectedMatches.find(m => m.reconciliation_id === itemKey);
+                            if (prep) {
+                              setSelectedSystemTxId(prep.transaction_id);
+                              setAutoMatchScore(prep.score);
                             } else {
-                              setAutoMatchScore(null);
+                              const suggested = computeAutoMatch(
+                                reconciliationItems[item.originalIndex],
+                                transactions
+                              );
+                              if (suggested) {
+                                setSelectedSystemTxId(suggested.id);
+                                setAutoMatchScore(suggested.score);
+                              } else {
+                                setAutoMatchScore(null);
+                              }
                             }
                           }}
                           className={`p-4 flex flex-col justify-between cursor-pointer transition-all ${
                             item.matched 
                               ? 'bg-emerald-50/20 opacity-65 border-l-4 border-emerald-500' 
-                              : isSelected 
-                                ? 'bg-blue-50/80 border-l-4 border-blue-500 shadow-inner' 
-                                : 'hover:bg-slate-50/50 bg-white'
+                              : isPrepared
+                                ? 'bg-amber-50/40 border-l-4 border-amber-400 opacity-95 shadow-sm'
+                                : isSelected 
+                                  ? 'bg-blue-50/80 border-l-4 border-blue-500 shadow-inner' 
+                                  : 'hover:bg-slate-50/50 bg-white'
                           }`}
                         >
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-[10px] font-bold text-slate-400">
-                            {new Date(item.date).toLocaleDateString('pt-BR')}
-                          </span>
-                          <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                            item.type === TransactionType.INCOME 
-                              ? 'text-emerald-600 bg-emerald-50 border border-emerald-100/50' 
-                              : 'text-rose-600 bg-rose-50 border border-rose-100/50'
-                          }`}>
-                            {item.type === TransactionType.INCOME ? 'Entrada' : 'Saída'}
-                          </span>
-                        </div>
-                        <div className="flex items-end justify-between gap-2">
-                          <p className={`font-bold text-slate-800 text-xs truncate max-w-[180px] ${item.matched ? 'line-through text-slate-400' : ''}`}>
-                            {item.description}
-                          </p>
-                          <div className="text-right flex-shrink-0">
-                            <p className={`font-black text-xs ${item.type === TransactionType.INCOME ? 'text-emerald-600' : 'text-slate-700'}`}>
-                              {formatCurrency(item.amount)}
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-[10px] font-bold text-slate-400">
+                              {new Date(item.date).toLocaleDateString('pt-BR')}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              {isPrepared && (
+                                <span className="text-[8px] font-black uppercase bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded flex items-center gap-0.5 animate-pulse">
+                                  <Clock size={8} /> Fila
+                                </span>
+                              )}
+                              <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                                item.type === TransactionType.INCOME 
+                                  ? 'text-emerald-600 bg-emerald-50 border border-emerald-100/50' 
+                                  : 'text-rose-600 bg-rose-50 border border-rose-100/50'
+                              }`}>
+                                {item.type === TransactionType.INCOME ? 'Entrada' : 'Saída'}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-end justify-between gap-2">
+                            <p className={`font-bold text-slate-800 text-xs truncate max-w-[180px] ${item.matched ? 'line-through text-slate-400' : ''}`}>
+                              {normalizeDescription(item.description)}
                             </p>
+                            <div className="text-right flex-shrink-0">
+                              <p className={`font-black text-xs ${item.type === TransactionType.INCOME ? 'text-emerald-600' : 'text-slate-700'}`}>
+                                {formatCurrency(item.amount)}
+                              </p>
+                            </div>
                           </div>
+                          {item.matched && (
+                            <div className="mt-1 flex items-center gap-1 text-[9px] font-black text-emerald-600 uppercase tracking-widest">
+                              <Check size={10} /> Conciliado
+                            </div>
+                          )}
                         </div>
-                        {item.matched && (
-                          <div className="mt-1 flex items-center gap-1 text-[9px] font-black text-emerald-600 uppercase tracking-widest">
-                            <Check size={10} /> Conciliado
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                 </div>
               </div>
 
-              {/* 2. Center Column: Match suggestions and forms */}
+              {/* 2. Center Column: Match details, preparation confirmation, and quick create */}
               <div className="xl:col-span-4 bg-slate-50/50 rounded-2xl p-5 border border-slate-100 space-y-4">
                 <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block border-b border-slate-100 pb-2">
                   Painel de Conciliação
@@ -4052,9 +4280,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 ) : (
                   <div className="space-y-4">
                     {/* Selected Item Details */}
-                    <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm space-y-2">
+                    <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm space-y-3">
                       <div className="flex justify-between items-start">
-                        <span className="text-[9px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded uppercase tracking-wider font-sans">Transação do Banco</span>
+                        <span className="text-[9px] bg-blue-50 text-blue-600 font-bold px-2 py-0.5 rounded uppercase tracking-wider font-sans">
+                          Transação do Extrato
+                        </span>
                         {!activeImportedItem.matched && (
                           <button
                             onClick={handleIgnoreReconciliation}
@@ -4065,77 +4295,112 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           </button>
                         )}
                       </div>
-                      <h4 className="text-sm font-black text-slate-800 leading-tight font-sans">{activeImportedItem.description}</h4>
-                      <div className="flex justify-between items-center text-xs font-sans">
-                        <span className="text-slate-400 font-semibold">Data: {new Date(activeImportedItem.date).toLocaleDateString('pt-BR')}</span>
-                        <span className={`font-black ${activeImportedItem.type === TransactionType.INCOME ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          {activeImportedItem.type === TransactionType.INCOME ? '+' : '-'} {formatCurrency(activeImportedItem.amount)}
-                        </span>
+                      
+                      <h4 className="text-sm font-black text-slate-800 leading-tight font-sans">
+                        {normalizeDescription(activeImportedItem.description)}
+                      </h4>
+
+                      <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-50 text-xs text-slate-500 font-medium">
+                        <div>
+                          <p className="text-[9px] text-slate-400 uppercase font-black tracking-wider">Data</p>
+                          <p className="text-slate-700 font-bold">{new Date(activeImportedItem.date).toLocaleDateString('pt-BR')}</p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] text-slate-400 uppercase font-black tracking-wider">Valor</p>
+                          <p className={`font-black ${activeImportedItem.type === TransactionType.INCOME ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {activeImportedItem.type === TransactionType.INCOME ? 'Entrada (+)' : 'Saída (-)'} {formatCurrency(activeImportedItem.amount)}
+                          </p>
+                        </div>
+                        {ofxBankName && (
+                          <div className="col-span-2">
+                            <p className="text-[9px] text-slate-400 uppercase font-black tracking-wider">Banco de Origem</p>
+                            <p className="text-slate-700 font-bold flex items-center gap-1.5 mt-0.5">
+                              <Landmark size={12} className="text-slate-400" /> {normalizeDescription(ofxBankName)}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Display status in bank item details */}
+                      <div className="pt-2 border-t border-slate-50 flex justify-between items-center">
+                        <span className="text-[9px] text-slate-400 uppercase font-black tracking-wider">Status do Extrato</span>
+                        {(() => {
+                          const itemKey = activeImportedItem.id || activeImportedItem.external_id || `temp-${selectedImportedIndex}`;
+                          const prep = selectedMatches.find(m => m.reconciliation_id === itemKey);
+                          if (activeImportedItem.matched) {
+                            return (
+                              <span className="bg-emerald-50 text-emerald-600 font-black text-[9px] px-2 py-0.5 rounded-full border border-emerald-100 flex items-center gap-1 uppercase tracking-wider">
+                                <Check size={10} /> Conciliado no Banco
+                              </span>
+                            );
+                          } else if (prep) {
+                            return (
+                              <span className="bg-amber-50 text-amber-600 font-black text-[9px] px-2 py-0.5 rounded-full border border-amber-100 flex items-center gap-1 uppercase tracking-wider animate-pulse">
+                                <Clock size={10} /> Preparado (Fila)
+                              </span>
+                            );
+                          } else {
+                            return (
+                              <span className="bg-slate-100 text-slate-600 font-black text-[9px] px-2 py-0.5 rounded-full border border-slate-200 uppercase tracking-wider">
+                                Pendente
+                              </span>
+                            );
+                          }
+                        })()}
                       </div>
                     </div>
 
-                    {activeImportedItem.matched ? (
-                      <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 text-center space-y-2">
-                        <CheckCircle2 size={24} className="text-emerald-500 mx-auto" />
-                        <p className="text-xs font-black text-emerald-800 uppercase tracking-wider">Transação Conciliada</p>
-                        <p className="text-[10px] text-slate-500 font-medium">Esta transação bancária já foi vinculada e liquidada no ERP com sucesso.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {/* 1. Intelligent Suggestions */}
-                        <div className="space-y-2">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Sugestões de Vínculo</span>
-                          
-                          <div className="space-y-2">
-                            {suggestions.map(({ tx, score }) => {
-                              const isChecked = selectedSystemTxId === tx.id;
-                              return (
-                                <div 
-                                  key={tx.id}
-                                  onClick={() => {
-                                    setSelectedSystemTxId(tx.id);
-                                    setAutoMatchScore(null);
-                                  }}
-                                  className={`p-3 bg-white rounded-xl border cursor-pointer transition-all flex items-center justify-between gap-3 ${
-                                    isChecked 
-                                      ? 'border-blue-500 ring-2 ring-blue-50 bg-blue-50/10' 
-                                      : 'border-slate-100 hover:border-slate-200'
-                                  }`}
-                                >
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-1.5 mb-1">
-                                      <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase ${
-                                        score >= 90 ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
-                                      }`}>
-                                        {score}% compatível
-                                      </span>
-                                      <span className="text-[9px] font-medium text-slate-400">{new Date(tx.due_date).toLocaleDateString('pt-BR')}</span>
-                                    </div>
-                                    <p className="text-xs font-bold text-slate-700 truncate">{tx.description}</p>
-                                  </div>
-                                  <div className="text-right flex-shrink-0">
-                                    <p className="text-xs font-black text-slate-800">{formatCurrency(tx.amount)}</p>
-                                    <span className="text-[8px] font-semibold text-slate-400 uppercase">Aberto</span>
-                                  </div>
-                                </div>
-                              );
-                            })}
+                    {/* Check if the active item has a prepared match */}
+                    {(() => {
+                      const itemKey = activeImportedItem.id || activeImportedItem.external_id || `temp-${selectedImportedIndex}`;
+                      const preparedMatch = selectedMatches.find(m => m.reconciliation_id === itemKey);
+                      
+                      if (activeImportedItem.matched) {
+                        return (
+                          <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 text-center space-y-2">
+                            <CheckCircle2 size={24} className="text-emerald-500 mx-auto" />
+                            <p className="text-xs font-black text-emerald-800 uppercase tracking-wider">Transação Conciliada</p>
+                            <p className="text-[10px] text-slate-500 font-medium">Esta transação já foi vinculada e liquidada no ERP com sucesso.</p>
+                          </div>
+                        );
+                      } else if (preparedMatch) {
+                        // Find the transaction it's paired with
+                        const pairedTx = transactions.find(t => t.id === preparedMatch.transaction_id);
+                        return (
+                          <div className="bg-amber-50/50 border border-amber-200 rounded-xl p-4 space-y-3">
+                            <div className="flex justify-between items-center">
+                              <p className="text-xs font-black text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+                                <Clock size={14} className="text-amber-600" /> Vínculo Preparado em Fila
+                              </p>
+                              <button
+                                onClick={() => handleRemoveQueueMatch(itemKey)}
+                                className="text-[10px] font-black text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+                              >
+                                Cancelar Preparação
+                              </button>
+                            </div>
                             
-                            {suggestions.length === 0 && (
-                              <div className="p-4 bg-white border border-slate-100 rounded-xl text-center">
-                                <AlertCircle size={16} className="text-amber-500 mx-auto mb-1" />
-                                <p className="text-[10px] font-bold text-slate-500 uppercase">Nenhuma sugestão automática encontrada</p>
-                                <p className="text-[9px] text-slate-400 mt-0.5">Use o painel à direita para vincular manualmente ou crie um lançamento abaixo.</p>
+                            {pairedTx ? (
+                              <div className="bg-white rounded-xl p-3 border border-amber-200/50 space-y-1.5">
+                                <p className="text-xs font-bold text-slate-800 leading-snug">{normalizeDescription(pairedTx.description)}</p>
+                                <div className="flex justify-between text-[10px] text-slate-500 font-semibold pt-1 border-t border-slate-50">
+                                  <span>Vencimento: {new Date(pairedTx.due_date).toLocaleDateString('pt-BR')}</span>
+                                  <span className="text-slate-800 font-bold">Valor: {formatCurrency(pairedTx.amount)}</span>
+                                </div>
+                                <div className="text-[9px] text-slate-400 font-medium italic">
+                                  Compatibilidade: {preparedMatch.score}%
+                                </div>
                               </div>
+                            ) : (
+                              <p className="text-[10px] text-slate-500">Transação vinculada não encontrada no estado local.</p>
                             )}
                           </div>
-                        </div>
-
-                        {/* Confirmation button for suggestions/selections */}
-                        {selectedSystemTx && (selectedSystemTx.type === activeImportedItem.type) && (
+                        );
+                      } else if (selectedSystemTx && selectedSystemTx.type === activeImportedItem.type) {
+                        return (
                           <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 space-y-3 shadow-sm">
                             <p className="text-xs font-black text-blue-800 uppercase tracking-wider flex items-center gap-1">
-                              <Zap size={14} className="text-blue-600" /> Possível correspondência
+                              <Zap size={14} className="text-blue-600" /> Correspondência Selecionada
                             </p>
                             
                             <div className="bg-white rounded-lg p-3 border border-blue-100/50 space-y-1.5">
@@ -4147,83 +4412,96 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                   Confiança: {manualCompatibilityScore}%
                                 </span>
                               </div>
-                              <p className="text-xs font-bold text-slate-800 font-sans">{selectedSystemTx.description}</p>
+                              <p className="text-xs font-bold text-slate-800 font-sans">{normalizeDescription(selectedSystemTx.description)}</p>
                               <div className="flex justify-between text-[10px] text-slate-500 font-semibold pt-1 border-t border-slate-50 font-sans">
-                                <span>Data: {new Date(selectedSystemTx.due_date).toLocaleDateString('pt-BR')}</span>
+                                <span>Vencimento: {new Date(selectedSystemTx.due_date).toLocaleDateString('pt-BR')}</span>
                                 <span className="text-slate-700 font-bold">Valor: {formatCurrency(selectedSystemTx.amount)}</span>
                               </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-2">
                               <button 
-                                onClick={handlePairReconciliation}
+                                onClick={handleQueueMatch}
                                 className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs py-2.5 rounded-xl shadow-md cursor-pointer text-center font-sans"
                               >
-                                Conciliar
+                                Confirmar Vínculo
                               </button>
                               <button 
-                                onClick={handleIgnoreReconciliation}
+                                onClick={() => {
+                                  setSelectedSystemTxId(null);
+                                  setAutoMatchScore(null);
+                                }}
                                 className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-black text-xs py-2.5 rounded-xl cursor-pointer text-center font-sans"
                               >
-                                Ignorar
+                                Limpar Seleção
                               </button>
                             </div>
                           </div>
-                        )}
-
-                        {/* 2. Quick Create Form */}
-                        <div className="bg-white border border-slate-100 rounded-xl p-4 space-y-3">
-                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Novo lançamento</span>
-                          
-                          <div className="space-y-3.5">
-                            <div>
-                              <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Descrição do Lançamento</label>
-                              <input 
-                                type="text"
-                                placeholder={activeImportedItem.description}
-                                value={quickDescription}
-                                onChange={(e) => setQuickDescription(e.target.value)}
-                                className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800"
-                              />
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Categoria</label>
-                                <select 
-                                  value={quickCategoryId}
-                                  onChange={(e) => setQuickCategoryId(e.target.value)}
-                                  className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800"
-                                >
-                                  <option value="">Selecione...</option>
-                                  {categories.filter(c => c.type === activeImportedItem.type).map(cat => (
-                                    <option key={cat.id} value={cat.id}>{cat.name}</option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div>
-                                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Conta Bancária</label>
-                                <select 
-                                  value={quickAccountId}
-                                  onChange={(e) => setQuickAccountId(e.target.value)}
-                                  className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800"
-                                >
-                                  <option value="">Selecione...</option>
-                                  {accounts.map(acc => (
-                                    <option key={acc.id} value={acc.id}>{acc.name}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-
-                            <button 
-                              onClick={handleQuickCreateAndReconcile}
-                              disabled={loading}
-                              className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-black text-xs py-2.5 rounded-xl shadow-sm cursor-pointer text-center"
-                            >
-                              {loading ? 'Criando...' : 'Salvar no Sistema e Conciliar'}
-                            </button>
+                        );
+                      } else {
+                        return (
+                          <div className="bg-white p-4 rounded-xl border border-dashed border-slate-200 text-center text-slate-500 py-6">
+                            <Zap size={20} className="mx-auto text-slate-300 mb-1 animate-pulse" />
+                            <p className="text-xs font-bold uppercase tracking-wider">Aguardando Seleção</p>
+                            <p className="text-[10px] mt-0.5">Selecione uma das sugestões ao lado para preparar o vínculo.</p>
                           </div>
+                        );
+                      }
+                    })()}
+
+                    {/* 2. Quick Create Form */}
+                    {!activeImportedItem.matched && !selectedMatches.some(m => m.reconciliation_id === (activeImportedItem.id || activeImportedItem.external_id || `temp-${selectedImportedIndex}`)) && (
+                      <div className="bg-white border border-slate-100 rounded-xl p-4 space-y-3">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Novo lançamento</span>
+                        
+                        <div className="space-y-3.5">
+                          <div>
+                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Descrição do Lançamento</label>
+                            <input 
+                              type="text"
+                              placeholder={normalizeDescription(activeImportedItem.description)}
+                              value={quickDescription}
+                              onChange={(e) => setQuickDescription(e.target.value)}
+                              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800"
+                            />
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Categoria</label>
+                              <select 
+                                value={quickCategoryId}
+                                onChange={(e) => setQuickCategoryId(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800"
+                              >
+                                <option value="">Selecione...</option>
+                                {categories.filter(c => c.type === activeImportedItem.type).map(cat => (
+                                  <option key={cat.id} value={cat.id}>{normalizeDescription(cat.name)}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Conta Bancária</label>
+                              <select 
+                                value={quickAccountId}
+                                onChange={(e) => setQuickAccountId(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800"
+                              >
+                                <option value="">Selecione...</option>
+                                {accounts.map(acc => (
+                                  <option key={acc.id} value={acc.id}>{normalizeDescription(acc.name)}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <button 
+                            onClick={handleQuickCreateAndReconcile}
+                            disabled={loading}
+                            className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-black text-xs py-2.5 rounded-xl shadow-sm cursor-pointer text-center"
+                          >
+                            {loading ? 'Criando...' : 'Salvar no Sistema e Conciliar'}
+                          </button>
                         </div>
                       </div>
                     )}
@@ -4232,18 +4510,32 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               </div>
 
               {/* 3. Right Column: System transactions for matching */}
-              <div className="xl:col-span-4 space-y-3">
+              <div className="xl:col-span-4 space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
                   <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                    Lançamentos no Sistema (Abertos)
+                    Lançamentos Correspondentes
                   </span>
                   <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded font-bold text-slate-500">
-                    {pendingSystemTxs.length} pendentes
+                    {displayedSystemTxs.length} sugeridos
                   </span>
                 </div>
 
+                {/* Manual Search Field */}
+                <div className="relative">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Search size={14} />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por descrição, valor ou data..."
+                    value={reconciliationSearch}
+                    onChange={(e) => setReconciliationSearch(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-9 pr-4 py-2 text-xs outline-none text-slate-800 placeholder-slate-400"
+                  />
+                </div>
+
                 <div className="divide-y divide-slate-100 border border-slate-100 rounded-2xl max-h-[500px] overflow-y-auto bg-slate-50/20">
-                  {pendingSystemTxs.map((tx) => {
+                  {displayedSystemTxs.map(({ tx, score }) => {
                     const isSelected = selectedSystemTxId === tx.id;
                     const cat = categories.find(c => c.id === tx.category_id);
                     return (
@@ -4251,7 +4543,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         key={tx.id} 
                         onClick={() => {
                           setSelectedSystemTxId(tx.id);
-                          setAutoMatchScore(null);
+                          setAutoMatchScore(score);
                         }}
                         className={`p-4 flex flex-col justify-between cursor-pointer transition-all ${
                           isSelected 
@@ -4263,18 +4555,18 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           <span className="text-[10px] font-bold text-slate-400">
                             Vence em {new Date(tx.due_date).toLocaleDateString('pt-BR')}
                           </span>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                            tx.type === TransactionType.INCOME ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50'
+                          <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase ${
+                            score >= 85 ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
                           }`}>
-                            {tx.type === TransactionType.INCOME ? 'Receita' : 'Despesa'}
+                            {score}% compatível
                           </span>
                         </div>
                         <div className="flex items-end justify-between gap-2">
                           <div className="min-w-0">
-                            <p className="font-bold text-slate-800 text-xs truncate max-w-[180px]">{tx.description}</p>
+                            <p className="font-bold text-slate-800 text-xs truncate max-w-[180px]">{normalizeDescription(tx.description)}</p>
                             {cat && (
                               <p className="text-[9px] font-semibold text-slate-400 uppercase mt-0.5" style={{ color: cat.color }}>
-                                {cat.name}
+                                {normalizeDescription(cat.name)}
                               </p>
                             )}
                           </div>
@@ -4286,9 +4578,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     );
                   })}
 
-                  {pendingSystemTxs.length === 0 && (
-                    <div className="p-8 text-center text-slate-400 uppercase tracking-widest text-xs font-bold">
-                      Sem lançamentos abertos restantes
+                  {displayedSystemTxs.length === 0 && (
+                    <div className="p-8 text-center space-y-3">
+                      <AlertCircle size={24} className="text-slate-300 mx-auto" />
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Nenhuma correspondência</p>
+                      {activeImportedItem && (
+                        <button
+                          onClick={() => {
+                            setQuickDescription(activeImportedItem.description);
+                            showToast('Insira as informações do novo lançamento no painel central.', 'info');
+                          }}
+                          className="bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl transition-all inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Plus size={12} /> Criar novo lançamento
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -4575,69 +4879,676 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     );
   };
 
+  const getGroupKeyAndLabelHelper = (dateStr: string, mode: 'DAILY' | 'WEEKLY' | 'MONTHLY') => {
+    if (!dateStr) return { key: 'Sem Data', label: 'Sem Data' };
+    const [year, month, day] = dateStr.split('-');
+    
+    if (mode === 'DAILY') {
+      return {
+        key: dateStr,
+        label: `${day}/${month}/${year}`
+      };
+    } else if (mode === 'WEEKLY') {
+      const d = new Date(`${dateStr}T12:00:00`);
+      const dayOfWeek = d.getDay();
+      const diff = d.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+      const monday = new Date(d.setDate(diff));
+      const startStr = monday.toISOString().split('T')[0];
+      const [mY, mM, mD] = startStr.split('-');
+      return {
+        key: startStr,
+        label: `Semana de ${mD}/${mM}`
+      };
+    } else {
+      const months = [
+        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+      ];
+      const monthIndex = parseInt(month, 10) - 1;
+      return {
+        key: `${year}-${month}`,
+        label: `${months[monthIndex]} / ${year}`
+      };
+    }
+  };
+
   return (
     <div className="space-y-6 pb-20">
-      {/* Local view switcher horizontal toolbar */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-3 border-b border-slate-100/80 mb-4 select-none scrollbar-none">
-        {[
-          { id: 'financial-extrato', label: 'Extrato', icon: FileText },
-          { id: 'financial-fluxo', label: 'Fluxo de Caixa', icon: TrendingUp },
-          { id: 'financial-cartoes', label: 'Cartões', icon: CreditCard },
-          { id: 'financial-contas', label: 'Contas Bancárias', icon: Landmark },
-          { id: 'financial-conciliacao', label: 'Conciliação Bancária', icon: CheckCircle2 },
-          { id: 'financial-categorias', label: 'Categorias', icon: Tag },
-          { id: 'financial-pagamentos', label: 'Contas a Pagar/Receber', icon: Receipt, isNew: true },
-          { id: 'financial-centrocusto', label: 'Centro de Custo', icon: Layers },
-          { id: 'financial-relatorios', label: 'Relatórios', icon: FileDown },
-        ].map(item => {
-          const isSelected = localActiveView === item.id || (item.id === 'financial-extrato' && (localActiveView === 'financial' || localActiveView === 'financial-extrato'));
-          const IconComponent = item.icon || Receipt;
-          return (
-            <button
-              key={item.id}
-              onClick={() => setLocalActiveView(item.id)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer shrink-0 border ${
-                isSelected
-                  ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                  : 'bg-white text-slate-500 hover:text-slate-800 border-slate-100 hover:bg-slate-50'
-              }`}
-            >
-              <IconComponent size={14} className={item.isNew ? 'text-emerald-500' : 'text-slate-400'} />
-              {item.label}
-              {item.isNew && (
-                <span className="bg-emerald-500 text-white text-[8px] font-black uppercase px-1 py-0.5 rounded animate-pulse">Novo</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      {/* Dynamic Action / Context Toolbar */}
+      <div className="bg-white rounded-3xl border border-slate-100 p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        {/* Extrato / General Financial view */}
+        {((localActiveView === 'financial-extrato' || localActiveView === 'financial') && (
+          <>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative min-w-[240px]">
+                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Buscar lançamentos..." 
+                  className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none w-full focus:ring-2 focus:ring-blue-100 transition-all font-semibold"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
 
-      {/* Dynamic Subheader matching requested view */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        
-        {(localActiveView === 'financial-extrato' || localActiveView === 'financial') && (
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => {
-                setNewTransaction({...newTransaction, type: TransactionType.INCOME});
-                setModalType('transaction');
-                setIsModalOpen(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 hover:scale-[1.02] transform transition-all shadow-sm text-sm"
-            >
-              <Plus size={18} /> Nova Receita
-            </button>
-            <button 
-              onClick={() => {
-                setNewTransaction({...newTransaction, type: TransactionType.EXPENSE});
-                setModalType('transaction');
-                setIsModalOpen(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-rose-600 text-white font-bold rounded-xl hover:bg-rose-700 hover:scale-[1.02] transform transition-all shadow-sm text-sm"
-            >
-              <Plus size={18} /> Nova Despesa
-            </button>
-          </div>
+              <div className="flex bg-slate-100 p-1 rounded-xl">
+                {['Todos', 'Receitas', 'Despesas'].map((tab) => (
+                  <button
+                    key={tab}
+                    className={`px-3.5 py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                      (tab === 'Todos' && typeFilter === 'ALL') || 
+                      (tab === 'Receitas' && typeFilter === TransactionType.INCOME) ||
+                      (tab === 'Despesas' && typeFilter === TransactionType.EXPENSE)
+                        ? 'bg-white text-slate-800 shadow-sm' 
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                    onClick={() => {
+                      if (tab === 'Todos') setTypeFilter('ALL');
+                      else if (tab === 'Receitas') setTypeFilter(TransactionType.INCOME);
+                      else setTypeFilter(TransactionType.EXPENSE);
+                    }}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+
+              {/* Period Navigation */}
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl relative">
+                <button 
+                  onClick={() => {
+                    setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+                  }}
+                  className="p-1 px-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Mês Anterior"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                
+                <div 
+                  onClick={() => {
+                    monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
+                  }}
+                  className="text-xs font-black uppercase tracking-wider text-slate-800 px-1.5 min-w-[110px] text-center cursor-pointer hover:bg-slate-200 py-1 rounded-lg transition-colors relative flex items-center justify-center"
+                >
+                  {(() => {
+                    const monthNames = [
+                      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+                    ];
+                    return `${monthNames[currentPeriod.getMonth()]} de ${currentPeriod.getFullYear()}`;
+                  })()}
+                  <input 
+                    ref={monthInputRef}
+                    type="month" 
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    value={`${currentPeriod.getFullYear()}-${String(currentPeriod.getMonth() + 1).padStart(2, '0')}`}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        const [y, m] = e.target.value.split('-').map(Number);
+                        setCurrentPeriod(new Date(y, m - 1, 1));
+                      }
+                    }}
+                  />
+                </div>
+                
+                <button 
+                  onClick={() => {
+                    setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+                  }}
+                  className="p-1 px-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Próximo Mês"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+
+              {/* Additional Filter Trigger */}
+              <div className="relative">
+                <button 
+                  onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
+                  className="flex items-center gap-1.5 text-slate-500 hover:text-slate-900 transition-colors bg-white font-bold text-xs px-3.5 py-2.5 border border-slate-100 rounded-xl shadow-sm cursor-pointer"
+                >
+                  <Filter size={14} />
+                  <span>Filtrar</span>
+                </button>
+                
+                {isFilterDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setIsFilterDropdownOpen(false)} />
+                    <div className="absolute left-0 mt-2 w-64 bg-white border border-slate-100 rounded-2xl shadow-xl p-4 z-20 space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Categoria</label>
+                        <select 
+                          value={categoryFilter}
+                          onChange={(e) => setCategoryFilter(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                        >
+                          <option value="ALL">Todas as Categorias</option>
+                          {categories.map(cat => (
+                            <option key={cat.id} value={cat.id}>{cat.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => {
+                  setNewTransaction({...newTransaction, type: TransactionType.INCOME});
+                  setModalType('transaction');
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-600 text-white font-black text-xs uppercase tracking-wider rounded-xl hover:bg-emerald-700 hover:scale-[1.02] transform transition-all shadow-sm cursor-pointer"
+              >
+                <Plus size={14} /> Receita
+              </button>
+              <button 
+                onClick={() => {
+                  setNewTransaction({...newTransaction, type: TransactionType.EXPENSE});
+                  setModalType('transaction');
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-rose-600 text-white font-black text-xs uppercase tracking-wider rounded-xl hover:bg-rose-700 hover:scale-[1.02] transform transition-all shadow-sm cursor-pointer"
+              >
+                <Plus size={14} /> Despesa
+              </button>
+            </div>
+          </>
+        ))}
+
+        {/* Fluxo de Caixa */}
+        {localActiveView === 'financial-fluxo' && (
+          <>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-1">
+                <TrendingUp size={14} /> Fluxo de Caixa
+              </span>
+              
+              {/* Group Mode Selector */}
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setFluxoGroupMode(mode)}
+                    className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer rounded-lg ${
+                      fluxoGroupMode === mode
+                        ? 'bg-white text-slate-800 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {mode === 'DAILY' ? 'Diário' : mode === 'WEEKLY' ? 'Semanal' : 'Mensal'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Period Navigation */}
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl relative">
+                <button 
+                  onClick={() => {
+                    setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+                  }}
+                  className="p-1 px-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Mês Anterior"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                
+                <div 
+                  onClick={() => {
+                    monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
+                  }}
+                  className="text-xs font-black uppercase tracking-wider text-slate-800 px-1.5 min-w-[110px] text-center cursor-pointer hover:bg-slate-200 py-1 rounded-lg transition-colors relative flex items-center justify-center"
+                >
+                  {(() => {
+                    const monthNames = [
+                      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+                    ];
+                    return `${monthNames[currentPeriod.getMonth()]} de ${currentPeriod.getFullYear()}`;
+                  })()}
+                  <input 
+                    ref={monthInputRef}
+                    type="month" 
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    value={`${currentPeriod.getFullYear()}-${String(currentPeriod.getMonth() + 1).padStart(2, '0')}`}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        const [y, m] = e.target.value.split('-').map(Number);
+                        setCurrentPeriod(new Date(y, m - 1, 1));
+                      }
+                    }}
+                  />
+                </div>
+                
+                <button 
+                  onClick={() => {
+                    setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+                  }}
+                  className="p-1 px-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Próximo Mês"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const activeAccountIds = selectedAccountIds.length > 0 ? selectedAccountIds : accounts.map(a => a.id);
+                  const txsForSelectedAccounts = transactions.filter(t => {
+                    const accId = t.account_id || t.financial_account_id;
+                    return activeAccountIds.includes(accId || '') && t.is_transfer !== true;
+                  });
+                  const periodTxs = txsForSelectedAccounts.filter(t => {
+                    const parts = t.due_date.split('-');
+                    const txYear = parseInt(parts[0], 10);
+                    const txMonth = parseInt(parts[1], 10) - 1;
+                    return txYear === currentPeriod.getFullYear() && txMonth === currentPeriod.getMonth();
+                  });
+                  const groupedDataMap: Record<string, any> = {};
+                  periodTxs.forEach(tx => {
+                    const dateStr = tx.payment_date && tx.status === TransactionStatus.PAID ? tx.payment_date : tx.due_date;
+                    const { key, label } = getGroupKeyAndLabelHelper(dateStr, fluxoGroupMode);
+                    if (!groupedDataMap[key]) {
+                      groupedDataMap[key] = { label, income: 0, expense: 0, expectedIncome: 0, expectedExpense: 0 };
+                    }
+                    const amt = tx.amount || 0;
+                    if (tx.type === TransactionType.INCOME) {
+                      if (tx.status === TransactionStatus.PAID) groupedDataMap[key].income += amt;
+                      else groupedDataMap[key].expectedIncome += amt;
+                    } else if (tx.type === TransactionType.EXPENSE) {
+                      if (tx.status === TransactionStatus.PAID) groupedDataMap[key].expense += amt;
+                      else groupedDataMap[key].expectedExpense += amt;
+                    }
+                  });
+                  const sortedKeys = Object.keys(groupedDataMap).sort();
+                  const csvData = [
+                    ['Periodo', 'Entradas Reais (R$)', 'Saidas Reais (R$)', 'Entradas Previstas (R$)', 'Saidas Previstas (R$)'],
+                    ...sortedKeys.map(k => [
+                      groupedDataMap[k].label,
+                      groupedDataMap[k].income,
+                      groupedDataMap[k].expense,
+                      groupedDataMap[k].expectedIncome,
+                      groupedDataMap[k].expectedExpense
+                    ])
+                  ];
+                  const ws = XLSX.utils.aoa_to_sheet(csvData);
+                  const wb = XLSX.utils.book_new();
+                  XLSX.utils.book_append_sheet(wb, ws, 'Fluxo de Caixa');
+                  XLSX.writeFile(wb, `fluxo_caixa_${currentPeriod.getFullYear()}_${currentPeriod.getMonth() + 1}.xlsx`);
+                  showToast('Relatório exportado!', 'success');
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-slate-900 text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition-all shadow-sm cursor-pointer"
+              >
+                <Download size={14} /> Exportar Planilha
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Conciliação Bancária */}
+        {localActiveView === 'financial-conciliacao' && (
+          <>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-1 mr-2">
+                <CheckCircle2 size={14} /> Conciliação Bancária
+              </span>
+
+              {/* Import/Clear Button */}
+              {!importedFile ? (
+                <button 
+                  onClick={() => document.getElementById('bank-file-upload')?.click()}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl text-xs uppercase tracking-wider transition-all shadow-sm cursor-pointer"
+                >
+                  <Upload size={14} /> Importar Extrato (OFX/CSV)
+                </button>
+              ) : (
+                <button 
+                  onClick={() => {
+                    setImportedFile(null);
+                    setReconciliationItems([]);
+                    setSelectedImportedIndex(null);
+                    setSelectedSystemTxId(null);
+                    setOfxBankName(null);
+                    setOfxAgency(null);
+                    setOfxAccount(null);
+                    setOfxPeriod(null);
+                    setSelectedMatches([]);
+                    setReconciliationSearch('');
+                  }}
+                  className="flex items-center gap-1 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  <RefreshCw size={12} /> Limpar Extrato
+                </button>
+              )}
+
+              {/* Search Input (only when file is imported) */}
+              {importedFile && (
+                <div className="relative min-w-[200px]">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Pesquisar no extrato..." 
+                    className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium"
+                    value={reconciliationSearch}
+                    onChange={(e) => setReconciliationSearch(e.target.value)}
+                  />
+                </div>
+              )}
+
+              {/* Period Filter (only when file is imported) */}
+              {importedFile && (
+                <select 
+                  value={reconciliationPeriodFilter}
+                  onChange={(e) => setReconciliationPeriodFilter(e.target.value as any)}
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                >
+                  <option value="all">Todas as Datas</option>
+                  <option value="today">Hoje</option>
+                  <option value="7days">Últimos 7 dias</option>
+                  <option value="30days">Últimos 30 dias</option>
+                  <option value="current_month">Mês Atual</option>
+                </select>
+              )}
+            </div>
+
+            {/* Reconciliation Actions */}
+            {importedFile && (
+              <div className="flex items-center gap-2">
+                {selectedMatches.length > 0 && (
+                  <button
+                    onClick={handleBatchConciliate}
+                    disabled={loading}
+                    className="flex items-center gap-1.5 px-3.5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-black rounded-xl transition-all shadow-sm animate-pulse cursor-pointer"
+                  >
+                    <CheckCircle2 size={13} /> Conciliar Selecionados ({selectedMatches.length})
+                  </button>
+                )}
+                <button 
+                  onClick={handleAutoConciliation}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl text-xs uppercase tracking-wider transition-all shadow-sm cursor-pointer"
+                >
+                  <Sparkles size={13} /> Conciliação Inteligente
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Cartões */}
+        {localActiveView === 'financial-cartoes' && (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-1">
+                <CreditCard size={14} /> Cartões Corporativos
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => {
+                  setModalType('card');
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 bg-slate-900 text-white rounded-xl px-3.5 py-2.5 text-xs font-black uppercase tracking-wider hover:bg-slate-800 transition-all shadow-sm cursor-pointer"
+              >
+                <Plus size={14} /> Novo Cartão
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Contas Bancárias */}
+        {localActiveView === 'financial-contas' && (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-1">
+                <Landmark size={14} /> Contas Bancárias
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => {
+                  setModalType('account');
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 bg-slate-900 text-white rounded-xl px-3.5 py-2.5 text-xs font-black uppercase tracking-wider hover:bg-slate-800 transition-all shadow-sm cursor-pointer"
+              >
+                <Plus size={14} /> Adicionar Conta
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Categorias */}
+        {localActiveView === 'financial-categorias' && (
+          <>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-1">
+                <Tag size={14} /> Categorias Financeiras
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1.5 bg-white border border-slate-200 text-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-black uppercase tracking-wider hover:bg-slate-50 transition-all shadow-sm cursor-pointer">
+                <Download size={14} className="rotate-180" /> Importar CSV
+                <input 
+                  type="file" 
+                  accept=".csv" 
+                  className="hidden" 
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleCsvImport(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+              <button 
+                onClick={() => {
+                  setModalType('category');
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 bg-slate-900 text-white rounded-xl px-3.5 py-2.5 text-xs font-black uppercase tracking-wider hover:bg-slate-800 transition-all shadow-sm cursor-pointer"
+              >
+                <Plus size={14} /> Nova Categoria
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Contas a Pagar / Receber */}
+        {localActiveView === 'financial-pagamentos' && (
+          <>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-1 mr-2">
+                <Receipt size={14} /> Contas a Pagar/Receber
+              </span>
+
+              {/* Tab Filter */}
+              <div className="flex bg-slate-100 p-1 rounded-xl">
+                {(['todas', 'pagar', 'receber', 'vencidas'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setPagamentosTab(tab)}
+                    className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider transition-all cursor-pointer rounded-lg ${
+                      pagamentosTab === tab
+                        ? 'bg-white text-slate-800 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {tab === 'todas' ? 'Todas' : tab === 'pagar' ? 'A Pagar' : tab === 'receber' ? 'A Receber' : 'Vencidas'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search Input */}
+              <div className="relative min-w-[200px]">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Pesquisar lançamentos..." 
+                  className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => {
+                  setNewTransaction({...newTransaction, type: TransactionType.EXPENSE, status: TransactionStatus.PENDING});
+                  setModalType('transaction');
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-sm cursor-pointer"
+              >
+                <Plus size={13} /> Nova Despesa Pagar
+              </button>
+              <button 
+                onClick={() => {
+                  setNewTransaction({...newTransaction, type: TransactionType.INCOME, status: TransactionStatus.PENDING});
+                  setModalType('transaction');
+                  setIsModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-sm cursor-pointer"
+              >
+                <Plus size={13} /> Nova Receita Receber
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Centro de Custo */}
+        {localActiveView === 'financial-centrocusto' && (
+          <>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-1 mr-2">
+                <Layers size={14} /> Centro de Custo
+              </span>
+
+              {/* Centro de Custo Tab Filter */}
+              <div className="flex bg-slate-100 p-1 rounded-xl">
+                {(['todos', 'despesas', 'receitas'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setCentroCustoTab(tab)}
+                    className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider transition-all cursor-pointer rounded-lg ${
+                      centroCustoTab === tab
+                        ? 'bg-white text-slate-800 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {tab === 'todos' ? 'Todos' : tab === 'despesas' ? 'Despesas' : 'Receitas'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Search Input */}
+              <div className="relative min-w-[200px]">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input 
+                  type="text" 
+                  placeholder="Buscar no centro de custo..." 
+                  className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  if (typeof (window as any).handleExportCentroCustoXLSX === 'function') {
+                    (window as any).handleExportCentroCustoXLSX();
+                  } else {
+                    showToast('Exportando dados do Centro de Custo...', 'success');
+                  }
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-sm cursor-pointer"
+              >
+                <Download size={14} /> Exportar Excel
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Relatórios */}
+        {localActiveView === 'financial-relatorios' && (
+          <>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-1 mr-2">
+                <FileDown size={14} /> Relatórios Financeiros
+              </span>
+
+              {/* Period Navigation */}
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl relative">
+                <button 
+                  onClick={() => {
+                    setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+                  }}
+                  className="p-1 px-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Mês Anterior"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                
+                <div 
+                  onClick={() => {
+                    monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
+                  }}
+                  className="text-xs font-black uppercase tracking-wider text-slate-800 px-1.5 min-w-[110px] text-center cursor-pointer hover:bg-slate-200 py-1 rounded-lg transition-colors relative flex items-center justify-center"
+                >
+                  {(() => {
+                    const monthNames = [
+                      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+                    ];
+                    return `${monthNames[currentPeriod.getMonth()]} de ${currentPeriod.getFullYear()}`;
+                  })()}
+                  <input 
+                    ref={monthInputRef}
+                    type="month" 
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                    value={`${currentPeriod.getFullYear()}-${String(currentPeriod.getMonth() + 1).padStart(2, '0')}`}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        const [y, m] = e.target.value.split('-').map(Number);
+                        setCurrentPeriod(new Date(y, m - 1, 1));
+                      }
+                    }}
+                  />
+                </div>
+                
+                <button 
+                  onClick={() => {
+                    setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+                  }}
+                  className="p-1 px-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Próximo Mês"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => window.print()}
+                className="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-wider rounded-xl px-3.5 py-2.5 shadow-sm transition-all cursor-pointer"
+              >
+                <FileText size={14} /> Exportar PDF
+              </button>
+            </div>
+          </>
         )}
       </div>
 

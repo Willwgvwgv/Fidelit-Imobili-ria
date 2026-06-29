@@ -568,6 +568,47 @@ export const supabaseService = {
     return true;
   },
 
+  // Conciliar itens em lote (vários itens de uma vez)
+  async matchReconciliationItemsBatch(
+    pairs: Array<{ reconciliationId: string; transactionId: string; date: string }>
+  ): Promise<boolean> {
+    if (!supabase) return false;
+    try {
+      for (const pair of pairs) {
+        // Atualiza o item de reconciliação
+        const { error: recError } = await supabase
+          .from('financial_reconciliations')
+          .update({
+            matched_transaction_id: pair.transactionId,
+            status: 'MATCHED',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', pair.reconciliationId);
+        
+        if (recError) {
+          console.error('matchReconciliationItemsBatch - reconciliations:', recError);
+        }
+
+        // Atualiza o lançamento financeiro correspondente para LIQUIDADO (PAID) e data do pagamento
+        const { error: txError } = await supabase
+          .from('financial_transactions')
+          .update({
+            status: 'PAID',
+            payment_date: pair.date,
+          })
+          .eq('id', pair.transactionId);
+
+        if (txError) {
+          console.error('matchReconciliationItemsBatch - transactions:', txError);
+        }
+      }
+      return true;
+    } catch (err) {
+      console.error('matchReconciliationItemsBatch error:', err);
+      return false;
+    }
+  },
+
   // Marcar item como ignorado
   async ignoreReconciliationItem(reconciliationId: string): Promise<boolean> {
     if (!supabase) return false;
