@@ -2,6 +2,21 @@
 import { supabase } from '../supabase';
 import { Sale, User, BrokerSplit, CommissionStatus, SplitRole, FinancialAccount, FinancialCategory, FinancialTransaction, TransactionStatus, BrokerEntry } from '../types';
 
+export interface FinancialAccountInsert {
+  agency_id: string;
+  name: string;
+  bank_name?: string;
+  account_type?: string;
+  initial_balance: number;
+  current_balance: number;
+  color?: string;
+  is_default?: boolean;
+  type?: string;
+  credit_limit?: number;
+  is_active?: boolean;
+  bank_code?: string | null;
+}
+
 export const mapUiRoleToDbRole = (uiRole: string): string => {
   if (!uiRole) return 'BROKER';
   if (['BROKER', 'CAPTURER', 'PARTNER', 'AGENCY', 'MANAGER'].includes(uiRole)) {
@@ -409,7 +424,7 @@ export const supabaseService = {
     return true;
   },
 
-  async createFinancialAccount(account: Omit<FinancialAccount, 'id'>): Promise<FinancialAccount | null> {
+  async createFinancialAccount(account: FinancialAccountInsert): Promise<FinancialAccount | null> {
     if (!supabase) return null;
     const { data, error } = await supabase.from('financial_accounts').insert(account).select().single();
     if (error) {
