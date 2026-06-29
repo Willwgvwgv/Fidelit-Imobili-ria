@@ -279,6 +279,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [fluxoGroupMode, setFluxoGroupMode] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY'>('WEEKLY');
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   
+  // States for custom ConfirmModal
+  const [confirmModalOpen, setConfirmModalOpen] = useState(false);
+  const [confirmModalTitle, setConfirmModalTitle] = useState('');
+  const [confirmModalMessage, setConfirmModalMessage] = useState('');
+  const [confirmModalConfirmText, setConfirmModalConfirmText] = useState('Confirmar');
+  const [confirmModalConfirmColor, setConfirmModalConfirmColor] = useState('bg-rose-600 hover:bg-rose-700 text-white');
+  const [onConfirmAction, setOnConfirmAction] = useState<(() => void) | null>(null);
+
+  const getAccountLiveBalance = (account: FinancialAccount) => {
+    const sumTransactions = transactions
+      .filter(t => t.account_id === account.id && t.status === TransactionStatus.PAID)
+      .reduce((acc, curr) => acc + (curr.type === TransactionType.INCOME ? curr.amount : -curr.amount), 0);
+    return Number(account.initial_balance || 0) + sumTransactions;
+  };
+  
   // Accounts payable and receivable states
   const [pagamentosTab, setPagamentosTab] = useState<'todas' | 'pagar' | 'receber' | 'vencidas'>('todas');
   const [localActiveView, setLocalActiveView] = useState<string>(activeView);
@@ -353,10 +368,47 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setIsModalOpen(true);
   };
 
-  const handleDeleteAccount = (accountId: string) => {
-    if (window.confirm('Tem certeza que deseja excluir esta conta?')) {
-      setAccounts(prev => prev.filter(acc => acc.id !== accountId));
+  const handleExportTransactionsCSV = () => {
+    if (filteredTransactions.length === 0) {
+      alert('Nenhum lançamento para exportar.');
+      return;
     }
+    const headers = ['Data Venc.', 'Data Pag.', 'Descrição', 'Categoria', 'Conta', 'Valor', 'Tipo', 'Status'];
+    const rows = filteredTransactions.map(tx => {
+      const cat = categories.find(c => c.id === tx.category_id)?.name || 'Sem Categoria';
+      const acc = accounts.find(a => a.id === tx.account_id)?.name || 'Sem Conta';
+      return [
+        tx.due_date ? new Date(tx.due_date).toLocaleDateString('pt-BR') : '',
+        tx.payment_date ? new Date(tx.payment_date).toLocaleDateString('pt-BR') : '',
+        tx.description.replace(/,/g, ';'),
+        cat.replace(/,/g, ';'),
+        acc.replace(/,/g, ';'),
+        tx.amount.toFixed(2).replace('.', ','),
+        tx.type === TransactionType.INCOME ? 'Receita' : 'Despesa',
+        tx.status === TransactionStatus.PAID ? 'Pago' : 'Pendente'
+      ].join(',');
+    });
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `extrato_lancamentos_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleDeleteAccount = (accountId: string) => {
+    setConfirmModalTitle('Excluir Conta Bancária');
+    setConfirmModalMessage('Tem certeza que deseja excluir esta conta?');
+    setConfirmModalConfirmText('Excluir');
+    setConfirmModalConfirmColor('bg-rose-600 hover:bg-rose-700 text-white');
+    setOnConfirmAction(() => () => {
+      setAccounts(prev => prev.filter(acc => acc.id !== accountId));
+    });
+    setConfirmModalOpen(true);
   };
 
   const handleEditCategoryClick = (category: FinancialCategory) => {
@@ -372,9 +424,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   const handleDeleteCategory = (categoryId: string) => {
-    if (window.confirm('Tem certeza que deseja excluir esta categoria?')) {
+    setConfirmModalTitle('Excluir Categoria');
+    setConfirmModalMessage('Tem certeza que deseja excluir esta categoria?');
+    setConfirmModalConfirmText('Excluir');
+    setConfirmModalConfirmColor('bg-rose-600 hover:bg-rose-700 text-white');
+    setOnConfirmAction(() => () => {
       setCategories(prev => prev.filter(c => c.id !== categoryId));
-    }
+    });
+    setConfirmModalOpen(true);
   };
 
   const handleEditTransactionClick = (tx: FinancialTransaction) => {
@@ -395,8 +452,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setIsModalOpen(true);
   };
 
-  const handleDeleteTransaction = async (id: string) => {
-    if (window.confirm('Tem certeza que deseja excluir este lançamento?')) {
+  const handleDeleteTransaction = (id: string) => {
+    setConfirmModalTitle('Excluir Lançamento');
+    setConfirmModalMessage('Tem certeza que deseja excluir este lançamento?');
+    setConfirmModalConfirmText('Excluir');
+    setConfirmModalConfirmColor('bg-rose-600 hover:bg-rose-700 text-white');
+    setOnConfirmAction(() => async () => {
       setLoading(true);
       try {
         if (supabase) {
@@ -417,12 +478,17 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       } finally {
         setLoading(false);
       }
-    }
+    });
+    setConfirmModalOpen(true);
   };
 
-  const handleDeleteSelected = async () => {
+  const handleDeleteSelected = () => {
     if (selectedTxIds.length === 0) return;
-    if (window.confirm(`Tem certeza que deseja excluir os ${selectedTxIds.length} lançamentos selecionados?`)) {
+    setConfirmModalTitle('Excluir Lançamentos Selecionados');
+    setConfirmModalMessage(`Tem certeza que deseja excluir os ${selectedTxIds.length} lançamentos selecionados?`);
+    setConfirmModalConfirmText('Excluir');
+    setConfirmModalConfirmColor('bg-rose-600 hover:bg-rose-700 text-white');
+    setOnConfirmAction(() => async () => {
       setLoading(true);
       try {
         if (supabase) {
@@ -443,7 +509,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       } finally {
         setLoading(false);
       }
-    }
+    });
+    setConfirmModalOpen(true);
   };
 
   // Load finance datasets from DB with visual fallbacks if null
@@ -1710,132 +1777,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
         {/* Main Table Container */}
         <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
-          {/* Filter Bar */}
-          <div className="p-6 border-b border-slate-50 flex flex-col xl:flex-row xl:items-center justify-between gap-6">
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="relative min-w-[300px]">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input 
-                  type="text" 
-                  placeholder="Buscar lançamentos..." 
-                  className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none w-full focus:ring-2 focus:ring-blue-100 transition-all font-medium"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-              
-              <div className="flex bg-slate-100 p-1 rounded-xl">
-                {['Todos', 'Receitas', 'Despesas'].map((tab) => (
-                  <button
-                    key={tab}
-                    className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                      (tab === 'Todos' && typeFilter === 'ALL') || 
-                      (tab === 'Receitas' && typeFilter === TransactionType.INCOME) ||
-                      (tab === 'Despesas' && typeFilter === TransactionType.EXPENSE)
-                        ? 'bg-white text-slate-800 shadow-sm' 
-                        : 'text-slate-500 hover:text-slate-700'
-                    }`}
-                    onClick={() => {
-                      if (tab === 'Todos') setTypeFilter('ALL');
-                      else if (tab === 'Receitas') setTypeFilter(TransactionType.INCOME);
-                      else setTypeFilter(TransactionType.EXPENSE);
-                    }}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-
-              {/* Period Navigation */}
-              <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl relative">
-                <button 
-                  onClick={() => {
-                    setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
-                  }}
-                  className="p-1 px-2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                  title="Mês Anterior"
-                >
-                  <ChevronLeft size={16} />
-                </button>
-                
-                <div 
-                  onClick={() => {
-                    monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
-                  }}
-                  className="text-xs font-black uppercase tracking-wider text-slate-800 px-2 min-w-[120px] text-center cursor-pointer hover:bg-slate-200/60 py-1 rounded-lg transition-colors relative flex items-center justify-center"
-                >
-                  {(() => {
-                    const monthNames = [
-                      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-                      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-                    ];
-                    return `${monthNames[currentPeriod.getMonth()]} de ${currentPeriod.getFullYear()}`;
-                  })()}
-                  <input 
-                    ref={monthInputRef}
-                    type="month" 
-                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    value={`${currentPeriod.getFullYear()}-${String(currentPeriod.getMonth() + 1).padStart(2, '0')}`}
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        const [y, m] = e.target.value.split('-').map(Number);
-                        setCurrentPeriod(new Date(y, m - 1, 1));
-                      }
-                    }}
-                  />
-                </div>
-                
-                <button 
-                  onClick={() => {
-                    setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-                  }}
-                  className="p-1 px-2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                  title="Próximo Mês"
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3 relative">
-              {/* Additional Filter Button with Dropdown */}
-              <div className="relative">
-                <button 
-                  onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
-                  className="flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors bg-white font-bold text-sm px-4 py-2 border border-slate-100 rounded-xl shadow-sm cursor-pointer"
-                >
-                  <Filter size={18} />
-                  <span>Filtrar</span>
-                </button>
-                
-                {isFilterDropdownOpen && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setIsFilterDropdownOpen(false)} />
-                    <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-100 rounded-2xl shadow-xl p-4 z-20 space-y-4">
-                      <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Categoria</label>
-                        <select 
-                          value={categoryFilter}
-                          onChange={(e) => setCategoryFilter(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none cursor-pointer"
-                        >
-                          <option value="ALL">Todas as Categorias</option>
-                          {categories.map(cat => (
-                            <option key={cat.id} value={cat.id}>{cat.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <button className="flex items-center gap-2 text-slate-500 hover:text-slate-900 transition-colors bg-white font-bold text-sm px-4 py-2 border border-slate-100 rounded-xl shadow-sm cursor-pointer">
-                <Download size={18} />
-                <span>Exportar CSV</span>
-              </button>
-            </div>
-          </div>
 
           {/* Mass Actions Bar */}
           {selectedTxIds.length > 0 && (
@@ -2252,7 +2193,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   >
                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: acc.color || '#94a3b8' }} />
                     <span>{acc.name}</span>
-                    <span className="opacity-80">({formatCurrency(acc.current_balance)})</span>
+                    <span className="opacity-80">({formatCurrency(getAccountLiveBalance(acc))})</span>
                   </button>
                 );
               })}
@@ -2857,9 +2798,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                   </button>
                                   <button
                                     onClick={() => {
-                                      if (window.confirm(`Deseja adiar o vencimento do lançamento "${tx.description}" em 7 dias?`)) {
+                                      setConfirmModalTitle('Adiar Vencimento');
+                                      setConfirmModalMessage(`Deseja adiar o vencimento do lançamento "${tx.description}" em 7 dias?`);
+                                      setConfirmModalConfirmText('Adiar');
+                                      setConfirmModalConfirmColor('bg-blue-600 hover:bg-blue-700 text-white');
+                                      setOnConfirmAction(() => () => {
                                         handlePostponeTransaction(tx);
-                                      }
+                                      });
+                                      setConfirmModalOpen(true);
                                     }}
                                     className="px-3 py-1.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer"
                                   >
@@ -3681,26 +3627,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
-            <CreditCard size={20} className="text-slate-700" />
-            Meus Cartões Corporativos
-          </h2>
-          <button 
-            onClick={() => {
-              setModalType('card');
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 bg-slate-900 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-slate-800 transition-all shadow-sm"
-          >
-            <Plus size={14} /> Novo Cartão
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
           {cardAccounts.map((card, idx) => {
             const limit = card.credit_limit || 25000;
-            const openInvoices = Math.abs(card.current_balance);
+            const openInvoices = Math.abs(getAccountLiveBalance(card));
             const available = limit - openInvoices;
             const progressPct = Math.round((openInvoices / limit) * 100);
 
@@ -3782,26 +3712,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div />
-          <button 
-            onClick={() => {
-              setModalType('account');
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 bg-slate-900 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-slate-800 transition-all shadow-sm cursor-pointer"
-          >
-            <Plus size={14} /> Adicionar Conta
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
           {accounts.map(account => {
-            const sumTransactions = transactions
-              .filter(t => t.account_id === account.id && t.status === TransactionStatus.PAID)
-              .reduce((acc, curr) => acc + (curr.type === TransactionType.INCOME ? curr.amount : -curr.amount), 0);
-            
-            const liveBalance = account.initial_balance + sumTransactions;
+            const liveBalance = getAccountLiveBalance(account);
             const bank = BANKS.find(b => b.code === (account as any).bank_code);
             const initials = bank ? bank.initials : 'BC';
             const bankName = bank ? bank.name : 'Banco';
@@ -4915,35 +4828,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     return (
       <div className="space-y-8">
-        <div className="flex items-center justify-between">
-          <div />
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 bg-white border border-slate-200 text-slate-700 rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-slate-50 transition-all shadow-sm cursor-pointer">
-              <Download size={14} className="rotate-180" /> Importar CSV
-              <input 
-                type="file" 
-                accept=".csv" 
-                className="hidden" 
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleCsvImport(file);
-                  e.target.value = '';
-                }}
-              />
-            </label>
-            <button 
-              onClick={() => {
-                setModalType('category');
-                setIsModalOpen(true);
-              }}
-              className="flex items-center gap-1.5 bg-slate-900 text-white rounded-lg px-3 py-1.5 text-xs font-bold hover:bg-slate-800 transition-all shadow-sm cursor-pointer"
-            >
-              <Plus size={14} /> Nova Categoria
-            </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-2">
           {/* Revenues block */}
           <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
             <h3 className="text-base font-black text-emerald-600 border-b border-slate-100 pb-3 flex items-center gap-1.5 uppercase tracking-wider">
@@ -5219,6 +5104,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 className="flex items-center gap-1.5 px-3.5 py-2.5 bg-rose-600 text-white font-black text-xs uppercase tracking-wider rounded-xl hover:bg-rose-700 hover:scale-[1.02] transform transition-all shadow-sm cursor-pointer"
               >
                 <Plus size={14} /> Despesa
+              </button>
+              <button 
+                onClick={handleExportTransactionsCSV}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-200 text-slate-600 font-black text-xs uppercase tracking-wider rounded-xl hover:bg-slate-50 hover:text-slate-900 transition-all shadow-sm cursor-pointer"
+              >
+                <Download size={14} /> Exportar CSV
               </button>
             </div>
           </>
@@ -6267,6 +6158,56 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl shadow-lg shadow-blue-100 text-sm"
                 >
                   Confirmar Importação
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Custom ConfirmModal */}
+      <AnimatePresence>
+        {confirmModalOpen && (
+          <div className="fixed inset-0 z-[99] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+              onClick={() => setConfirmModalOpen(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl w-full max-w-md shadow-2xl relative z-10 p-8 overflow-hidden flex flex-col"
+            >
+              <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-6">
+                <AlertCircle className="text-rose-500 animate-pulse" size={24} />
+                <h2 className="text-lg font-black text-slate-900 uppercase tracking-wide">
+                  {confirmModalTitle}
+                </h2>
+              </div>
+              
+              <div className="text-sm font-semibold text-slate-500 mb-8 leading-relaxed">
+                {confirmModalMessage}
+              </div>
+              
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setConfirmModalOpen(false)} 
+                  className="flex-1 py-3 text-slate-500 bg-slate-50 hover:bg-slate-100 font-bold text-sm rounded-xl transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={() => {
+                    if (onConfirmAction) onConfirmAction();
+                    setConfirmModalOpen(false);
+                  }}
+                  className={`flex-1 font-black py-3 rounded-xl shadow-lg text-sm transition-all cursor-pointer ${confirmModalConfirmColor}`}
+                >
+                  {confirmModalConfirmText}
                 </button>
               </div>
             </motion.div>
