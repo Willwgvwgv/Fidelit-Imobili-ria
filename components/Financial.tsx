@@ -401,12 +401,33 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   const handleDeleteAccount = (accountId: string) => {
+    const hasTransactions = transactions.some(t => t.account_id === accountId);
+    
     setConfirmModalTitle('Excluir Conta Bancária');
-    setConfirmModalMessage('Tem certeza que deseja excluir esta conta?');
-    setConfirmModalConfirmText('Excluir');
+    if (hasTransactions) {
+      setConfirmModalMessage('Esta conta possui lançamentos vinculados e será apenas desativada do sistema para preservar os dados históricos. Tem certeza que deseja prosseguir com a desativação?');
+    } else {
+      setConfirmModalMessage('Tem certeza que deseja excluir esta conta?');
+    }
+    
+    setConfirmModalConfirmText(hasTransactions ? 'Desativar' : 'Excluir');
     setConfirmModalConfirmColor('bg-rose-600 hover:bg-rose-700 text-white');
-    setOnConfirmAction(() => () => {
-      setAccounts(prev => prev.filter(acc => acc.id !== accountId));
+    setOnConfirmAction(() => async () => {
+      setLoading(true);
+      try {
+        const success = await supabaseService.deleteFinancialAccount(accountId);
+        if (success) {
+          showToast(hasTransactions ? 'Conta desativada com sucesso!' : 'Conta excluída com sucesso!', 'success');
+          await loadFinancialData();
+        } else {
+          showToast('Erro ao excluir a conta bancária.', 'error');
+        }
+      } catch (err) {
+        console.error('Error during account deletion:', err);
+        showToast('Erro ao excluir a conta bancária.', 'error');
+      } finally {
+        setLoading(false);
+      }
     });
     setConfirmModalOpen(true);
   };

@@ -454,6 +454,16 @@ export const supabaseService = {
     return true;
   },
 
+  async deleteFinancialAccount(accountId: string): Promise<boolean> {
+    if (!supabase) return false;
+    const { error } = await supabase.from('financial_accounts').update({ is_active: false }).eq('id', accountId);
+    if (error) {
+      console.error('Error deleting financial account:', error);
+      return false;
+    }
+    return true;
+  },
+
   // Buscar entradas do extrato de um corretor
   async getBrokerEntries(agencyId: string, brokerId: string): Promise<BrokerEntry[]> {
     if (!supabase) return [];
