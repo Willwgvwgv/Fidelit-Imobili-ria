@@ -3946,10 +3946,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       manualCompatibilityScore = calculateMatchScore(activeImportedItem, selectedSystemTx);
     }
 
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files?.[0];
+      if (file) {
+        handleBankFileUpload(file);
+      }
+    };
+
+    const totalImportedCount = reconciliationItems.length;
+    const progressPercent = totalImportedCount > 0 ? Math.round((countConciliated / totalImportedCount) * 100) : 0;
+
     return (
       <div className="space-y-6">
         {/* Dynamic Conciliation Dashboard */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Total Movimentado</p>
             <p className="text-xl font-black text-slate-800">{formatCurrency(totalImportedAmt)}</p>
@@ -3970,7 +3981,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Pendentes</p>
             <p className="text-xl font-black text-amber-600">{formatCurrency(pendingAmt)}</p>
-            <p className="text-[10px] text-slate-400 font-medium mt-1">{countPending} aguardando conciliação</p>
+            <p className="text-[10px] text-slate-400 font-medium mt-1">{countPending} itens pendentes</p>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center">
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Diferença</p>
@@ -3983,6 +3994,27 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Saldo Sistema (ERP)</p>
             <p className="text-xl font-black text-slate-800">{formatCurrency(systemBalance)}</p>
             <p className="text-[10px] text-slate-400 font-medium mt-1">Soma de lançamentos ERP</p>
+          </div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-between">
+            <div>
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Progresso de Conciliação</p>
+              <p className={`text-xl font-black ${
+                progressPercent >= 80 ? 'text-emerald-600' : progressPercent >= 50 ? 'text-amber-600' : 'text-rose-600'
+              }`}>{progressPercent}%</p>
+              <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                {countConciliated} de {totalImportedCount} itens
+              </p>
+            </div>
+            {totalImportedCount > 0 && (
+              <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    progressPercent >= 80 ? 'bg-emerald-500' : progressPercent >= 50 ? 'bg-amber-500' : 'bg-rose-500'
+                  }`}
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            )}
           </div>
         </div>
 
@@ -4012,7 +4044,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   title="Conciliar automaticamente itens com alta confiança (≥85%)"
                 >
                   <Zap size={14} />
-                  Conciliar Automaticamente
+                  Conciliar Automatically
                 </button>
               )}
               {importedFile && (
@@ -4050,7 +4082,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           </div>
 
           {!importedFile ? (
-            <div className="border-4 border-dashed border-slate-100 py-24 rounded-3xl flex flex-col items-center justify-center text-center hover:bg-slate-50/50 transition-all relative">
+            <div
+              className="border-2 border-dashed border-indigo-200 bg-indigo-50/30
+                         rounded-3xl p-10 text-center cursor-pointer
+                         hover:border-indigo-400 hover:bg-indigo-50/60 transition-all relative"
+              onDragOver={e => e.preventDefault()}
+              onDrop={handleDrop}
+            >
               <label htmlFor="bank-file-upload" className="absolute inset-0 cursor-pointer z-10" />
               <input 
                 id="bank-file-upload"
@@ -4063,16 +4101,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   e.target.value = '';
                 }}
               />
-              <div className="h-16 w-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-4 relative z-20 pointer-events-none">
-                <Upload size={32} />
+              <div className="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center
+                              justify-center mx-auto mb-4 relative z-20 pointer-events-none">
+                <Upload size={28} className="text-indigo-600" />
               </div>
-              <p className="font-black text-slate-700 text-sm relative z-20 pointer-events-none">Arraste seu extrato bancário aqui ou clique para selecionar</p>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-2 relative z-20 pointer-events-none">Suporta formatos OFX e CSV de qualquer banco</p>
+              <p className="text-sm font-black text-slate-700 mb-1 relative z-20 pointer-events-none">
+                👉 Clique ou arraste arquivos aqui para importar
+              </p>
+              <p className="text-xs text-slate-400 font-medium relative z-20 pointer-events-none">
+                Suporta OFX e CSV de qualquer banco
+              </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
               {/* 1. Left Column: Statement Items */}
-              <div className="xl:col-span-4 space-y-3">
+              <div className="xl:col-span-3 space-y-3">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
                   <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
                     Extrato Bancário
@@ -4266,7 +4309,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               </div>
 
               {/* 2. Center Column: Match details, preparation confirmation, and quick create */}
-              <div className="xl:col-span-4 bg-slate-50/50 rounded-2xl p-5 border border-slate-100 space-y-4">
+              <div className="xl:col-span-5 bg-slate-50/50 rounded-2xl p-5 border border-slate-100 space-y-4">
                 <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block border-b border-slate-100 pb-2">
                   Painel de Conciliação
                 </span>
@@ -4397,32 +4440,49 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           </div>
                         );
                       } else if (selectedSystemTx && selectedSystemTx.type === activeImportedItem.type) {
+                        let badgeBg = 'bg-rose-50 text-rose-700 border border-rose-100';
+                        if (manualCompatibilityScore >= 85) {
+                          badgeBg = 'bg-emerald-50 text-emerald-700 border border-emerald-100';
+                        } else if (manualCompatibilityScore >= 60) {
+                          badgeBg = 'bg-amber-50 text-amber-700 border border-amber-100';
+                        }
+
                         return (
-                          <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 space-y-3 shadow-sm">
-                            <p className="text-xs font-black text-blue-800 uppercase tracking-wider flex items-center gap-1">
-                              <Zap size={14} className="text-blue-600" /> Correspondência Selecionada
-                            </p>
+                          <div className="bg-white border border-slate-100 rounded-2xl p-5 space-y-4 shadow-sm">
+                            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                              <p className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                                <Zap size={14} className="text-indigo-600" /> Sugestão Selecionada
+                              </p>
+                              <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black tracking-wider ${badgeBg}`}>
+                                {manualCompatibilityScore}% CONFIANÇA
+                              </span>
+                            </div>
                             
-                            <div className="bg-white rounded-lg p-3 border border-blue-100/50 space-y-1.5">
-                              <div className="flex justify-between items-start">
-                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block font-sans">Lançamento Encontrado</span>
-                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-black font-sans ${
-                                  manualCompatibilityScore >= 85 ? 'bg-emerald-100 text-emerald-800' : manualCompatibilityScore >= 60 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-800'
-                                }`}>
-                                  Confiança: {manualCompatibilityScore}%
-                                </span>
-                              </div>
-                              <p className="text-xs font-bold text-slate-800 font-sans">{normalizeDescription(selectedSystemTx.description)}</p>
-                              <div className="flex justify-between text-[10px] text-slate-500 font-semibold pt-1 border-t border-slate-50 font-sans">
-                                <span>Vencimento: {new Date(selectedSystemTx.due_date).toLocaleDateString('pt-BR')}</span>
-                                <span className="text-slate-700 font-bold">Valor: {formatCurrency(selectedSystemTx.amount)}</span>
+                            <div className="space-y-2">
+                              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Lançamento ERP</p>
+                              <p className="text-sm font-black text-slate-800 leading-snug whitespace-normal">
+                                {normalizeDescription(selectedSystemTx.description)}
+                              </p>
+                              <div className="grid grid-cols-2 gap-2 text-xs text-slate-500 font-medium pt-2 border-t border-slate-50">
+                                <div>
+                                  <p className="text-[9px] text-slate-400 uppercase font-black tracking-wider">Vencimento</p>
+                                  <p className="text-slate-700 font-bold">
+                                    {new Date(selectedSystemTx.due_date).toLocaleDateString('pt-BR')}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-[9px] text-slate-400 uppercase font-black tracking-wider">Valor ERP</p>
+                                  <p className="text-slate-700 font-black text-sm">
+                                    {formatCurrency(selectedSystemTx.amount)}
+                                  </p>
+                                </div>
                               </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 gap-2">
                               <button 
                                 onClick={handleQueueMatch}
-                                className="bg-blue-600 hover:bg-blue-700 text-white font-black text-xs py-2.5 rounded-xl shadow-md cursor-pointer text-center font-sans"
+                                className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-3 rounded-xl shadow-md transition-all cursor-pointer text-center font-sans uppercase tracking-wider"
                               >
                                 Confirmar Vínculo
                               </button>
@@ -4431,7 +4491,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                   setSelectedSystemTxId(null);
                                   setAutoMatchScore(null);
                                 }}
-                                className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-black text-xs py-2.5 rounded-xl cursor-pointer text-center font-sans"
+                                className="text-center text-[10px] text-slate-400 hover:text-slate-600 font-bold mt-1 transition-all cursor-pointer"
                               >
                                 Limpar Seleção
                               </button>
@@ -4513,31 +4573,48 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <div className="xl:col-span-4 space-y-4">
                 <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
                   <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                    Lançamentos Correspondentes
+                    Sugestões do Sistema
                   </span>
-                  <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded font-bold text-slate-500">
-                    {displayedSystemTxs.length} sugeridos
+                  <span className="text-[10px] bg-indigo-50 px-2 py-0.5 rounded font-black text-indigo-600 uppercase tracking-wide">
+                    {displayedSystemTxs.length} Disponíveis
                   </span>
                 </div>
 
-                {/* Manual Search Field */}
+                {/* Manual Search Field with Clear Button */}
                 <div className="relative">
                   <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                     <Search size={14} />
                   </span>
                   <input
                     type="text"
-                    placeholder="Pesquisar por descrição, valor ou data..."
+                    id="reconciliation-search-input"
+                    placeholder="Buscar por descrição, valor ou data..."
                     value={reconciliationSearch}
                     onChange={(e) => setReconciliationSearch(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-9 pr-4 py-2 text-xs outline-none text-slate-800 placeholder-slate-400"
+                    className="w-full bg-slate-50 border border-slate-100 rounded-xl pl-9 pr-10 py-2.5 text-xs outline-none text-slate-800 placeholder-slate-400 focus:border-indigo-300 focus:ring-1 focus:ring-indigo-100 transition-all font-medium"
                   />
+                  {reconciliationSearch && (
+                    <button
+                      onClick={() => setReconciliationSearch('')}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition-all text-xs font-bold"
+                    >
+                      Limpar
+                    </button>
+                  )}
                 </div>
 
-                <div className="divide-y divide-slate-100 border border-slate-100 rounded-2xl max-h-[500px] overflow-y-auto bg-slate-50/20">
+                <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
                   {displayedSystemTxs.map(({ tx, score }) => {
                     const isSelected = selectedSystemTxId === tx.id;
                     const cat = categories.find(c => c.id === tx.category_id);
+                    
+                    let badgeBg = 'bg-rose-50 text-rose-700 border border-rose-100';
+                    if (score >= 85) {
+                      badgeBg = 'bg-emerald-50 text-emerald-700 border border-emerald-100';
+                    } else if (score >= 60) {
+                      badgeBg = 'bg-amber-50 text-amber-700 border border-amber-100';
+                    }
+
                     return (
                       <div 
                         key={tx.id} 
@@ -4545,54 +4622,101 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           setSelectedSystemTxId(tx.id);
                           setAutoMatchScore(score);
                         }}
-                        className={`p-4 flex flex-col justify-between cursor-pointer transition-all ${
+                        className={`p-4 rounded-2xl border transition-all flex flex-col justify-between cursor-pointer space-y-3 ${
                           isSelected 
-                            ? 'bg-blue-50/80 border-l-4 border-blue-500 shadow-inner' 
-                            : 'hover:bg-slate-50/50 bg-white'
+                            ? 'bg-indigo-50/50 border-indigo-200 ring-1 ring-indigo-100' 
+                            : 'bg-white border-slate-100 hover:border-slate-200 hover:shadow-sm'
                         }`}
                       >
-                        <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center justify-between">
                           <span className="text-[10px] font-bold text-slate-400">
                             Vence em {new Date(tx.due_date).toLocaleDateString('pt-BR')}
                           </span>
-                          <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase ${
-                            score >= 85 ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
-                          }`}>
-                            {score}% compatível
+                          <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${badgeBg}`}>
+                            {score}% Compatível
                           </span>
                         </div>
-                        <div className="flex items-end justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="font-bold text-slate-800 text-xs truncate max-w-[180px]">{normalizeDescription(tx.description)}</p>
-                            {cat && (
-                              <p className="text-[9px] font-semibold text-slate-400 uppercase mt-0.5" style={{ color: cat.color }}>
+
+                        <div>
+                          <p className="font-bold text-slate-800 text-xs leading-relaxed whitespace-normal break-words">
+                            {normalizeDescription(tx.description)}
+                          </p>
+                          
+                          {cat && (
+                            <div className="flex items-center gap-1.5 mt-2">
+                              <span 
+                                className="w-2 h-2 rounded-full inline-block shrink-0" 
+                                style={{ backgroundColor: cat.color || '#cbd5e1' }}
+                              />
+                              <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">
                                 {normalizeDescription(cat.name)}
-                              </p>
-                            )}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between pt-2 border-t border-slate-100/60">
+                          <div>
+                            <span className="text-[9px] text-slate-400 uppercase font-black block leading-none">Valor ERP</span>
+                            <span className="font-black text-sm text-slate-800 inline-block mt-0.5">
+                              {formatCurrency(tx.amount)}
+                            </span>
                           </div>
-                          <div className="text-right flex-shrink-0">
-                            <p className="font-black text-xs text-slate-700">{formatCurrency(tx.amount)}</p>
-                          </div>
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedSystemTxId(tx.id);
+                              setAutoMatchScore(score);
+                              // Smooth scroll to Center Panel for easy confirmation
+                              document.getElementById('reconciliation-search-input')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                              showToast('Selecione e confirme o vínculo no painel central.', 'info');
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                              isSelected 
+                                ? 'bg-indigo-600 text-white shadow-sm' 
+                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                            }`}
+                          >
+                            Vincular
+                          </button>
                         </div>
                       </div>
                     );
                   })}
 
                   {displayedSystemTxs.length === 0 && (
-                    <div className="p-8 text-center space-y-3">
-                      <AlertCircle size={24} className="text-slate-300 mx-auto" />
-                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Nenhuma correspondência</p>
-                      {activeImportedItem && (
+                    <div className="p-8 bg-slate-50/50 rounded-2xl border border-slate-100 text-center space-y-4">
+                      <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto">
+                        <AlertCircle size={20} className="text-slate-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-black text-slate-700 uppercase tracking-wide">Nenhuma correspondência encontrada</p>
+                        <p className="text-xs text-slate-400 font-medium mt-1">Nenhum lançamento com compatibilidade no sistema.</p>
+                      </div>
+                      <div className="flex flex-col gap-2 pt-2">
                         <button
                           onClick={() => {
-                            setQuickDescription(activeImportedItem.description);
-                            showToast('Insira as informações do novo lançamento no painel central.', 'info');
+                            document.getElementById('reconciliation-search-input')?.focus();
+                            showToast('Digite uma descrição ou valor para pesquisar manualmente.', 'info');
                           }}
-                          className="bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl transition-all inline-flex items-center gap-1 cursor-pointer"
+                          className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-black py-2 px-4 rounded-xl transition-all cursor-pointer inline-flex items-center justify-center gap-1.5"
                         >
-                          <Plus size={12} /> Criar novo lançamento
+                          <Search size={12} /> Buscar Manualmente
                         </button>
-                      )}
+                        
+                        {activeImportedItem && (
+                          <button
+                            onClick={() => {
+                              setQuickDescription(activeImportedItem.description);
+                              showToast('Utilize o formulário de Novo Lançamento no painel central.', 'info');
+                            }}
+                            className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-black py-2 px-4 rounded-xl transition-all cursor-pointer inline-flex items-center justify-center gap-1"
+                          >
+                            <Plus size={12} /> Criar Novo Lançamento
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -5201,14 +5325,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               </span>
 
               {/* Import/Clear Button */}
-              {!importedFile ? (
-                <button 
-                  onClick={() => document.getElementById('bank-file-upload')?.click()}
-                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl text-xs uppercase tracking-wider transition-all shadow-sm cursor-pointer"
-                >
-                  <Upload size={14} /> Importar Extrato (OFX/CSV)
-                </button>
-              ) : (
+              {importedFile && (
                 <button 
                   onClick={() => {
                     setImportedFile(null);
