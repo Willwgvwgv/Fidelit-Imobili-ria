@@ -454,6 +454,16 @@ export const supabaseService = {
     return true;
   },
 
+  async updateFinancialAccount(accountId: string, updates: any): Promise<boolean> {
+    if (!supabase) return false;
+    const { error } = await supabase.from('financial_accounts').update(updates).eq('id', accountId);
+    if (error) {
+      console.error('Error updating financial account:', error);
+      return false;
+    }
+    return true;
+  },
+
   async deleteFinancialAccount(accountId: string): Promise<boolean> {
     if (!supabase) return false;
     const { error } = await supabase.from('financial_accounts').update({ is_active: false }).eq('id', accountId);

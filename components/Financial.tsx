@@ -89,6 +89,29 @@ const parseBrlValue = (valueStr: string): number => {
   return isNaN(parsed) ? 0 : parsed;
 };
 
+const parseBRL = (value: string): number => {
+  if (!value) return 0;
+  const clean = value.replace(/[R$\s]/gi, '').trim();
+  if (!clean) return 0;
+  return Number(
+    clean
+      .replace(/\./g, '')
+      .replace(',', '.')
+  );
+};
+
+const formatBRL = (value: string | number | undefined | null): string => {
+  if (value === undefined || value === null || value === '') return '';
+  const valueStr = typeof value === 'number' ? value.toFixed(2).replace('.', '') : String(value);
+  const digits = valueStr.replace(/\D/g, '');
+  if (!digits) return '';
+  const numberValue = parseFloat(digits) / 100;
+  return numberValue.toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
 // Precise date incrementer for recurrences avoiding date-boundary errors and month hopping
 const addPeriodToDate = (dateStr: string, type: 'WEEKLY' | 'MONTHLY' | 'YEARLY', index: number): string => {
   if (!dateStr) return dateStr;
@@ -187,11 +210,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   const [newAccount, setNewAccount] = useState({
     name: '',
-    initial_balance: 0,
+    initial_balance: '' as string | number,
     type: 'Corrente',
     color: '#2563eb',
     is_default: false,
-    credit_limit: 0,
+    credit_limit: '' as string | number,
     bank_code: ''
   });
 
@@ -314,11 +337,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setMarkAsPaid(false);
     setNewAccount({
       name: '',
-      initial_balance: 0,
+      initial_balance: '',
       type: 'Corrente',
       color: '#2563eb',
       is_default: false,
-      credit_limit: 0,
+      credit_limit: '',
       bank_code: ''
     });
     setNewCategory({
@@ -357,11 +380,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const existingBankCode = (account as any).bank_code || '';
     setNewAccount({
       name: account.name,
-      initial_balance: account.initial_balance,
+      initial_balance: formatBRL(account.initial_balance),
       type: account.type || 'Corrente',
       color: account.color || '#2563eb',
       is_default: account.is_default || false,
-      credit_limit: account.credit_limit || 0,
+      credit_limit: account.credit_limit ? formatBRL(account.credit_limit) : '',
       bank_code: existingBankCode
     });
     setModalType('account');
@@ -848,24 +871,35 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       return;
     }
 
+    const creditLimitVal = newAccount.credit_limit ? parseBRL(String(newAccount.credit_limit)) : null;
+    const isCard = modalType === 'card';
+
     if (editingAccount) {
-      setAccounts(prev => prev.map(acc => acc.id === editingAccount.id ? {
-        ...acc,
+      const updates = {
         name: newAccount.name,
         color: newAccount.color,
-        type: newAccount.type,
-        credit_limit: newAccount.credit_limit ? Number(newAccount.credit_limit) : undefined,
+        type: isCard ? 'credit_card' : newAccount.type,
+        account_type: isCard ? 'credit_card' : newAccount.type,
+        credit_limit: creditLimitVal || undefined,
         bank_code: newAccount.bank_code || null
-      } : acc));
-      handleCloseModal();
+      };
+      const success = await supabaseService.updateFinancialAccount(editingAccount.id, updates);
+      if (success) {
+        showToast('Conta bancária atualizada com sucesso!', 'success');
+        handleCloseModal();
+        loadFinancialData();
+      } else {
+        alert('Erro ao atualizar a conta bancária no servidor. Favor tentar novamente.');
+      }
       return;
     }
 
-    if (newAccount.initial_balance === undefined || newAccount.initial_balance === null) {
+    if (!isCard && (newAccount.initial_balance === undefined || newAccount.initial_balance === null || newAccount.initial_balance === '')) {
       alert('Favor preencher o saldo inicial.');
       return;
     }
 
+    const initialBalanceVal = isCard ? 0 : parseBRL(String(newAccount.initial_balance));
     const selectedBank = BANKS.find(b => b.code === newAccount.bank_code);
     const bank_name = selectedBank ? selectedBank.name : 'Outro';
 
@@ -873,19 +907,20 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       agency_id: currentUser.agencyId,
       name: newAccount.name,
       bank_name: bank_name,
-      account_type: newAccount.type,
-      initial_balance: Number(newAccount.initial_balance),
-      current_balance: Number(newAccount.initial_balance),
+      account_type: isCard ? 'credit_card' : newAccount.type,
+      initial_balance: initialBalanceVal,
+      current_balance: initialBalanceVal,
       color: newAccount.color,
       is_default: newAccount.is_default,
-      type: newAccount.type,
-      credit_limit: newAccount.credit_limit ? Number(newAccount.credit_limit) : undefined,
+      type: isCard ? 'credit_card' : newAccount.type,
+      credit_limit: creditLimitVal || undefined,
       is_active: true,
       bank_code: newAccount.bank_code || null
     };
 
     const result = await supabaseService.createFinancialAccount(payload);
     if (result) {
+      showToast('Conta bancária criada com sucesso!', 'success');
       handleCloseModal();
       loadFinancialData();
     } else {
@@ -5970,10 +6005,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           <div>
                             <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Saldo Inicial (R$)*</label>
                             <input 
-                              type="number" placeholder="8500.00" 
-                              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
-                              value={newAccount.initial_balance || ''} 
-                              onChange={(e) => setNewAccount({...newAccount, initial_balance: Number(e.target.value)})}
+                              type="text" placeholder="0,00" 
+                              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800 font-bold"
+                              value={newAccount.initial_balance} 
+                              onChange={(e) => setNewAccount({...newAccount, initial_balance: formatBRL(e.target.value)})}
                             />
                           </div>
                           <div>
@@ -6129,10 +6164,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Limite de Crédito Disponível (R$)*</label>
                         <input 
-                          type="number" placeholder="25000" 
-                          className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none"
-                          value={newAccount.credit_limit || ''} 
-                          onChange={(e) => setNewAccount({...newAccount, credit_limit: Number(e.target.value)})}
+                          type="text" placeholder="0,00" 
+                          className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none font-bold text-slate-800"
+                          value={newAccount.credit_limit} 
+                          onChange={(e) => setNewAccount({...newAccount, credit_limit: formatBRL(e.target.value)})}
                         />
                       </div>
                       <input type="hidden" value="credit_card" />
