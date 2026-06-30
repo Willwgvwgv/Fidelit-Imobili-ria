@@ -474,19 +474,49 @@ export const supabaseService = {
     return true;
   },
 
-  async deletePendingReconciliationItems(): Promise<boolean> {
+  async deletePendingReconciliationItems(externalIds?: string[]): Promise<boolean> {
     if (!supabase) return false;
     const agencyId = '11111111-1111-1111-1111-111111111111';
-    const { error } = await supabase
+    let query = supabase
       .from('financial_reconciliations')
       .delete()
       .eq('agency_id', agencyId)
-      .eq('status', 'PENDING');
+      .not('status', 'in', '("IGNORED","MATCHED")');
+
+    if (externalIds && externalIds.length > 0) {
+      query = query.in('external_id', externalIds);
+    }
+
+    const { error } = await query;
     if (error) {
       console.error('deletePendingReconciliationItems:', error);
       return false;
     }
     return true;
+  },
+
+  async getReconciliationItemsByExternalIds(externalIds: string[]): Promise<any[]> {
+    if (!supabase || !externalIds || externalIds.length === 0) return [];
+    const agencyId = '11111111-1111-1111-1111-111111111111';
+    const { data, error } = await supabase
+      .from('financial_reconciliations')
+      .select('*')
+      .eq('agency_id', agencyId)
+      .in('external_id', externalIds)
+      .neq('status', 'IGNORED')
+      .order('statement_date', { ascending: false });
+    if (error) { console.error('getReconciliationItemsByExternalIds:', error); return []; }
+    return (data || []).map(r => ({
+      id: r.id,
+      date: r.statement_date,
+      description: r.description,
+      amount: r.amount,
+      type: r.type,
+      external_id: r.external_id,
+      matched: r.status === 'MATCHED',
+      matchedTxId: r.matched_transaction_id,
+      status: r.status,
+    }));
   },
 
   // Buscar entradas do extrato de um corretor

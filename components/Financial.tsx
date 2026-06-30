@@ -255,6 +255,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   // Reconciliation workspace states
   const [importedFile, setImportedFile] = useState<string | null>(null);
   const [reconciliationItems, setReconciliationItems] = useState<any[]>([]);
+  const [currentFileExternalIds, setCurrentFileExternalIds] = useState<string[]>([]);
   const [selectedImportedIndex, setSelectedImportedIndex] = useState<number | null>(null);
   const [selectedSystemTxId, setSelectedSystemTxId] = useState<string | null>(null);
   const [matchedPairs, setMatchedPairs] = useState<Array<{ importedIdx: number, systemId: string }>>([]);
@@ -463,26 +464,30 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setOnConfirmAction(() => async () => {
       setLoading(true);
       try {
-        const success = await supabaseService.deletePendingReconciliationItems();
+        const pendingItems = reconciliationItems.filter(item => !item.matched);
+        const pendingExternalIds = pendingItems.map(item => item.external_id || item.id).filter(Boolean);
+
+        const success = await supabaseService.deletePendingReconciliationItems(pendingExternalIds);
         if (success) {
           showToast('Lançamentos pendentes do extrato limpos com sucesso!', 'success');
           
-          // Refresh list of reconciliation items from backend
-          const remainingItems = await supabaseService.getReconciliationItems();
+          const remainingItems = reconciliationItems.filter(item => item.matched);
+          const remainingIds = remainingItems.map(item => item.external_id || item.id).filter(Boolean);
+          setCurrentFileExternalIds(remainingIds);
+          setReconciliationItems(remainingItems);
+          
           if (remainingItems.length > 0) {
-            setReconciliationItems(remainingItems);
             setImportedFile('Extrato Salvo');
           } else {
-            setReconciliationItems([]);
             setImportedFile(null);
+            setOfxBankName(null);
+            setOfxAgency(null);
+            setOfxAccount(null);
+            setOfxPeriod(null);
           }
           
           setSelectedImportedIndex(null);
           setSelectedSystemTxId(null);
-          setOfxBankName(null);
-          setOfxAgency(null);
-          setOfxAccount(null);
-          setOfxPeriod(null);
           setSelectedMatches([]);
           setReconciliationSearch('');
           
@@ -643,15 +648,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   useEffect(() => {
     if (activeView === 'financial-conciliacao') {
-      supabaseService.getReconciliationItems().then(items => {
-        if (items.length > 0) {
-          setReconciliationItems(items);
-          setImportedFile('Extrato Salvo');
-          setSelectedImportedIndex(null);
-        }
-      });
+      if (currentFileExternalIds.length > 0) {
+        supabaseService.getReconciliationItemsByExternalIds(currentFileExternalIds).then(items => {
+          if (items.length > 0) {
+            setReconciliationItems(items);
+            setImportedFile('Extrato Salvo');
+            setSelectedImportedIndex(null);
+          }
+        });
+      } else {
+        setReconciliationItems([]);
+        setImportedFile(null);
+        setSelectedImportedIndex(null);
+      }
     }
-  }, [activeView]);
+  }, [activeView, currentFileExternalIds]);
   // Compute stats dynamically for current period (selected month/year)
   const stats = useMemo(() => {
     const todayStr = getLocalTodayStr();
@@ -1321,6 +1332,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       if (parsed.length > 0) {
         setImportedFile(file.name);
         setReconciliationItems(parsed);
+        const externalIds = parsed.map((item: any) => item.id).filter(Boolean);
+        setCurrentFileExternalIds(externalIds);
         supabaseService.saveReconciliationItems(
           parsed.map((item: any) => ({
             statement_date: item.date,
@@ -1330,7 +1343,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             external_id: item.id,
           }))
         ).then(() => {
-          supabaseService.getReconciliationItems().then(dbItems => {
+          supabaseService.getReconciliationItemsByExternalIds(externalIds).then(dbItems => {
             if (dbItems.length > 0) {
               setReconciliationItems(dbItems);
             }
