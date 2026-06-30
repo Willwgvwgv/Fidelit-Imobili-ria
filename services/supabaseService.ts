@@ -464,6 +464,21 @@ export const supabaseService = {
     return true;
   },
 
+  async deletePendingReconciliationItems(): Promise<boolean> {
+    if (!supabase) return false;
+    const agencyId = '11111111-1111-1111-1111-111111111111';
+    const { error } = await supabase
+      .from('financial_reconciliations')
+      .delete()
+      .eq('agency_id', agencyId)
+      .eq('status', 'PENDING');
+    if (error) {
+      console.error('deletePendingReconciliationItems:', error);
+      return false;
+    }
+    return true;
+  },
+
   // Buscar entradas do extrato de um corretor
   async getBrokerEntries(agencyId: string, brokerId: string): Promise<BrokerEntry[]> {
     if (!supabase) return [];

@@ -432,6 +432,51 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setConfirmModalOpen(true);
   };
 
+  const handleClearExtrato = () => {
+    setConfirmModalTitle('Limpar Extrato');
+    setConfirmModalMessage('Deseja realmente limpar todos os lançamentos pendentes deste extrato? Os já conciliados serão mantidos no banco de dados.');
+    setConfirmModalConfirmText('Limpar');
+    setConfirmModalConfirmColor('bg-rose-600 hover:bg-rose-700 text-white');
+    setOnConfirmAction(() => async () => {
+      setLoading(true);
+      try {
+        const success = await supabaseService.deletePendingReconciliationItems();
+        if (success) {
+          showToast('Lançamentos pendentes do extrato limpos com sucesso!', 'success');
+          
+          // Refresh list of reconciliation items from backend
+          const remainingItems = await supabaseService.getReconciliationItems();
+          if (remainingItems.length > 0) {
+            setReconciliationItems(remainingItems);
+            setImportedFile('Extrato Salvo');
+          } else {
+            setReconciliationItems([]);
+            setImportedFile(null);
+          }
+          
+          setSelectedImportedIndex(null);
+          setSelectedSystemTxId(null);
+          setOfxBankName(null);
+          setOfxAgency(null);
+          setOfxAccount(null);
+          setOfxPeriod(null);
+          setSelectedMatches([]);
+          setReconciliationSearch('');
+          
+          await loadFinancialData();
+        } else {
+          showToast('Erro ao limpar os lançamentos pendentes do extrato.', 'error');
+        }
+      } catch (err) {
+        console.error('Error clearing extrato:', err);
+        showToast('Erro ao limpar os lançamentos pendentes do extrato.', 'error');
+      } finally {
+        setLoading(false);
+      }
+    });
+    setConfirmModalOpen(true);
+  };
+
   const handleEditCategoryClick = (category: FinancialCategory) => {
     setEditingCategory(category);
     setNewCategory({
@@ -5278,18 +5323,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               {/* Import/Clear Button */}
               {importedFile && (
                 <button 
-                  onClick={() => {
-                    setImportedFile(null);
-                    setReconciliationItems([]);
-                    setSelectedImportedIndex(null);
-                    setSelectedSystemTxId(null);
-                    setOfxBankName(null);
-                    setOfxAgency(null);
-                    setOfxAccount(null);
-                    setOfxPeriod(null);
-                    setSelectedMatches([]);
-                    setReconciliationSearch('');
-                  }}
+                  onClick={handleClearExtrato}
                   className="flex items-center gap-1 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
                 >
                   <RefreshCw size={12} /> Limpar Extrato
