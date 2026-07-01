@@ -2038,6 +2038,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         <p className="text-sm font-bold text-slate-900 leading-none">{tx.description}</p>
                         {tx.contact_name && <p className="text-xs text-gray-400 mt-1">{tx.contact_name}</p>}
                         {tx.notes && <p className="text-xs text-slate-400 mt-1">{tx.notes}</p>}
+                        {tx.recurrence_group_id && (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center gap-1 text-[9px] font-black text-blue-600 bg-blue-50/50 border border-blue-100/50 px-1.5 py-0.5 rounded-md uppercase tracking-wider select-none">
+                              🔁 Recorrente
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-5">
                         <div className="flex flex-col items-center justify-center text-center">
@@ -2063,8 +2070,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         </div>
                       </td>
                       <td className="px-6 py-5 text-right">
-                        <span className={`text-sm font-black ${tx.type === TransactionType.EXPENSE ? 'text-rose-600' : 'text-emerald-600'}`}>
-                          {tx.type === TransactionType.EXPENSE ? '-' : '+'} {formatCurrency(tx.amount)}
+                        <span className={`text-sm font-black whitespace-nowrap ${tx.type === TransactionType.EXPENSE ? 'text-rose-600' : 'text-emerald-600'}`}>
+                          {formatCurrency(tx.amount)}
                         </span>
                       </td>
                       <td className="px-6 py-5">
@@ -2919,6 +2926,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 {tx.installment_number && tx.total_installments && (
                                   <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 font-bold px-1.5 py-0.5 rounded">
                                     Parcela {tx.installment_number}/{tx.total_installments}
+                                  </span>
+                                )}
+                                {tx.recurrence_group_id && (
+                                  <span className="text-[9px] font-black text-blue-600 bg-blue-50/50 border border-blue-100/50 px-1.5 py-0.5 rounded-md uppercase tracking-wider select-none">
+                                    🔁 Recorrente
                                   </span>
                                 )}
                               </div>
@@ -3780,7 +3792,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           {formatDateBR(tx.due_date)}
                         </td>
                         <td className="py-3.5 px-4 text-slate-800 font-bold max-w-xs truncate">
-                          <div>{tx.description}</div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{tx.description}</span>
+                            {tx.recurrence_group_id && (
+                              <span className="text-[9px] font-black text-blue-600 bg-blue-50/50 border border-blue-100/50 px-1 py-0.5 rounded uppercase tracking-wider select-none">
+                                🔁 Recorrente
+                              </span>
+                            )}
+                          </div>
                           {tx.contact_name && (
                             <div className="text-[10px] text-gray-400 font-semibold mt-0.5">{tx.contact_name}</div>
                           )}
@@ -3792,7 +3811,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           </div>
                         </td>
                         <td className={`py-3.5 px-4 text-right font-bold whitespace-nowrap ${tx.type === TransactionType.INCOME ? 'text-emerald-700' : 'text-slate-800'}`}>
-                          {tx.type === TransactionType.INCOME ? '+' : '-'} {formatCurrency(tx.amount)}
+                          {formatCurrency(tx.amount)}
                         </td>
                         <td className="py-3.5 px-4 text-right whitespace-nowrap">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${statusStyle}`}>

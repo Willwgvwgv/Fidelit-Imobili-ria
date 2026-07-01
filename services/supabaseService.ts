@@ -443,7 +443,7 @@ export const supabaseService = {
   ): Promise<boolean> {
     if (!supabase) return false;
 
-    const { id, agency_id, recurrence_group_id, financial_account_id, ...rest } = updates as any;
+    const { id, agency_id, recurrence_group_id, financial_account_id, due_date, status, payment_date, ...rest } = updates as any;
     const payload = {
       ...rest,
       account_id: 'account_id' in updates ? updates.account_id : (financial_account_id ?? undefined),
