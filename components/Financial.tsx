@@ -1116,6 +1116,27 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   const parseCsvExtrato = (text: string) => {
+    const parseCSVValue = (raw: string): number => {
+      let cleaned = raw.replace(/[R$\s]/gi, '').trim();
+      
+      // Se contém vírgula como separador decimal com separador de milhar (ex: "1.015,99" ou "-1.015,99")
+      if (/\d+\.\d+,\d+/.test(cleaned)) {
+        cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+      } else if (cleaned.includes(',') && !cleaned.includes('.')) {
+        // Se contém apenas vírgula como separador decimal (ex: "1015,99" ou "-12,9")
+        cleaned = cleaned.replace(',', '.');
+      } else if (cleaned.includes(',') && cleaned.includes('.')) {
+        // Se possui ambos mas não bateu na regex anterior (ex: formato americano "1,015.99")
+        if (cleaned.indexOf('.') < cleaned.indexOf(',')) {
+          cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+        } else {
+          cleaned = cleaned.replace(/,/g, '');
+        }
+      }
+      // Se já está em formato internacional com ponto decimal (ex: "1015.99"), parseFloat funciona direto
+      return parseFloat(cleaned);
+    };
+
     const lines = text.split(/\r?\n/);
     if (lines.length === 0) return [];
     
@@ -1161,9 +1182,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         }
       }
       
-      let cleanVal = rawVal.replace(/\./g, '').replace(',', '.');
-      cleanVal = cleanVal.replace(/[R$\s]/gi, '');
-      const valNum = parseFloat(cleanVal);
+      const valNum = parseCSVValue(rawVal);
       const amount = Math.abs(valNum);
       if (isNaN(amount)) continue;
       
