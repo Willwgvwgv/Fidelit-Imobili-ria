@@ -124,6 +124,7 @@ export interface FinancialTransaction {
   transfer_group_id?: string;
   installment_number?: number;
   total_installments?: number;
+  contact_name?: string | null;
 }
 
 export interface Agency {

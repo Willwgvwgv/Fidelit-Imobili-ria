@@ -393,9 +393,17 @@ export const supabaseService = {
   async createFinancialTransaction(transaction: Omit<FinancialTransaction, 'id' | 'created_at'>): Promise<FinancialTransaction | null> {
     if (!supabase) return null;
     const { financial_account_id, ...rest } = transaction as any;
+
+    const hasPaymentDate = transaction.payment_date && String(transaction.payment_date).trim() !== '';
+    const computedStatus = hasPaymentDate ? TransactionStatus.PAID : TransactionStatus.PENDING;
+    const cleanPaymentDate = hasPaymentDate ? transaction.payment_date : null;
+
     const payload = {
       ...rest,
-      account_id: transaction.account_id || financial_account_id || null
+      status: computedStatus,
+      payment_date: cleanPaymentDate,
+      account_id: transaction.account_id || financial_account_id || null,
+      contact_name: transaction.contact_name && String(transaction.contact_name).trim() !== '' ? String(transaction.contact_name).trim() : null
     };
     const { data, error } = await supabase.from('financial_transactions').insert(payload).select().single();
     if (error) {
@@ -405,16 +413,45 @@ export const supabaseService = {
     return data;
   },
 
+  async updateFinancialTransaction(transactionId: string, updates: Partial<FinancialTransaction>): Promise<boolean> {
+    if (!supabase) return false;
+    
+    const { financial_account_id, ...rest } = updates as any;
+    const payload = {
+      ...rest,
+      account_id: 'account_id' in updates ? updates.account_id : (financial_account_id ?? undefined),
+    };
+    
+    if ('contact_name' in payload) {
+      payload.contact_name = payload.contact_name && String(payload.contact_name).trim() !== '' 
+        ? String(payload.contact_name).trim() 
+        : null;
+    }
+
+    const { error } = await supabase.from('financial_transactions').update(payload).eq('id', transactionId);
+    if (error) {
+      console.error('Error updating financial transaction:', error);
+      return false;
+    }
+    return true;
+  },
+
   async updateTransactionStatus(transactionId: string, status: TransactionStatus, paymentDate?: string): Promise<boolean> {
     if (!supabase) return false;
-    const updateData: any = { status };
-    if (paymentDate) {
-      updateData.payment_date = paymentDate;
-    } else if (status === TransactionStatus.PAID) {
-      updateData.payment_date = new Date().toISOString().split('T')[0];
+
+    let cleanPaymentDate = paymentDate && String(paymentDate).trim() !== '' ? paymentDate : null;
+    if (status === TransactionStatus.PAID && !cleanPaymentDate) {
+      cleanPaymentDate = new Date().toISOString().split('T')[0];
     } else if (status === TransactionStatus.PENDING) {
-      updateData.payment_date = null;
+      cleanPaymentDate = null;
     }
+
+    const computedStatus = cleanPaymentDate ? TransactionStatus.PAID : TransactionStatus.PENDING;
+
+    const updateData = {
+      status: computedStatus,
+      payment_date: cleanPaymentDate,
+    };
 
     const { error } = await supabase.from('financial_transactions').update(updateData).eq('id', transactionId);
     if (error) {

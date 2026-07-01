@@ -197,6 +197,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [typeFilter, setTypeFilter] = useState<'ALL' | TransactionType>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<'transaction' | 'account' | 'category' | 'card'>('transaction');
+  const [responsibleClient, setResponsibleClient] = useState('');
 
   // Input states for form submissions
   const [newTransaction, setNewTransaction] = useState<Partial<FinancialTransaction>>({
@@ -336,6 +337,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setRecurrenceType('NONE');
     setRecurrencePeriods(1);
     setMarkAsPaid(false);
+    setResponsibleClient('');
     setNewAccount({
       name: '',
       initial_balance: '',
@@ -358,9 +360,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       if (editingTransaction) {
         setAmountInputStr(editingTransaction.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
         setMarkAsPaid(editingTransaction.status === TransactionStatus.PAID);
+        setResponsibleClient(editingTransaction.contact_name || '');
       } else {
         setAmountInputStr('');
         setMarkAsPaid(false);
+        setResponsibleClient('');
       }
     }
   }, [isModalOpen, editingTransaction, modalType]);
@@ -785,21 +789,25 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
 
     // 2. Map payload properties, converting empty UUID values to null
+    let dueDateVal = newTransaction.due_date;
+    if (!dueDateVal) {
+      dueDateVal = new Date().toISOString().split('T')[0];
+    }
+
+    const cleanPaymentDate = markAsPaid ? (newTransaction.payment_date || new Date().toISOString().split('T')[0]) : null;
+    const computedStatus = cleanPaymentDate ? TransactionStatus.PAID : TransactionStatus.PENDING;
+
     const payload = {
       ...newTransaction,
       amount: parsedAmount,
       agency_id: currentUser.agencyId,
       account_id: !newTransaction.account_id || newTransaction.account_id === '' ? null : newTransaction.account_id,
       category_id: !newTransaction.category_id || newTransaction.category_id === '' ? null : newTransaction.category_id,
-      // 3. Robust "Marcar como Pago/Recebido" mapping
-      status: markAsPaid ? TransactionStatus.PAID : TransactionStatus.PENDING,
-      payment_date: markAsPaid ? (newTransaction.payment_date || new Date().toISOString().split('T')[0]) : null
+      due_date: dueDateVal,
+      status: computedStatus,
+      payment_date: cleanPaymentDate,
+      contact_name: responsibleClient && responsibleClient.trim() !== '' ? responsibleClient.trim() : null
     } as any;
-
-    // Validate due_date is present
-    if (!payload.due_date) {
-      payload.due_date = new Date().toISOString().split('T')[0];
-    }
 
     // 4. Generate recurrences using the precise monthly/yearly helper
     const copiesToCreate: any[] = [];
@@ -809,20 +817,18 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         copiesToCreate.push({
           ...payload,
           due_date: nextDueDate,
-          description: `${payload.description} (Cópia ${i})`
+          description: `${payload.description} (Cópia ${i})`,
+          status: TransactionStatus.PENDING,
+          payment_date: null
         });
       }
     }
 
     if (editingTransaction) {
       if (supabase) {
-        const { error } = await supabase
-          .from('financial_transactions')
-          .update(payload)
-          .eq('id', editingTransaction.id);
+        const success = await supabaseService.updateFinancialTransaction(editingTransaction.id, payload);
         
-        if (error) {
-          console.error('Error updating transaction:', error);
+        if (!success) {
           alert('Erro ao atualizar lançamento.');
         } else {
           setIsModalOpen(false);
@@ -1375,7 +1381,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         }
 
         // 2 - Atualizar lançamento financeiro
-        await supabaseService.updateTransactionStatus(systemTx.id, TransactionStatus.PAID);
+        await supabaseService.updateTransactionStatus(systemTx.id, TransactionStatus.PAID, imported.date);
 
         // Atualizar estados locais
         setMatchedPairs(prev => [...prev, { importedIdx: selectedImportedIndex, systemId: systemTx.id }]);
@@ -1774,6 +1780,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         // Persistir no banco
         if (updatedItems[i].id) {
           await supabaseService.matchReconciliationItem(updatedItems[i].id, suggested.id);
+          await supabaseService.updateTransactionStatus(suggested.id, TransactionStatus.PAID, updatedItems[i].date);
         }
 
         // Atualizar transação local como paga
@@ -1828,7 +1835,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         
       if (possibleMatches.length > 0) {
         const bestMatch = possibleMatches[0].t;
-        supabaseService.updateTransactionStatus(bestMatch.id, TransactionStatus.PAID);
+        if (item.id) {
+          supabaseService.matchReconciliationItem(item.id, bestMatch.id);
+        }
+        supabaseService.updateTransactionStatus(bestMatch.id, TransactionStatus.PAID, item.date);
         setMatchedPairs(prev => [...prev, { importedIdx: impIdx, systemId: bestMatch.id }]);
         item.matched = true;
         item.matchedTxId = bestMatch.id;
@@ -1967,6 +1977,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       </td>
                       <td className="px-6 py-5">
                         <p className="text-sm font-bold text-slate-900 leading-none">{tx.description}</p>
+                        {tx.contact_name && <p className="text-xs text-gray-400 mt-1">{tx.contact_name}</p>}
                         {tx.notes && <p className="text-xs text-slate-400 mt-1">{tx.notes}</p>}
                       </td>
                       <td className="px-6 py-5">
@@ -2852,6 +2863,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                   </span>
                                 )}
                               </div>
+                              {tx.contact_name && (
+                                <p className="text-xs text-gray-400 font-semibold">{tx.contact_name}</p>
+                              )}
                               <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400 font-semibold">
                                 <div className="flex items-center gap-1.5">
                                   <Tag size={12} style={{ color: category?.color || '#94a3b8' }} />
@@ -3707,7 +3721,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           {formatDateBR(tx.due_date)}
                         </td>
                         <td className="py-3.5 px-4 text-slate-800 font-bold max-w-xs truncate">
-                          {tx.description}
+                          <div>{tx.description}</div>
+                          {tx.contact_name && (
+                            <div className="text-[10px] text-gray-400 font-semibold mt-0.5">{tx.contact_name}</div>
+                          )}
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
@@ -4704,6 +4721,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           <p className="font-bold text-slate-800 text-xs leading-relaxed whitespace-normal break-words">
                             {normalizeDescription(tx.description)}
                           </p>
+                          {tx.contact_name && (
+                            <p className="text-[10px] text-gray-400 mt-1 font-semibold">{tx.contact_name}</p>
+                          )}
                           
                           {cat && (
                             <div className="flex items-center gap-1.5 mt-2">
@@ -5750,10 +5770,19 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                    </button>
                  </div>
                  <div className="px-7 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
+                       <div>
+                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Cliente / Fornecedor</label>
+                         <input 
+                           type="text" placeholder="Ex: João Silva / Cliente ou Fornecedor" 
+                           className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-800"
+                           value={responsibleClient} 
+                           onChange={(e) => setResponsibleClient(e.target.value)}
+                         />
+                       </div>
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Descrição do Lançamento*</label>
                         <input 
-                          type="text" placeholder="Ex: Aluguel do escritório, Tráfego Pago..." 
+                          type="text" placeholder="Ex: Aluguel Sala Fidelité"
                           className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-800"
                           value={newTransaction.description} 
                           onChange={(e) => setNewTransaction({...newTransaction, description: e.target.value})}
@@ -5781,7 +5810,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         <div>
                           <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Valor (R$)*</label>
                           <input 
-                            type="text" placeholder="0,00" 
+                            type="text" placeholder="Ex: 710,00" 
                             className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold text-slate-800"
                             value={amountInputStr} 
                             onChange={(e) => {
