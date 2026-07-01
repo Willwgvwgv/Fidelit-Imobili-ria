@@ -312,6 +312,42 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [confirmModalConfirmColor, setConfirmModalConfirmColor] = useState('bg-rose-600 hover:bg-rose-700 text-white');
   const [onConfirmAction, setOnConfirmAction] = useState<(() => void) | null>(null);
 
+  // Recurrence Edit Modal States
+  const [isRecurrenceEditModalOpen, setIsRecurrenceEditModalOpen] = useState(false);
+  const [recurrenceEditOption, setRecurrenceEditOption] = useState<'single' | 'following' | 'all'>('single');
+  const [recurrenceEditPayload, setRecurrenceEditPayload] = useState<any>(null);
+
+  const handleConfirmRecurrenceEdit = async () => {
+    if (!supabase || !editingTransaction || !recurrenceEditPayload) return;
+    
+    let success = false;
+    if (recurrenceEditOption === 'single') {
+      success = await supabaseService.updateFinancialTransaction(editingTransaction.id, recurrenceEditPayload);
+    } else if (recurrenceEditOption === 'following') {
+      success = await supabaseService.updateRecurrenceGroup(
+        editingTransaction.recurrence_group_id!,
+        editingTransaction.due_date,
+        recurrenceEditPayload
+      );
+    } else if (recurrenceEditOption === 'all') {
+      success = await supabaseService.updateRecurrenceGroup(
+        editingTransaction.recurrence_group_id!,
+        '2000-01-01',
+        recurrenceEditPayload
+      );
+    }
+    
+    if (success) {
+      setIsRecurrenceEditModalOpen(false);
+      setIsModalOpen(false);
+      setEditingTransaction(null);
+      setRecurrenceEditPayload(null);
+      loadFinancialData();
+    } else {
+      alert('Erro ao atualizar lançamento(s) recorrente(s).');
+    }
+  };
+
   const getAccountLiveBalance = (account: FinancialAccount) => {
     const sumTransactions = transactions
       .filter(t => t.account_id === account.id && t.status === TransactionStatus.PAID)
@@ -338,6 +374,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setRecurrencePeriods(1);
     setMarkAsPaid(false);
     setResponsibleClient('');
+    setIsRecurrenceEditModalOpen(false);
+    setRecurrenceEditOption('single');
+    setRecurrenceEditPayload(null);
     setNewAccount({
       name: '',
       initial_balance: '',
@@ -812,6 +851,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     // 4. Generate recurrences using the precise monthly/yearly helper
     const copiesToCreate: any[] = [];
     if (recurrenceType !== 'NONE' && recurrencePeriods > 0 && !editingTransaction) {
+      const recurrenceGroupId = crypto.randomUUID();
+      payload.recurrence_group_id = recurrenceGroupId;
       for (let i = 1; i <= recurrencePeriods; i++) {
         const nextDueDate = addPeriodToDate(payload.due_date, recurrenceType, i);
         copiesToCreate.push({
@@ -826,14 +867,20 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     if (editingTransaction) {
       if (supabase) {
-        const success = await supabaseService.updateFinancialTransaction(editingTransaction.id, payload);
-        
-        if (!success) {
-          alert('Erro ao atualizar lançamento.');
+        if (editingTransaction.recurrence_group_id) {
+          setRecurrenceEditPayload(payload);
+          setRecurrenceEditOption('single');
+          setIsRecurrenceEditModalOpen(true);
         } else {
-          setIsModalOpen(false);
-          setEditingTransaction(null);
-          loadFinancialData();
+          const success = await supabaseService.updateFinancialTransaction(editingTransaction.id, payload);
+          
+          if (!success) {
+            alert('Erro ao atualizar lançamento.');
+          } else {
+            setIsModalOpen(false);
+            setEditingTransaction(null);
+            loadFinancialData();
+          }
         }
       } else {
         alert('Conexão com o banco de dados indisponível.');
@@ -6340,6 +6387,100 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   className={`flex-1 font-black py-3 rounded-xl shadow-lg text-sm transition-all cursor-pointer ${confirmModalConfirmColor}`}
                 >
                   {confirmModalConfirmText}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Recurrence Edit Choice Modal */}
+      <AnimatePresence>
+        {isRecurrenceEditModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+              onClick={() => setIsRecurrenceEditModalOpen(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl w-full max-w-md shadow-2xl relative z-10 p-8 overflow-hidden flex flex-col"
+            >
+              <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-6">
+                <AlertCircle className="text-blue-500" size={24} />
+                <h2 className="text-lg font-black text-slate-900 uppercase tracking-wide">
+                  Editar lançamento recorrente
+                </h2>
+              </div>
+              
+              <div className="text-sm font-semibold text-slate-500 mb-6 leading-relaxed">
+                Este lançamento faz parte de uma série. O que deseja alterar?
+              </div>
+
+              <div className="space-y-3 mb-8">
+                <label className={`flex items-center gap-3 p-4 border rounded-2xl cursor-pointer transition-all ${recurrenceEditOption === 'single' ? 'border-blue-500 bg-blue-50/20' : 'border-slate-100 bg-slate-50/50 hover:bg-slate-50'}`}>
+                  <input 
+                    type="radio" 
+                    name="recurrenceEditOption" 
+                    value="single" 
+                    checked={recurrenceEditOption === 'single'} 
+                    onChange={() => setRecurrenceEditOption('single')}
+                    className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                  />
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">Somente este lançamento</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Altera apenas o lançamento selecionado.</p>
+                  </div>
+                </label>
+
+                <label className={`flex items-center gap-3 p-4 border rounded-2xl cursor-pointer transition-all ${recurrenceEditOption === 'following' ? 'border-blue-500 bg-blue-50/20' : 'border-slate-100 bg-slate-50/50 hover:bg-slate-50'}`}>
+                  <input 
+                    type="radio" 
+                    name="recurrenceEditOption" 
+                    value="following" 
+                    checked={recurrenceEditOption === 'following'} 
+                    onChange={() => setRecurrenceEditOption('following')}
+                    className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                  />
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">Este e os próximos</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Altera este lançamento e todos os futuros não pagos.</p>
+                  </div>
+                </label>
+
+                <label className={`flex items-center gap-3 p-4 border rounded-2xl cursor-pointer transition-all ${recurrenceEditOption === 'all' ? 'border-blue-500 bg-blue-50/20' : 'border-slate-100 bg-slate-50/50 hover:bg-slate-50'}`}>
+                  <input 
+                    type="radio" 
+                    name="recurrenceEditOption" 
+                    value="all" 
+                    checked={recurrenceEditOption === 'all'} 
+                    onChange={() => setRecurrenceEditOption('all')}
+                    className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                  />
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">Todos do grupo</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Altera todos os lançamentos não pagos deste grupo.</p>
+                  </div>
+                </label>
+              </div>
+              
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setIsRecurrenceEditModalOpen(false)} 
+                  className="flex-1 py-3 text-slate-500 bg-slate-50 hover:bg-slate-100 font-bold text-sm rounded-xl transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={handleConfirmRecurrenceEdit}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl shadow-lg text-sm transition-all cursor-pointer"
+                >
+                  Confirmar
                 </button>
               </div>
             </motion.div>

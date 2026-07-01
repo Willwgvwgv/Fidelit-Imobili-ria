@@ -125,6 +125,7 @@ export interface FinancialTransaction {
   installment_number?: number;
   total_installments?: number;
   contact_name?: string | null;
+  recurrence_group_id?: string | null;
 }
 
 export interface Agency {

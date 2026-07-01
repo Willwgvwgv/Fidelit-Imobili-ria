@@ -436,6 +436,39 @@ export const supabaseService = {
     return true;
   },
 
+  async updateRecurrenceGroup(
+    groupId: string,
+    fromDate: string,
+    updates: Partial<FinancialTransaction>
+  ): Promise<boolean> {
+    if (!supabase) return false;
+
+    const { id, agency_id, recurrence_group_id, financial_account_id, ...rest } = updates as any;
+    const payload = {
+      ...rest,
+      account_id: 'account_id' in updates ? updates.account_id : (financial_account_id ?? undefined),
+    };
+
+    if ('contact_name' in payload) {
+      payload.contact_name = payload.contact_name && String(payload.contact_name).trim() !== ''
+        ? String(payload.contact_name).trim()
+        : null;
+    }
+
+    const { error } = await supabase
+      .from('financial_transactions')
+      .update(payload)
+      .eq('recurrence_group_id', groupId)
+      .gte('due_date', fromDate)
+      .neq('status', 'PAID');
+
+    if (error) {
+      console.error('Error updating recurrence group:', error);
+      return false;
+    }
+    return true;
+  },
+
   async updateTransactionStatus(transactionId: string, status: TransactionStatus, paymentDate?: string): Promise<boolean> {
     if (!supabase) return false;
 
