@@ -165,6 +165,18 @@ const getLocalTodayStr = (): string => {
   return `${year}-${month}-${day}`;
 };
 
+const formatDateBR = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const year = parts[0];
+    const month = parts[1];
+    const day = parts[2].slice(0, 2);
+    return `${day}/${month}/${year}`;
+  }
+  return dateStr;
+};
+
 export const BANKS = [
   { code: "sicoob",     name: "Sicoob",           color: "#006B3F", initials: "SIC" },
   { code: "cresol",     name: "Cresol",           color: "#007BC0", initials: "CRS" },
@@ -204,7 +216,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     type: TransactionType.EXPENSE,
     amount: 0,
     description: '',
-    due_date: new Date().toISOString().split('T')[0],
+    due_date: getLocalTodayStr(),
     status: TransactionStatus.PENDING,
     agency_id: currentUser.agencyId
   });
@@ -445,8 +457,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const cat = categories.find(c => c.id === tx.category_id)?.name || 'Sem Categoria';
       const acc = accounts.find(a => a.id === tx.account_id)?.name || 'Sem Conta';
       return [
-        tx.due_date ? new Date(tx.due_date).toLocaleDateString('pt-BR') : '',
-        tx.payment_date ? new Date(tx.payment_date).toLocaleDateString('pt-BR') : '',
+        tx.due_date ? formatDateBR(tx.due_date) : '',
+        tx.payment_date ? formatDateBR(tx.payment_date) : '',
         tx.description.replace(/,/g, ';'),
         cat.replace(/,/g, ';'),
         acc.replace(/,/g, ';'),
@@ -802,7 +814,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       loadFinancialData();
     } else {
       // update state locally for robust presentation even if network delays
-      setTransactions(prev => prev.map(t => t.id === tx.id ? { ...t, status: newStatus, payment_date: newStatus === TransactionStatus.PAID ? new Date().toISOString().split('T')[0] : null as any } : t));
+      setTransactions(prev => prev.map(t => t.id === tx.id ? { ...t, status: newStatus, payment_date: newStatus === TransactionStatus.PAID ? getLocalTodayStr() : null as any } : t));
     }
   };
 
@@ -830,10 +842,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     // 2. Map payload properties, converting empty UUID values to null
     let dueDateVal = newTransaction.due_date;
     if (!dueDateVal) {
-      dueDateVal = new Date().toISOString().split('T')[0];
+      dueDateVal = getLocalTodayStr();
     }
 
-    const cleanPaymentDate = markAsPaid ? (newTransaction.payment_date || new Date().toISOString().split('T')[0]) : null;
+    const cleanPaymentDate = markAsPaid ? (newTransaction.payment_date || getLocalTodayStr()) : null;
     const computedStatus = cleanPaymentDate ? TransactionStatus.PAID : TransactionStatus.PENDING;
 
     const payload = {
@@ -1556,7 +1568,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     try {
       for (const match of validMatches) {
         const recItem = reconciliationItems.find(item => (item.id || item.external_id) === match.reconciliation_id);
-        const date = recItem ? recItem.date : new Date().toISOString().split('T')[0];
+        const date = recItem ? recItem.date : getLocalTodayStr();
         const payloadSingle = {
           reconciliationId: match.reconciliation_id,
           transactionId: match.transaction_id,
@@ -1607,7 +1619,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           const match = succeededMatches.find(m => m.transaction_id === t.id);
           if (match) {
             const recItem = reconciliationItems.find(item => (item.id || item.external_id) === match.reconciliation_id);
-            const date = recItem ? recItem.date : new Date().toISOString().split('T')[0];
+            const date = recItem ? recItem.date : getLocalTodayStr();
             return { ...t, status: TransactionStatus.PAID, payment_date: date };
           }
           return t;
@@ -2018,9 +2030,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           }}
                         />
                       </td>
-                      <td className="px-6 py-5 text-sm font-bold text-slate-700">{new Date(tx.due_date).toLocaleDateString('pt-BR')}</td>
+                      <td className="px-6 py-5 text-sm font-bold text-slate-700">{formatDateBR(tx.due_date)}</td>
                       <td className="px-6 py-5 text-sm font-medium text-slate-400">
-                        {tx.payment_date ? new Date(tx.payment_date).toLocaleDateString('pt-BR') : '-'}
+                        {tx.payment_date ? formatDateBR(tx.payment_date) : '-'}
                       </td>
                       <td className="px-6 py-5">
                         <p className="text-sm font-bold text-slate-900 leading-none">{tx.description}</p>
@@ -2650,7 +2662,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       if (parts.length === 3) {
         return `${parts[2]}/${parts[1]}/${parts[0]}`;
       }
-      return new Date(dateStr).toLocaleDateString('pt-BR');
+      return formatDateBR(dateStr);
     };
 
     // Helper to calculate interest and penalty
@@ -4369,7 +4381,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         >
                           <div className="flex items-center justify-between mb-1.5">
                             <span className="text-[10px] font-bold text-slate-400">
-                              {new Date(item.date).toLocaleDateString('pt-BR')}
+                              {formatDateBR(item.date)}
                             </span>
                             <div className="flex items-center gap-1.5">
                               {isPrepared && (
@@ -4445,7 +4457,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-50 text-xs text-slate-500 font-medium">
                         <div>
                           <p className="text-[9px] text-slate-400 uppercase font-black tracking-wider">Data</p>
-                          <p className="text-slate-700 font-bold">{new Date(activeImportedItem.date).toLocaleDateString('pt-BR')}</p>
+                          <p className="text-slate-700 font-bold">{formatDateBR(activeImportedItem.date)}</p>
                         </div>
                         <div>
                           <p className="text-[9px] text-slate-400 uppercase font-black tracking-wider">Valor</p>
@@ -4526,7 +4538,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               <div className="bg-white rounded-xl p-3 border border-amber-200/50 space-y-1.5">
                                 <p className="text-xs font-bold text-slate-800 leading-snug">{normalizeDescription(pairedTx.description)}</p>
                                 <div className="flex justify-between text-[10px] text-slate-500 font-semibold pt-1 border-t border-slate-50">
-                                  <span>Vencimento: {new Date(pairedTx.due_date).toLocaleDateString('pt-BR')}</span>
+                                  <span>Vencimento: {formatDateBR(pairedTx.due_date)}</span>
                                   <span className="text-slate-800 font-bold">Valor: {formatCurrency(pairedTx.amount)}</span>
                                 </div>
                                 <div className="text-[9px] text-slate-400 font-medium italic">
@@ -4632,7 +4644,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 <div>
                                   <p className="text-[9px] text-slate-400 uppercase font-black tracking-wider">Vencimento</p>
                                   <p className="text-slate-700 font-bold">
-                                    {new Date(selectedSystemTx.due_date).toLocaleDateString('pt-BR')}
+                                    {formatDateBR(selectedSystemTx.due_date)}
                                   </p>
                                 </div>
                                 <div>
@@ -4757,7 +4769,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       >
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-bold text-slate-400">
-                            Vence em {new Date(tx.due_date).toLocaleDateString('pt-BR')}
+                            Vence em {formatDateBR(tx.due_date)}
                           </span>
                           <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${badgeBg}`}>
                             {score}% Compatível
@@ -5979,7 +5991,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               setNewTransaction(prev => ({
                                 ...prev,
                                 status: TransactionStatus.PAID,
-                                payment_date: prev.payment_date || new Date().toISOString().split('T')[0]
+                                payment_date: prev.payment_date || getLocalTodayStr()
                               }));
                             } else {
                               setNewTransaction(prev => ({
@@ -6001,7 +6013,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           <input 
                             type="date" 
                             className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
-                            value={newTransaction.payment_date || new Date().toISOString().split('T')[0]} 
+                            value={newTransaction.payment_date || getLocalTodayStr()} 
                             onChange={(e) => setNewTransaction({...newTransaction, payment_date: e.target.value})}
                           />
                         </div>
