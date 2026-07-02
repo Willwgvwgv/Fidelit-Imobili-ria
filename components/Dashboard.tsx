@@ -22,7 +22,7 @@ import {
   Clock, 
   Award 
 } from 'lucide-react';
-import { Sale, UserRole, User, CommissionStatus } from '../types';
+import { Sale, UserRole, User, CommissionStatus, SplitRole } from '../types';
 import { MOCK_USERS } from '../constants';
 
 interface DashboardProps {
@@ -129,6 +129,93 @@ const Dashboard: React.FC<DashboardProps> = ({ sales, team, currentUser }) => {
       brokerPerformance: Object.values(brokerPerfMap).sort((a, b) => b.vgv - a.vgv)
     };
   }, [filteredSales, currentUser.id, isAdmin, selectedBroker]);
+
+  const efficiencyData = useMemo(() => {
+    const brokerMap: Record<string, { 
+      id: string;
+      name: string; 
+      salesCount: number; 
+      vgvTotal: number; 
+      comissionTotal: number; 
+    }> = {};
+
+    filteredSales.forEach(sale => {
+      const seenBrokersInSale = new Set<string>();
+
+      sale.splits.forEach(split => {
+        if (!split.brokerId) return;
+        
+        const nameLower = (split.brokerName || '').toLowerCase();
+        const isAgencyName = nameLower.includes('agência') || nameLower.includes('agencia') || nameLower.includes('imobiliária') || nameLower.includes('imobiliaria');
+        const isAgencyRole = split.role === 'AGENCY' || split.role === 'Agência' || split.role === SplitRole.AGENCY || isAgencyName;
+        if (isAgencyRole) return;
+        
+        if (!brokerMap[split.brokerId]) {
+          brokerMap[split.brokerId] = {
+            id: split.brokerId,
+            name: split.brokerName,
+            salesCount: 0,
+            vgvTotal: 0,
+            comissionTotal: 0
+          };
+        }
+        
+        if (!seenBrokersInSale.has(split.brokerId)) {
+          seenBrokersInSale.add(split.brokerId);
+          brokerMap[split.brokerId].salesCount += 1;
+        }
+
+        brokerMap[split.brokerId].comissionTotal += (split.calculatedValue || 0);
+
+        const vgvRoles = ['BROKER', 'Corretor', 'Captador', 'CAPTURER', SplitRole.BROKER, SplitRole.CAPTURER];
+        if (split.role && vgvRoles.includes(split.role)) {
+          brokerMap[split.brokerId].vgvTotal += (sale.vgv * ((split.percentage || 0) / 100));
+        }
+      });
+    });
+
+    const brokersList = Object.values(brokerMap).map(b => {
+      const comissionRate = b.vgvTotal > 0 ? (b.comissionTotal / b.vgvTotal) * 100 : 0;
+      const ticketMedio = b.salesCount > 0 ? b.vgvTotal / b.salesCount : 0;
+      return {
+        ...b,
+        comissionRate,
+        ticketMedio
+      };
+    }).sort((a, b) => b.vgvTotal - a.vgvTotal);
+
+    const agencySalesCount = filteredSales.length;
+    const agencyVgvTotal = filteredSales.reduce((sum, s) => sum + s.vgv, 0);
+    const agencyComissionTotal = filteredSales.reduce((sum, s) => sum + s.totalCommissionValue, 0);
+    const agencyComissionRate = agencyVgvTotal > 0 ? (agencyComissionTotal / agencyVgvTotal) * 100 : 0;
+    const agencyTicketMedio = agencySalesCount > 0 ? agencyVgvTotal / agencySalesCount : 0;
+
+    let badgeText = '';
+    let badgeColorClass = '';
+    if (agencyComissionRate < 0.5) {
+      badgeText = 'Abaixo da média de mercado';
+      badgeColorClass = 'bg-amber-50 text-amber-700 border-amber-200';
+    } else if (agencyComissionRate <= 1.5) {
+      badgeText = 'Dentro da média de mercado';
+      badgeColorClass = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    } else {
+      badgeText = 'Acima da média de mercado';
+      badgeColorClass = 'bg-indigo-50 text-indigo-700 border-indigo-200';
+    }
+
+    return {
+      brokers: brokersList,
+      agency: {
+        salesCount: agencySalesCount,
+        vgvTotal: agencyVgvTotal,
+        comissionTotal: agencyComissionTotal,
+        comissionRate: agencyComissionRate,
+        ticketMedio: agencyTicketMedio,
+        badgeText,
+        badgeColorClass
+      }
+    };
+  }, [filteredSales]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -408,6 +495,77 @@ const Dashboard: React.FC<DashboardProps> = ({ sales, team, currentUser }) => {
           </div>
         </div>
       )}
+
+      {/* Seção Eficiência Financeira de Vendas */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+        <h3 className="font-bold text-slate-800 text-lg flex items-center gap-2 mb-6">
+          <TrendingUp className="text-blue-600" size={20} /> Eficiência Financeira de Vendas
+        </h3>
+
+        {/* Resumo Consolidado */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 p-5 bg-slate-50 rounded-2xl border border-slate-100/80 mb-6">
+          <div>
+            <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Vendas da Agência</span>
+            <span className="text-xl font-bold text-slate-700">{efficiencyData.agency.salesCount}</span>
+          </div>
+          <div>
+            <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">VGV Total Consolidado</span>
+            <span className="text-xl font-bold text-slate-700">{formatCurrency(efficiencyData.agency.vgvTotal)}</span>
+          </div>
+          <div>
+            <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Comissão Gerada</span>
+            <span className="text-xl font-bold text-slate-700">{formatCurrency(efficiencyData.agency.comissionTotal)}</span>
+          </div>
+          <div>
+            <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">% Comissão/VGV</span>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
+              <span className="text-xl font-bold text-slate-700">{efficiencyData.agency.comissionRate.toFixed(2)}%</span>
+              <span className={`inline-flex items-center px-2 py-0.5 text-[9px] font-bold rounded-full border ${efficiencyData.agency.badgeColorClass}`}>
+                {efficiencyData.agency.badgeText}
+              </span>
+            </div>
+          </div>
+          <div>
+            <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Ticket Médio</span>
+            <span className="text-xl font-bold text-slate-700">{formatCurrency(efficiencyData.agency.ticketMedio)}</span>
+          </div>
+        </div>
+
+        {/* Tabela de corretores */}
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="text-left text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-50">
+                <th className="pb-4 pr-4">Vendedor</th>
+                <th className="pb-4 px-4 text-center">Vendas</th>
+                <th className="pb-4 px-4">VGV Total</th>
+                <th className="pb-4 px-4">Comissão Gerada</th>
+                <th className="pb-4 px-4 text-center">% Comissão/VGV</th>
+                <th className="pb-4 px-4 text-right">Ticket Médio</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {efficiencyData.brokers.map((broker) => (
+                <tr key={broker.id} className="group hover:bg-slate-50 transition-colors">
+                  <td className="py-4 pr-4 font-semibold text-slate-700">{broker.name}</td>
+                  <td className="py-4 px-4 text-center font-bold text-slate-600">{broker.salesCount}</td>
+                  <td className="py-4 px-4 font-semibold text-slate-600">{formatCurrency(broker.vgvTotal)}</td>
+                  <td className="py-4 px-4 font-semibold text-slate-600">{formatCurrency(broker.comissionTotal)}</td>
+                  <td className="py-4 px-4 text-center font-bold text-blue-600">{broker.comissionRate.toFixed(2)}%</td>
+                  <td className="py-4 px-4 text-right font-semibold text-slate-700">{formatCurrency(broker.ticketMedio)}</td>
+                </tr>
+              ))}
+              {efficiencyData.brokers.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-sm text-slate-400 font-medium">
+                    Nenhum dado de eficiência disponível no período.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 };
