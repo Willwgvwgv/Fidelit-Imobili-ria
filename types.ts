@@ -95,6 +95,8 @@ export interface FinancialAccount {
   type?: string;
   credit_limit?: number;
   is_active: boolean;
+  closing_day?: number;
+  due_day?: number;
 }
 
 export interface FinancialCategory {
@@ -127,6 +129,7 @@ export interface FinancialTransaction {
   total_installments?: number;
   contact_name?: string | null;
   recurrence_group_id?: string | null;
+  settled_by_transaction_id?: string | null;
 }
 
 export interface Agency {

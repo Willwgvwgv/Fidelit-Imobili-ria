@@ -236,7 +236,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     color: '#2563eb',
     is_default: false,
     credit_limit: '' as string | number,
-    bank_code: ''
+    bank_code: '',
+    closing_day: '' as string | number,
+    due_day: '' as string | number
   });
 
   const [newCategory, setNewCategory] = useState({
@@ -323,6 +325,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [markAsPaid, setMarkAsPaid] = useState<boolean>(false);
   const monthInputRef = useRef<HTMLInputElement>(null);
 
+  // Pay Credit Card Invoice States
+  const [payInvoiceModalOpen, setPayInvoiceModalOpen] = useState(false);
+  const [selectedCardForPayment, setSelectedCardForPayment] = useState<FinancialAccount | null>(null);
+  const [payInvoiceSourceAccountId, setPayInvoiceSourceAccountId] = useState<string>('');
+  const [payInvoiceAmountStr, setPayInvoiceAmountStr] = useState<string>('');
+  const [payInvoiceDate, setPayInvoiceDate] = useState<string>(getLocalTodayStr());
+  const [showMismatchConfirm, setShowMismatchConfirm] = useState<boolean>(false);
+
   // Real Cash Flow & DRE States
   const [fluxoTab, setFluxoTab] = useState<'fluxo' | 'dre'>('fluxo');
   const [fluxoGroupMode, setFluxoGroupMode] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY'>('WEEKLY');
@@ -375,7 +385,16 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const getAccountLiveBalance = (account: FinancialAccount) => {
     const sumTransactions = transactions
       .filter(t => t.account_id === account.id && t.status === TransactionStatus.PAID)
-      .reduce((acc, curr) => acc + (curr.type === TransactionType.INCOME ? curr.amount : -curr.amount), 0);
+      .reduce((acc, curr) => {
+        if (curr.type === TransactionType.INCOME) {
+          return acc + (curr.amount || 0);
+        } else if (curr.type === TransactionType.EXPENSE) {
+          return acc - (curr.amount || 0);
+        } else if (curr.type === TransactionType.TRANSFER) {
+          return acc - (curr.amount || 0);
+        }
+        return acc;
+      }, 0);
     return Number(account.initial_balance || 0) + sumTransactions;
   };
   
@@ -408,7 +427,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       color: '#2563eb',
       is_default: false,
       credit_limit: '',
-      bank_code: ''
+      bank_code: '',
+      closing_day: '',
+      due_day: ''
     });
     setNewCategory({
       name: '',
@@ -454,7 +475,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       color: account.color || '#2563eb',
       is_default: account.is_default || false,
       credit_limit: account.credit_limit ? formatBRL(account.credit_limit) : '',
-      bank_code: existingBankCode
+      bank_code: existingBankCode,
+      closing_day: account.closing_day || '',
+      due_day: account.due_day || ''
     });
     setModalType('account');
     setIsModalOpen(true);
@@ -977,6 +1000,278 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
   };
 
+  const isTxInCardInvoicePeriod = (dueDateStr: string, card: FinancialAccount, targetPeriod: Date) => {
+    const closingDay = card.closing_day;
+    if (!closingDay || closingDay < 1 || closingDay > 31) {
+      const parts = dueDateStr.split('-');
+      if (parts.length < 2) return false;
+      const txYear = parseInt(parts[0], 10);
+      const txMonth = parseInt(parts[1], 10) - 1;
+      return txYear === targetPeriod.getFullYear() && txMonth === targetPeriod.getMonth();
+    }
+
+    const targetYear = targetPeriod.getFullYear();
+    const targetMonth = targetPeriod.getMonth();
+
+    let prevYear = targetYear;
+    let prevMonth = targetMonth - 1;
+    if (prevMonth < 0) {
+      prevMonth = 11;
+      prevYear = targetYear - 1;
+    }
+
+    const daysInPrevMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
+    const safePrevDay = Math.min(closingDay, daysInPrevMonth);
+    const startDateObj = new Date(prevYear, prevMonth, safePrevDay);
+    startDateObj.setDate(startDateObj.getDate() + 1);
+
+    const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+    const safeTargetDay = Math.min(closingDay, daysInTargetMonth);
+    const endDateObj = new Date(targetYear, targetMonth, safeTargetDay);
+
+    const formatLocalYYYYMMDD = (d: Date) => {
+      const yr = d.getFullYear();
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const dy = String(d.getDate()).padStart(2, '0');
+      return `${yr}-${mo}-${dy}`;
+    };
+
+    const startDateStr = formatLocalYYYYMMDD(startDateObj);
+    const endDateStr = formatLocalYYYYMMDD(endDateObj);
+
+    return dueDateStr >= startDateStr && dueDateStr <= endDateStr;
+  };
+
+  const getPendingInvoiceAmount = (cardId: string) => {
+    const card = accounts.find(a => a.id === cardId);
+    if (!card) return 0;
+    return transactions
+      .filter(t => {
+        if (t.account_id !== cardId) return false;
+        if (t.status !== TransactionStatus.PENDING) return false;
+        return isTxInCardInvoicePeriod(t.due_date, card, currentPeriod);
+      })
+      .reduce((sum, t) => sum + t.amount, 0);
+  };
+
+  const getInvoicePeriodRangeStr = (card: FinancialAccount, targetPeriod: Date) => {
+    const closingDay = card.closing_day;
+    if (!closingDay || closingDay < 1 || closingDay > 31) {
+      const startOfMonth = new Date(targetPeriod.getFullYear(), targetPeriod.getMonth(), 1);
+      const endOfMonth = new Date(targetPeriod.getFullYear(), targetPeriod.getMonth() + 1, 0);
+      
+      const formatBR = (d: Date) => {
+        const dy = String(d.getDate()).padStart(2, '0');
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const yr = d.getFullYear();
+        return `${dy}/${mo}/${yr}`;
+      };
+      
+      return `${formatBR(startOfMonth)} a ${formatBR(endOfMonth)}`;
+    }
+
+    const targetYear = targetPeriod.getFullYear();
+    const targetMonth = targetPeriod.getMonth();
+
+    let prevYear = targetYear;
+    let prevMonth = targetMonth - 1;
+    if (prevMonth < 0) {
+      prevMonth = 11;
+      prevYear = targetYear - 1;
+    }
+
+    const daysInPrevMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
+    const safePrevDay = Math.min(closingDay, daysInPrevMonth);
+    const startDateObj = new Date(prevYear, prevMonth, safePrevDay);
+    startDateObj.setDate(startDateObj.getDate() + 1);
+
+    const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+    const safeTargetDay = Math.min(closingDay, daysInTargetMonth);
+    const endDateObj = new Date(targetYear, targetMonth, safeTargetDay);
+
+    const formatBR = (d: Date) => {
+      const dy = String(d.getDate()).padStart(2, '0');
+      const mo = String(d.getMonth() + 1).padStart(2, '0');
+      const yr = d.getFullYear();
+      return `${dy}/${mo}/${yr}`;
+    };
+
+    return `${formatBR(startDateObj)} a ${formatBR(endDateObj)}`;
+  };
+
+  const normalizeCategoryName = (name: string): string => {
+    return name
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // remove accents
+      .replace(/\s+/g, ' '); // remove duplicate spaces
+  };
+
+  const handleOpenPayInvoiceModal = (card: FinancialAccount) => {
+    const pendingTxs = transactions.filter(t => {
+      if (t.account_id !== card.id) return false;
+      if (t.status !== TransactionStatus.PENDING) return false;
+      return isTxInCardInvoicePeriod(t.due_date, card, currentPeriod);
+    });
+
+    if (pendingTxs.length === 0) {
+      showToast("Não existem lançamentos pendentes nesta fatura.", "error");
+      return;
+    }
+
+    const totalAmount = pendingTxs.reduce((sum, t) => sum + t.amount, 0);
+
+    setSelectedCardForPayment(card);
+    setPayInvoiceAmountStr(totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    setPayInvoiceDate(getLocalTodayStr());
+    
+    const firstBankAcc = accounts.find(a => a.type !== 'credit_card' && a.account_type !== 'credit_card');
+    setPayInvoiceSourceAccountId(firstBankAcc ? firstBankAcc.id : '');
+    
+    setShowMismatchConfirm(false);
+    setPayInvoiceModalOpen(true);
+  };
+
+  const handlePreConfirmPayInvoice = () => {
+    if (loading) return;
+    if (!selectedCardForPayment) return;
+    if (!payInvoiceSourceAccountId) {
+      alert('Por favor, selecione a conta de origem.');
+      return;
+    }
+
+    const paymentAmount = parseBrlValue(payInvoiceAmountStr);
+    if (paymentAmount <= 0) {
+      alert('Por favor, insira um valor válido maior que zero.');
+      return;
+    }
+
+    if (!payInvoiceDate) {
+      alert('Por favor, insira a data do pagamento.');
+      return;
+    }
+
+    const expectedAmount = getPendingInvoiceAmount(selectedCardForPayment.id);
+    if (Math.abs(paymentAmount - expectedAmount) > 0.01) {
+      showToast(
+        `O valor informado (R$ ${paymentAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) não corresponde ao total da fatura (R$ ${expectedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}). Ajuste o valor para prosseguir.`,
+        'error'
+      );
+      return;
+    }
+
+    handleExecutePayInvoice();
+  };
+
+  const handleExecutePayInvoice = async () => {
+    if (!selectedCardForPayment || !payInvoiceSourceAccountId) return;
+    if (loading) return; // Prevent double click
+    setLoading(true);
+    try {
+      const paymentAmount = parseBrlValue(payInvoiceAmountStr);
+
+      const targetNormal = normalizeCategoryName('Pagamento de Cartão');
+      let category = categories.find(c => normalizeCategoryName(c.name) === targetNormal);
+      if (!category) {
+        const newCatPayload = {
+          agency_id: currentUser.agencyId,
+          name: 'Pagamento de Cartão',
+          type: TransactionType.EXPENSE,
+          color: '#64748b',
+          affects_dre: false
+        };
+        category = await supabaseService.createFinancialCategory(newCatPayload);
+        if (category) {
+          setCategories(prev => [...prev, category!]);
+        }
+      }
+
+      const categoryId = category ? category.id : null;
+
+      const paymentTxPayload = {
+        agency_id: currentUser.agencyId,
+        description: `Pagamento Fatura - ${selectedCardForPayment.name}`,
+        amount: paymentAmount, // ALWAYS positive for TRANSFER
+        type: TransactionType.TRANSFER,
+        account_id: payInvoiceSourceAccountId,
+        category_id: categoryId,
+        due_date: payInvoiceDate,
+        payment_date: payInvoiceDate,
+        status: TransactionStatus.PAID,
+        contact_name: null,
+        notes: `Referente à fatura do cartão ${selectedCardForPayment.name}`
+      };
+
+      const createdTx = await supabaseService.createFinancialTransaction(paymentTxPayload);
+      if (!createdTx || !createdTx.id) {
+        throw new Error("Erro ao criar a transação de pagamento (TRANSFER).");
+      }
+      const transferTxId = createdTx.id;
+
+      const pendingTxs = transactions.filter(t => {
+        if (t.account_id !== selectedCardForPayment.id) return false;
+        if (t.status !== TransactionStatus.PENDING) return false;
+        return isTxInCardInvoicePeriod(t.due_date, selectedCardForPayment, currentPeriod);
+      });
+
+      if (pendingTxs.length > 0) {
+        let successfullyUpdatedIds: string[] = [];
+        try {
+          for (const t of pendingTxs) {
+            const settledId = t.settled_by_transaction_id || transferTxId;
+            const ok = await supabaseService.updateFinancialTransaction(t.id, {
+              status: TransactionStatus.PAID,
+              payment_date: payInvoiceDate,
+              settled_by_transaction_id: settledId
+            });
+            if (!ok) {
+              throw new Error(`Erro ao atualizar a transação ${t.id}.`);
+            }
+            successfullyUpdatedIds.push(t.id);
+          }
+        } catch (err: any) {
+          console.error("Atomic transaction failed. Rolling back created TRANSFER...", err);
+          // Rollback step 1: delete transfer
+          const { error: delErr } = await supabase
+            .from('financial_transactions')
+            .delete()
+            .eq('id', transferTxId);
+          if (delErr) {
+            console.error("Critical: Failed to rollback (delete) TRANSFER transaction during failure recovery:", delErr);
+          }
+          // Rollback step 2: revert updated transactions
+          for (const id of successfullyUpdatedIds) {
+            const original = pendingTxs.find(tx => tx.id === id);
+            if (original) {
+              await supabaseService.updateFinancialTransaction(id, {
+                status: TransactionStatus.PENDING,
+                payment_date: null,
+                settled_by_transaction_id: original.settled_by_transaction_id || null
+              });
+            }
+          }
+          throw err;
+        }
+      }
+
+      showToast(
+        `Fatura paga! ${pendingTxs.length} lançamentos marcados como pagos. Total: ${formatCurrency(paymentAmount)}`, 
+        'success'
+      );
+      
+      setPayInvoiceModalOpen(false);
+      setShowMismatchConfirm(false);
+
+      await loadFinancialData();
+    } catch (err: any) {
+      console.error('Error paying credit card invoice:', err);
+      showToast(err.message || 'Erro ao processar pagamento da fatura.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCreateAccount = async () => {
     if (!newAccount.name) {
       alert('Favor preencher o nome da conta.');
@@ -986,6 +1281,20 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const creditLimitVal = newAccount.credit_limit ? parseBRL(String(newAccount.credit_limit)) : null;
     const isCard = modalType === 'card';
 
+    const closingDayVal = isCard && newAccount.closing_day ? parseInt(String(newAccount.closing_day), 10) : null;
+    const dueDayVal = isCard && newAccount.due_day ? parseInt(String(newAccount.due_day), 10) : null;
+
+    if (isCard) {
+      if (closingDayVal !== null && (closingDayVal < 1 || closingDayVal > 31)) {
+        alert('O Dia de Fechamento deve ser entre 1 e 31.');
+        return;
+      }
+      if (dueDayVal !== null && (dueDayVal < 1 || dueDayVal > 31)) {
+        alert('O Dia de Vencimento deve ser entre 1 e 31.');
+        return;
+      }
+    }
+
     if (editingAccount) {
       const updates = {
         name: newAccount.name,
@@ -993,7 +1302,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         type: isCard ? 'credit_card' : newAccount.type,
         account_type: isCard ? 'credit_card' : newAccount.type,
         credit_limit: creditLimitVal || undefined,
-        bank_code: newAccount.bank_code || null
+        bank_code: newAccount.bank_code || null,
+        closing_day: closingDayVal,
+        due_day: dueDayVal
       };
       const success = await supabaseService.updateFinancialAccount(editingAccount.id, updates);
       if (success) {
@@ -1027,7 +1338,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       type: isCard ? 'credit_card' : newAccount.type,
       credit_limit: creditLimitVal || undefined,
       is_active: true,
-      bank_code: newAccount.bank_code || null
+      bank_code: newAccount.bank_code || null,
+      closing_day: closingDayVal,
+      due_day: dueDayVal
     };
 
     const result = await supabaseService.createFinancialAccount(payload);
@@ -2236,6 +2549,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   // 2. View: Fluxo de Caixa (Cash Flow Analyzer)
   const renderFluxodeCaixa = () => {
     // Determine active account IDs (default to all if none explicitly selected)
+    const isConsolidatedView = selectedAccountIds.length === 0;
     const activeAccountIds = selectedAccountIds.length > 0 ? selectedAccountIds : accounts.map(a => a.id);
     const selectedAccountsList = accounts.filter(a => activeAccountIds.includes(a.id));
     
@@ -2246,7 +2560,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     // Ignore internal transfer transactions to prevent distorting real cash flow
     const txsForSelectedAccounts = transactions.filter(t => {
       const accId = t.account_id || t.financial_account_id;
-      return activeAccountIds.includes(accId || '') && t.is_transfer !== true;
+      if (!activeAccountIds.includes(accId || '')) return false;
+
+      // Double counting avoidance rule:
+      // In consolidated view, we exclude credit card purchases (i.e. EXPENSE transactions on credit card accounts)
+      // to avoid double counting when the card invoice is paid from a checking/savings account.
+      if (isConsolidatedView) {
+        const acc = accounts.find(a => a.id === accId);
+        if (acc && (acc.type === 'credit_card' || acc.account_type === 'credit_card')) {
+          if (t.type === TransactionType.EXPENSE) {
+            return false;
+          }
+        }
+      }
+
+      return t.is_transfer !== true;
     });
 
     const totalPaidIncomeOverall = txsForSelectedAccounts
@@ -2254,7 +2582,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       .reduce((sum, t) => sum + (t.amount || 0), 0);
 
     const totalPaidExpenseOverall = txsForSelectedAccounts
-      .filter(t => t.type === TransactionType.EXPENSE && t.status === TransactionStatus.PAID)
+      .filter(t => (t.type === TransactionType.EXPENSE || t.type === TransactionType.TRANSFER) && t.status === TransactionStatus.PAID)
       .reduce((sum, t) => sum + (t.amount || 0), 0);
 
     // 1 - Saldo Atual (Fórmula: saldo inicial + entradas pagas - despesas pagas)
@@ -2272,7 +2600,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       .reduce((sum, t) => sum + (t.amount || 0), 0);
 
     const totalFuturePendingExpense = futurePendingTxs
-      .filter(t => t.type === TransactionType.EXPENSE)
+      .filter(t => t.type === TransactionType.EXPENSE || t.type === TransactionType.TRANSFER)
       .reduce((sum, t) => sum + (t.amount || 0), 0);
 
     // Projeção futura final = Saldo Atual + entradas pendentes futuras - despesas pendentes futuras
@@ -2299,11 +2627,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     // Saídas no período
     const periodPaidExpense = periodTxs
-      .filter(t => t.type === TransactionType.EXPENSE && t.status === TransactionStatus.PAID)
+      .filter(t => (t.type === TransactionType.EXPENSE || t.type === TransactionType.TRANSFER) && t.status === TransactionStatus.PAID)
       .reduce((sum, t) => sum + (t.amount || 0), 0);
 
     const periodPendingExpense = periodTxs
-      .filter(t => t.type === TransactionType.EXPENSE && t.status === TransactionStatus.PENDING)
+      .filter(t => (t.type === TransactionType.EXPENSE || t.type === TransactionType.TRANSFER) && t.status === TransactionStatus.PENDING)
       .reduce((sum, t) => sum + (t.amount || 0), 0);
 
     const totalPeriodExpense = periodPaidExpense + periodPendingExpense;
@@ -2457,14 +2785,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         };
       }
       
-      const amt = tx.amount || 0;
+      const amt = Math.abs(tx.amount || 0);
       if (tx.type === TransactionType.INCOME) {
         if (tx.status === TransactionStatus.PAID) {
           groupedDataMap[key].income += amt;
         } else {
           groupedDataMap[key].expectedIncome += amt;
         }
-      } else if (tx.type === TransactionType.EXPENSE) {
+      } else if (tx.type === TransactionType.EXPENSE || tx.type === TransactionType.TRANSFER) {
         if (tx.status === TransactionStatus.PAID) {
           groupedDataMap[key].expense += amt;
         } else {
@@ -3971,7 +4299,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             return (
               <motion.div 
                 key={card.id} 
-                className={`bg-gradient-to-tr ${CARD_GRADIENTS[idx % CARD_GRADIENTS.length]} p-6 rounded-3xl shadow-xl flex flex-col justify-between h-52 relative overflow-hidden`}
+                className={`bg-gradient-to-tr ${CARD_GRADIENTS[idx % CARD_GRADIENTS.length]} p-6 rounded-3xl shadow-xl flex flex-col justify-between h-64 relative overflow-hidden`}
                 whileHover={{ y: -4 }}
               >
                 <div className="absolute right-0 top-0 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none" />
@@ -3982,7 +4310,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <div className="w-10 h-6 bg-amber-400/80 rounded-md border border-amber-300 opacity-80" />
                 </div>
 
-                <div className="mt-4">
+                <div className="mt-2">
                   <p className="text-2xl font-black">{formatCurrency(openInvoices)}</p>
                 </div>
 
@@ -3995,6 +4323,17 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     <div className="bg-white h-full" style={{ width: `${Math.min(progressPct, 100)}%` }} />
                   </div>
                 </div>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenPayInvoiceModal(card);
+                  }}
+                  className="mt-4 w-full py-2.5 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative z-10"
+                >
+                  <DollarSign size={12} />
+                  Pagar Fatura
+                </button>
               </motion.div>
             );
           })}
@@ -5423,6 +5762,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <Filter size={14} />
                   <span>Filtrar</span>
                 </button>
+                {(categoryFilter !== 'ALL' || accountFilter !== 'ALL') && (
+                  <span 
+                    id="filter-active-dot"
+                    className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border border-white shadow-sm animate-pulse" 
+                  />
+                )}
                 
                 {isFilterDropdownOpen && (
                   <>
@@ -5571,10 +5916,23 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             <div className="flex items-center gap-2">
               <button
                 onClick={() => {
+                  const isConsolidatedView = selectedAccountIds.length === 0;
                   const activeAccountIds = selectedAccountIds.length > 0 ? selectedAccountIds : accounts.map(a => a.id);
                   const txsForSelectedAccounts = transactions.filter(t => {
                     const accId = t.account_id || t.financial_account_id;
-                    return activeAccountIds.includes(accId || '') && t.is_transfer !== true;
+                    if (!activeAccountIds.includes(accId || '')) return false;
+
+                    // Double counting avoidance rule:
+                    if (isConsolidatedView) {
+                      const acc = accounts.find(a => a.id === accId);
+                      if (acc && (acc.type === 'credit_card' || acc.account_type === 'credit_card')) {
+                        if (t.type === TransactionType.EXPENSE) {
+                          return false;
+                        }
+                      }
+                    }
+
+                    return t.is_transfer !== true;
                   });
                   const periodTxs = txsForSelectedAccounts.filter(t => {
                     const parts = t.due_date.split('-');
@@ -6473,6 +6831,26 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           onChange={(e) => setNewAccount({...newAccount, credit_limit: formatBRL(e.target.value)})}
                         />
                       </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Dia de Fechamento (1 a 31)</label>
+                          <input 
+                            type="number" min="1" max="31" placeholder="Ex: 5" 
+                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
+                            value={newAccount.closing_day} 
+                            onChange={(e) => setNewAccount({...newAccount, closing_day: e.target.value})}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Dia de Vencimento (1 a 31)</label>
+                          <input 
+                            type="number" min="1" max="31" placeholder="Ex: 15" 
+                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
+                            value={newAccount.due_day} 
+                            onChange={(e) => setNewAccount({...newAccount, due_day: e.target.value})}
+                          />
+                        </div>
+                      </div>
                       <input type="hidden" value="credit_card" />
                     </div>
 
@@ -6696,6 +7074,116 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 >
                   Confirmar
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal: Pagar Fatura de Cartão de Crédito */}
+      <AnimatePresence>
+        {payInvoiceModalOpen && selectedCardForPayment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+              onClick={() => {
+                if (!loading) {
+                  setPayInvoiceModalOpen(false);
+                }
+              }}
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl w-full max-w-md shadow-2xl relative z-10 p-8 overflow-hidden flex flex-col"
+            >
+              <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-6">
+                <CreditCard className="text-blue-500 animate-pulse" size={24} />
+                <h2 className="text-xl font-black text-slate-900">
+                  Pagar Fatura
+                </h2>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-xs font-semibold text-slate-500 mb-2">
+                  Lançamento de pagamento da fatura do cartão <span className="font-extrabold text-slate-700">{selectedCardForPayment.name}</span>.
+                </p>
+
+                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-slate-700 text-xs font-semibold leading-relaxed mb-4 flex flex-col gap-1.5 shadow-sm">
+                  <div className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Período de Referência da Fatura</div>
+                  <div className="text-sm font-black text-slate-800 flex items-center gap-1.5">
+                    <Calendar size={14} className="text-blue-500" />
+                    {getInvoicePeriodRangeStr(selectedCardForPayment, currentPeriod)}
+                  </div>
+                  {!selectedCardForPayment.closing_day && (
+                    <div className="text-[10px] text-slate-400 font-medium mt-1">
+                      * Fechamento da fatura não configurado. Utilizando o mês calendário.
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Conta de Origem (Débito)*</label>
+                  <select
+                    value={payInvoiceSourceAccountId}
+                    onChange={(e) => setPayInvoiceSourceAccountId(e.target.value)}
+                    disabled={loading}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800 font-bold disabled:opacity-50"
+                  >
+                    <option value="">Selecione uma conta...</option>
+                    {accounts
+                      .filter(a => a.type !== 'credit_card' && a.account_type !== 'credit_card')
+                      .map(acc => (
+                        <option key={acc.id} value={acc.id}>
+                          {acc.name} ({formatCurrency(getAccountLiveBalance(acc))})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Valor do Pagamento (R$)*</label>
+                  <input 
+                    type="text" 
+                    placeholder="0,00" 
+                    disabled={loading}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none font-bold text-slate-800 text-lg disabled:opacity-50"
+                    value={payInvoiceAmountStr} 
+                    onChange={(e) => setPayInvoiceAmountStr(formatBRL(e.target.value))}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Data do Pagamento*</label>
+                  <input 
+                    type="date" 
+                    disabled={loading}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800 font-bold disabled:opacity-50"
+                    value={payInvoiceDate} 
+                    onChange={(e) => setPayInvoiceDate(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
+                  <button 
+                    onClick={() => setPayInvoiceModalOpen(false)} 
+                    disabled={loading}
+                    className="flex-1 font-bold text-slate-400 text-sm py-3 disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={handlePreConfirmPayInvoice}
+                    disabled={loading}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl shadow-lg shadow-blue-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {loading ? 'Processando...' : 'Confirmar'}
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>

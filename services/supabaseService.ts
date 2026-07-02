@@ -15,6 +15,8 @@ export interface FinancialAccountInsert {
   credit_limit?: number;
   is_active?: boolean;
   bank_code?: string | null;
+  closing_day?: number;
+  due_day?: number;
 }
 
 export const mapUiRoleToDbRole = (uiRole: string): string => {
