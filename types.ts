@@ -103,6 +103,7 @@ export interface FinancialCategory {
   name: string;
   type: TransactionType;
   color?: string;
+  affects_dre?: boolean;
 }
 
 export interface FinancialTransaction {

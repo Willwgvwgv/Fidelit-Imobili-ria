@@ -514,6 +514,21 @@ export const supabaseService = {
     return data;
   },
 
+  async updateFinancialCategory(categoryId: string, updates: Partial<FinancialCategory>): Promise<boolean> {
+    if (!supabase) return false;
+    const payload = {
+      name: updates.name,
+      color: updates.color,
+      affects_dre: updates.affects_dre
+    };
+    const { error } = await supabase.from('financial_categories').update(payload).eq('id', categoryId);
+    if (error) {
+      console.error('Error updating financial category:', error);
+      return false;
+    }
+    return true;
+  },
+
   async updateAccountBalance(accountId: string, newBalance: number): Promise<boolean> {
     if (!supabase) return false;
     const { error } = await supabase.from('financial_accounts').update({ current_balance: newBalance }).eq('id', accountId);
@@ -818,11 +833,11 @@ export const supabaseService = {
 
       // 3. Seed Financial Categories
       const categoriesToInsert = [
-        { id: 'cat-1', agency_id: 'agency-1', name: 'Comissão Imobiliária', type: 'INCOME', color: '#10b981' },
-        { id: 'cat-2', agency_id: 'agency-1', name: 'Aluguel Comercial', type: 'INCOME', color: '#34d399' },
-         { id: 'cat-3', agency_id: 'agency-1', name: 'Salários e Prolabore', type: 'EXPENSE', color: '#f43f5e' },
-        { id: 'cat-4', agency_id: 'agency-1', name: 'Marketing e Tráfego pago', type: 'EXPENSE', color: '#ec4899' },
-        { id: 'cat-5', agency_id: 'agency-1', name: 'Manutenção / Infraestrutura', type: 'EXPENSE', color: '#f59e0b' }
+        { id: 'cat-1', agency_id: 'agency-1', name: 'Comissão Imobiliária', type: 'INCOME', color: '#10b981', affects_dre: true },
+        { id: 'cat-2', agency_id: 'agency-1', name: 'Aluguel Comercial', type: 'INCOME', color: '#34d399', affects_dre: true },
+        { id: 'cat-3', agency_id: 'agency-1', name: 'Salários e Prolabore', type: 'EXPENSE', color: '#f43f5e', affects_dre: true },
+        { id: 'cat-4', agency_id: 'agency-1', name: 'Marketing e Tráfego pago', type: 'EXPENSE', color: '#ec4899', affects_dre: true },
+        { id: 'cat-5', agency_id: 'agency-1', name: 'Manutenção / Infraestrutura', type: 'EXPENSE', color: '#f59e0b', affects_dre: true }
       ];
       await supabase.from('financial_categories').upsert(categoriesToInsert);
 

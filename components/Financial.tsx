@@ -243,7 +243,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     name: '',
     type: TransactionType.EXPENSE,
     color: '#f43f5e',
-    group_name: ''
+    group_name: '',
+    affects_dre: true
   });
 
   // Local mapping for category group names: { [categoryId]: groupName }
@@ -412,7 +413,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       name: '',
       type: TransactionType.EXPENSE,
       color: '#f43f5e',
-      group_name: ''
+      group_name: '',
+      affects_dre: true
     });
   };
 
@@ -576,7 +578,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       name: category.name,
       type: category.type,
       color: category.color || '#f43f5e',
-      group_name: categoryGroups[category.id] || ''
+      group_name: categoryGroups[category.id] || '',
+      affects_dre: category.affects_dre ?? true
     });
     setModalType('category');
     setIsModalOpen(true);
@@ -1025,10 +1028,23 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
 
     if (editingCategory) {
+      // Persist to DB
+      const success = await supabaseService.updateFinancialCategory(editingCategory.id, {
+        name: newCategory.name,
+        color: newCategory.color,
+        affects_dre: newCategory.affects_dre
+      });
+
+      if (!success) {
+        alert('Erro ao atualizar a categoria financeira no servidor. Favor tentar novamente.');
+        return;
+      }
+
       setCategories(prev => prev.map(c => c.id === editingCategory.id ? {
         ...c,
         name: newCategory.name,
-        color: newCategory.color
+        color: newCategory.color,
+        affects_dre: newCategory.affects_dre
       } : c));
       setCategoryGroups(prev => ({
         ...prev,
@@ -1042,7 +1058,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       agency_id: currentUser.agencyId,
       name: newCategory.name,
       type: newCategory.type,
-      color: newCategory.color
+      color: newCategory.color,
+      affects_dre: newCategory.affects_dre
     };
 
     const result = await supabaseService.createFinancialCategory(payload);
@@ -2274,12 +2291,22 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     // --- DRE CALCULATIONS (Competence) ---
     // Receita (Incomes)
-    const dreRevenueTransactions = periodTxs.filter(t => t.type === TransactionType.INCOME);
+    const dreRevenueTransactions = periodTxs.filter(t => {
+      if (t.type !== TransactionType.INCOME) return false;
+      const catId = t.category_id || '';
+      const cat = categories.find(c => c.id === catId);
+      return cat?.affects_dre ?? true;
+    });
     const totalDreRevenue = dreRevenueTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
 
     // Custos vs Despesas
     // Classify as "Custo" if the category or its group name contains 'custo' or 'cost' (case-insensitive)
-    const dreExpenseTransactions = periodTxs.filter(t => t.type === TransactionType.EXPENSE);
+    const dreExpenseTransactions = periodTxs.filter(t => {
+      if (t.type !== TransactionType.EXPENSE) return false;
+      const catId = t.category_id || '';
+      const cat = categories.find(c => c.id === catId);
+      return cat?.affects_dre ?? true;
+    });
 
     const dreCustosTransactions = dreExpenseTransactions.filter(t => {
       const catId = t.category_id || '';
@@ -2301,37 +2328,55 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const totalDreDespesas = dreDespesasTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
     const dreResultado = totalDreRevenue - totalDreCustos - totalDreDespesas;
 
-    // Breakdown DRE categories
-    const dreCategoriesIncome = categories
-      .filter(c => c.type === TransactionType.INCOME)
-      .map(cat => {
-        const total = dreRevenueTransactions
-          .filter(t => t.category_id === cat.id)
-          .reduce((acc, curr) => acc + (curr.amount || 0), 0);
-        return { name: cat.name, total, color: cat.color };
-      })
+    // Breakdown DRE categories grouped by transactions to handle deleted/orphaned categories
+    const revenueGroupMap: { [categoryId: string]: { name: string; total: number; color?: string } } = {};
+    dreRevenueTransactions.forEach(t => {
+      const catId = t.category_id || 'no-category';
+      const cat = categories.find(c => c.id === catId);
+      const catName = cat?.name || 'Categoria Removida';
+      const catColor = cat?.color || '#cbd5e1';
+      
+      if (!revenueGroupMap[catId]) {
+        revenueGroupMap[catId] = { name: catName, total: 0, color: catColor };
+      }
+      revenueGroupMap[catId].total += (t.amount || 0);
+    });
+
+    const dreCategoriesIncome = Object.values(revenueGroupMap)
       .filter(c => c.total > 0)
       .sort((a, b) => b.total - a.total);
 
-    const dreCategoriesCustos = categories
-      .filter(c => c.type === TransactionType.EXPENSE)
-      .map(cat => {
-        const total = dreCustosTransactions
-          .filter(t => t.category_id === cat.id)
-          .reduce((acc, curr) => acc + (curr.amount || 0), 0);
-        return { name: cat.name, total, color: cat.color };
-      })
+    const custosGroupMap: { [categoryId: string]: { name: string; total: number; color?: string } } = {};
+    dreCustosTransactions.forEach(t => {
+      const catId = t.category_id || 'no-category';
+      const cat = categories.find(c => c.id === catId);
+      const catName = cat?.name || 'Categoria Removida';
+      const catColor = cat?.color || '#cbd5e1';
+      
+      if (!custosGroupMap[catId]) {
+        custosGroupMap[catId] = { name: catName, total: 0, color: catColor };
+      }
+      custosGroupMap[catId].total += (t.amount || 0);
+    });
+
+    const dreCategoriesCustos = Object.values(custosGroupMap)
       .filter(c => c.total > 0)
       .sort((a, b) => b.total - a.total);
 
-    const dreCategoriesDespesas = categories
-      .filter(c => c.type === TransactionType.EXPENSE)
-      .map(cat => {
-        const total = dreDespesasTransactions
-          .filter(t => t.category_id === cat.id)
-          .reduce((acc, curr) => acc + (curr.amount || 0), 0);
-        return { name: cat.name, total, color: cat.color };
-      })
+    const despesasGroupMap: { [categoryId: string]: { name: string; total: number; color?: string } } = {};
+    dreDespesasTransactions.forEach(t => {
+      const catId = t.category_id || 'no-category';
+      const cat = categories.find(c => c.id === catId);
+      const catName = cat?.name || 'Categoria Removida';
+      const catColor = cat?.color || '#cbd5e1';
+      
+      if (!despesasGroupMap[catId]) {
+        despesasGroupMap[catId] = { name: catName, total: 0, color: catColor };
+      }
+      despesasGroupMap[catId].total += (t.amount || 0);
+    });
+
+    const dreCategoriesDespesas = Object.values(despesasGroupMap)
       .filter(c => c.total > 0)
       .sort((a, b) => b.total - a.total);
 
@@ -6337,6 +6382,24 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           </select>
                         </div>
                       )}
+
+                      <div className="flex items-start gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100 mt-2">
+                        <input
+                          id="category-affects-dre"
+                          type="checkbox"
+                          className="mt-1 h-4 w-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                          checked={newCategory.affects_dre}
+                          onChange={(e) => setNewCategory({...newCategory, affects_dre: e.target.checked})}
+                        />
+                        <div className="flex flex-col">
+                          <label htmlFor="category-affects-dre" className="text-xs font-bold text-slate-700 cursor-pointer">
+                            Participa do DRE
+                          </label>
+                          <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                            Quando desmarcado, esta categoria continuará aparecendo normalmente no Extrato, Fluxo de Caixa, Conciliação Bancária e Centro de Custo, porém deixará de compor o DRE.
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="flex gap-4 mt-8">
