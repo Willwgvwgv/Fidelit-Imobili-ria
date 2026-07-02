@@ -265,9 +265,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   }, [categoryGroups]);
 
   // Toast notification state
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' | 'info' } | null>(null);
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4000);
   };
@@ -332,6 +332,29 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [payInvoiceAmountStr, setPayInvoiceAmountStr] = useState<string>('');
   const [payInvoiceDate, setPayInvoiceDate] = useState<string>(getLocalTodayStr());
   const [showMismatchConfirm, setShowMismatchConfirm] = useState<boolean>(false);
+
+  // Card invoice import and quick launch states
+  const cardFileInputRef = useRef<HTMLInputElement>(null);
+  const [importingCard, setImportingCard] = useState<FinancialAccount | null>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importedLines, setImportedLines] = useState<Array<{
+    id: string;
+    date: string;
+    description: string;
+    amount: number;
+    categoryId: string;
+    isDuplicate: boolean;
+  }>>([]);
+  const [defaultImportCategoryId, setDefaultImportCategoryId] = useState<string>('');
+
+  const [quickLaunchCard, setQuickLaunchCard] = useState<FinancialAccount | null>(null);
+  const [isQuickLaunchModalOpen, setIsQuickLaunchModalOpen] = useState(false);
+  const [quickLaunchData, setQuickLaunchData] = useState({
+    description: '',
+    amountStr: '',
+    categoryId: '',
+    dueDate: getLocalTodayStr()
+  });
 
   // Real Cash Flow & DRE States
   const [fluxoTab, setFluxoTab] = useState<'fluxo' | 'dre'>('fluxo');
@@ -1106,6 +1129,203 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "") // remove accents
       .replace(/\s+/g, ' '); // remove duplicate spaces
+  };
+
+  const getPurchaseInvoicePeriodStr = (dueDateStr: string, card: FinancialAccount) => {
+    const testPeriods = [
+      new Date(currentPeriod.getFullYear(), currentPeriod.getMonth() - 1, 1),
+      new Date(currentPeriod.getFullYear(), currentPeriod.getMonth(), 1),
+      new Date(currentPeriod.getFullYear(), currentPeriod.getMonth() + 1, 1),
+    ];
+    
+    for (const period of testPeriods) {
+      if (isTxInCardInvoicePeriod(dueDateStr, card, period)) {
+        const monthNames = [
+          "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+          "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+        ];
+        return `${monthNames[period.getMonth()]} de ${period.getFullYear()}`;
+      }
+    }
+    
+    const parts = dueDateStr.split('-');
+    if (parts.length >= 2) {
+      const y = parseInt(parts[0]);
+      const m = parseInt(parts[1]) - 1;
+      const monthNames = [
+        "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
+        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
+      ];
+      if (m >= 0 && m < 12) {
+        return `${monthNames[m]} de ${y}`;
+      }
+    }
+    return '';
+  };
+
+  const handleOpenImportInvoiceModal = (card: FinancialAccount) => {
+    setImportingCard(card);
+    cardFileInputRef.current?.click();
+  };
+
+  const handleCardFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !importingCard) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      if (!text) return;
+
+      let parsed: any[] = [];
+      if (file.name.toLowerCase().endsWith('.ofx')) {
+        parsed = parseOfxExtrato(text);
+      } else if (file.name.toLowerCase().endsWith('.csv')) {
+        parsed = parseCsvExtrato(text);
+      } else {
+        showToast("Formato de arquivo não suportado. Use CSV ou OFX.", "error");
+        return;
+      }
+
+      if (parsed.length === 0) {
+        showToast("Nenhuma transação encontrada no arquivo.", "error");
+        return;
+      }
+
+      const mapped = parsed.map(item => {
+        const isDuplicate = transactions.some(t => 
+          t.account_id === importingCard.id &&
+          t.due_date === item.date &&
+          Math.abs(t.amount - item.amount) < 0.01
+        );
+
+        return {
+          id: item.id || crypto.randomUUID(),
+          date: item.date || getLocalTodayStr(),
+          description: item.description || 'Transação Importada',
+          amount: item.amount || 0,
+          categoryId: '',
+          isDuplicate
+        };
+      });
+
+      setImportedLines(mapped);
+      const defaultCat = categories.find(c => c.type === TransactionType.EXPENSE)?.id || '';
+      setDefaultImportCategoryId(defaultCat);
+      setIsImportModalOpen(true);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleSaveImportedInvoice = async () => {
+    if (!importingCard) return;
+    setLoading(true);
+
+    try {
+      const transactionsToInsert = importedLines.map(line => ({
+        type: TransactionType.EXPENSE,
+        account_id: importingCard.id,
+        status: TransactionStatus.PENDING,
+        due_date: line.date,
+        amount: line.amount,
+        description: line.description,
+        category_id: line.categoryId || defaultImportCategoryId || null,
+        agency_id: currentUser.agencyId
+      }));
+
+      if (supabase) {
+        const promises = transactionsToInsert.map(tx => supabaseService.createFinancialTransaction(tx));
+        const results = await Promise.all(promises);
+        
+        const total = transactionsToInsert.length;
+        const successes = results.filter(r => r !== null).length;
+        const failures = total - successes;
+
+        if (failures > 0) {
+          if (successes > 0) {
+            showToast(`${successes} de ${total} lançamentos importados. ${failures} falharam.`, "warning");
+            setIsImportModalOpen(false);
+            setImportedLines([]);
+            setImportingCard(null);
+          } else {
+            showToast("Falha ao importar os lançamentos da fatura.", "error");
+          }
+        } else {
+          showToast(`Fatura importada com sucesso! ${successes} lançamentos adicionados.`, "success");
+          setIsImportModalOpen(false);
+          setImportedLines([]);
+          setImportingCard(null);
+        }
+        await loadFinancialData();
+      } else {
+        showToast("Conexão com banco de dados indisponível.", "error");
+      }
+    } catch (err: any) {
+      console.error("Error saving imported invoice:", err);
+      showToast("Erro ao processar importação.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpenQuickLaunchModal = (card: FinancialAccount) => {
+    setQuickLaunchCard(card);
+    const defaultCat = categories.find(c => c.type === TransactionType.EXPENSE)?.id || '';
+    setQuickLaunchData({
+      description: '',
+      amountStr: '',
+      categoryId: defaultCat,
+      dueDate: getLocalTodayStr()
+    });
+    setIsQuickLaunchModalOpen(true);
+  };
+
+  const handleSaveQuickLaunch = async () => {
+    if (!quickLaunchCard) return;
+    const parsedAmt = parseBrlValue(quickLaunchData.amountStr);
+    if (parsedAmt <= 0) {
+      alert("Por favor, insira um valor válido maior que zero.");
+      return;
+    }
+    if (!quickLaunchData.description.trim()) {
+      alert("Por favor, insira uma descrição.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const payload = {
+        type: TransactionType.EXPENSE,
+        account_id: quickLaunchCard.id,
+        status: TransactionStatus.PENDING,
+        due_date: quickLaunchData.dueDate,
+        amount: parsedAmt,
+        description: quickLaunchData.description.trim(),
+        category_id: quickLaunchData.categoryId || null,
+        agency_id: currentUser.agencyId
+      };
+
+      if (supabase) {
+        const result = await supabaseService.createFinancialTransaction(payload);
+
+        if (!result) {
+          showToast("Erro ao salvar lançamento rápido.", "error");
+        } else {
+          showToast("Lançamento rápido salvo com sucesso!", "success");
+          setIsQuickLaunchModalOpen(false);
+          setQuickLaunchCard(null);
+          await loadFinancialData();
+        }
+      } else {
+        showToast("Conexão com banco de dados indisponível.", "error");
+      }
+    } catch (err) {
+      console.error("Error saving quick launch:", err);
+      showToast("Erro ao processar lançamento.", "error");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleOpenPayInvoiceModal = (card: FinancialAccount) => {
@@ -4324,16 +4544,41 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   </div>
                 </div>
 
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenPayInvoiceModal(card);
-                  }}
-                  className="mt-4 w-full py-2.5 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex items-center justify-center gap-1.5 cursor-pointer relative z-10"
-                >
-                  <DollarSign size={12} />
-                  Pagar Fatura
-                </button>
+                <div className="mt-4 grid grid-cols-3 gap-1.5 relative z-10">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenImportInvoiceModal(card);
+                    }}
+                    className="py-2 px-1 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex flex-col items-center justify-center gap-1 cursor-pointer"
+                    title="Importar Fatura"
+                  >
+                    <Upload size={11} />
+                    <span className="text-center">Importar Fatura</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenQuickLaunchModal(card);
+                    }}
+                    className="py-2 px-1 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex flex-col items-center justify-center gap-1 cursor-pointer"
+                    title="+ Lançar"
+                  >
+                    <Plus size={11} />
+                    <span className="text-center">+ Lançar</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenPayInvoiceModal(card);
+                    }}
+                    className="py-2 px-1 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex flex-col items-center justify-center gap-1 cursor-pointer"
+                    title="Pagar Fatura"
+                  >
+                    <DollarSign size={11} />
+                    <span className="text-center">Pagar Fatura</span>
+                  </button>
+                </div>
               </motion.div>
             );
           })}
@@ -7190,10 +7435,306 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         )}
       </AnimatePresence>
 
+      <input 
+        type="file" 
+        ref={cardFileInputRef} 
+        className="hidden" 
+        accept=".csv,.ofx" 
+        onChange={handleCardFileChange} 
+      />
+
+      {/* Modal: Importar Fatura de Cartão */}
+      <AnimatePresence>
+        {isImportModalOpen && importingCard && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+              onClick={() => {
+                if (!loading) {
+                  setIsImportModalOpen(false);
+                  setImportedLines([]);
+                  setImportingCard(null);
+                }
+              }}
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl w-full max-w-5xl shadow-2xl relative z-10 p-8 overflow-hidden flex flex-col max-h-[90vh]"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
+                <div className="flex items-center gap-3">
+                  <Upload className="text-blue-500 animate-pulse" size={24} />
+                  <div>
+                    <h2 className="text-xl font-black text-slate-900">
+                      Importar Lançamentos da Fatura
+                    </h2>
+                    <p className="text-xs text-slate-400 font-bold uppercase mt-0.5">{importingCard.name}</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => {
+                    setIsImportModalOpen(false);
+                    setImportedLines([]);
+                    setImportingCard(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 text-sm font-black uppercase p-1"
+                >
+                  Fechar
+                </button>
+              </div>
+
+              {/* Top Configuration Bar */}
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
+                  <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Configurações Gerais</span>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full md:w-auto">
+                  <label className="text-xs font-black text-slate-400 uppercase whitespace-nowrap">Categoria Padrão para Itens:</label>
+                  <select
+                    value={defaultImportCategoryId}
+                    onChange={(e) => setDefaultImportCategoryId(e.target.value)}
+                    className="w-full sm:w-64 bg-white border border-slate-200 rounded-xl p-2 text-xs font-bold outline-none shadow-sm"
+                  >
+                    <option value="">Selecione uma categoria padrão...</option>
+                    {categories
+                      .filter(c => c.type === TransactionType.EXPENSE)
+                      .map(cat => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Transactions Preview Table Container */}
+              <div className="flex-1 overflow-y-auto border border-slate-100 rounded-2xl mb-6 shadow-inner">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/75 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100 sticky top-0 backdrop-blur-[2px] z-10">
+                      <th className="py-3 px-4 text-center">Status</th>
+                      <th className="py-3 px-4">Data Compra</th>
+                      <th className="py-3 px-4">Descrição</th>
+                      <th className="py-3 px-4 text-right">Valor</th>
+                      <th className="py-3 px-4">Categoria</th>
+                      <th className="py-3 px-4">Período/Fatura</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100/60">
+                    {importedLines.map((line, idx) => {
+                      const computedPeriod = getPurchaseInvoicePeriodStr(line.date, importingCard);
+                      return (
+                        <tr key={line.id || idx} className={`text-xs hover:bg-slate-50/50 transition-colors ${line.isDuplicate ? 'bg-amber-50/20' : ''}`}>
+                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                            {line.isDuplicate ? (
+                              <span 
+                                className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-[9px] font-black uppercase px-2.5 py-1 rounded-full border border-amber-200"
+                                title="Aviso de possível duplicidade com lançamento existente no mesmo cartão, mesma data e mesmo valor."
+                              >
+                                <AlertCircle size={10} />
+                                Duplicado?
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[9px] font-black uppercase px-2.5 py-1 rounded-full border border-emerald-100">
+                                <CheckCircle2 size={10} />
+                                Novo
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-slate-500 font-medium whitespace-nowrap">
+                            {formatDateBR(line.date)}
+                          </td>
+                          <td className="py-3 px-4 text-slate-800 font-bold truncate max-w-xs" title={line.description}>
+                            {line.description}
+                          </td>
+                          <td className="py-3 px-4 text-right font-bold text-slate-900 whitespace-nowrap">
+                            {formatCurrency(line.amount)}
+                          </td>
+                          <td className="py-3 px-4 min-w-[150px]">
+                            <select
+                              value={line.categoryId}
+                              onChange={(e) => {
+                                const updated = [...importedLines];
+                                updated[idx].categoryId = e.target.value;
+                                setImportedLines(updated);
+                              }}
+                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-[11px] font-bold outline-none"
+                            >
+                              <option value="">(Usar Padrão: {categories.find(c => c.id === defaultImportCategoryId)?.name || 'Nenhuma'})</option>
+                              {categories
+                                .filter(c => c.type === TransactionType.EXPENSE)
+                                .map(cat => (
+                                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                ))}
+                            </select>
+                          </td>
+                          <td className="py-3 px-4 text-slate-500 font-medium whitespace-nowrap">
+                            {computedPeriod || 'Desconhecido'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-4 pt-4 border-t border-slate-100">
+                <button 
+                  onClick={() => {
+                    setIsImportModalOpen(false);
+                    setImportedLines([]);
+                    setImportingCard(null);
+                  }}
+                  disabled={loading}
+                  className="px-6 py-3 text-slate-500 bg-slate-50 hover:bg-slate-100 font-bold text-sm rounded-xl transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <div className="ml-auto flex items-center gap-3">
+                  <p className="text-xs text-slate-400 font-bold uppercase hidden sm:block">
+                    Total de lançamentos: <span className="text-slate-800">{importedLines.length}</span>
+                  </p>
+                  <button 
+                    onClick={handleSaveImportedInvoice}
+                    disabled={loading}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-black py-3 px-8 rounded-xl shadow-lg shadow-blue-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {loading ? 'Importando...' : 'Confirmar Importação'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal: Lançamento Rápido de Cartão */}
+      <AnimatePresence>
+        {isQuickLaunchModalOpen && quickLaunchCard && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+              onClick={() => {
+                if (!loading) {
+                  setIsQuickLaunchModalOpen(false);
+                  setQuickLaunchCard(null);
+                }
+              }}
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} 
+              animate={{ scale: 1, opacity: 1 }} 
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-3xl w-full max-w-md shadow-2xl relative z-10 p-8 overflow-hidden flex flex-col"
+            >
+              <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-6">
+                <Plus className="text-blue-500 animate-pulse" size={24} />
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">
+                    Lançamento Rápido
+                  </h2>
+                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider mt-0.5">
+                    {quickLaunchCard.name}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Descrição*</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ex: Assinatura Software SaaS" 
+                    disabled={loading}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800 font-bold disabled:opacity-50"
+                    value={quickLaunchData.description} 
+                    onChange={(e) => setQuickLaunchData(prev => ({ ...prev, description: e.target.value }))}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Valor da Compra (R$)*</label>
+                  <input 
+                    type="text" 
+                    placeholder="0,00" 
+                    disabled={loading}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none font-bold text-slate-800 text-lg disabled:opacity-50"
+                    value={quickLaunchData.amountStr} 
+                    onChange={(e) => setQuickLaunchData(prev => ({ ...prev, amountStr: formatBRL(e.target.value) }))}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Categoria*</label>
+                  <select
+                    value={quickLaunchData.categoryId}
+                    onChange={(e) => setQuickLaunchData(prev => ({ ...prev, categoryId: e.target.value }))}
+                    disabled={loading}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800 font-bold disabled:opacity-50"
+                  >
+                    <option value="">Selecione uma categoria...</option>
+                    {categories
+                      .filter(c => c.type === TransactionType.EXPENSE)
+                      .map(cat => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Data da Compra*</label>
+                  <input 
+                    type="date" 
+                    disabled={loading}
+                    className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800 font-bold disabled:opacity-50"
+                    value={quickLaunchData.dueDate} 
+                    onChange={(e) => setQuickLaunchData(prev => ({ ...prev, dueDate: e.target.value }))}
+                  />
+                </div>
+
+                <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
+                  <button 
+                    onClick={() => {
+                      setIsQuickLaunchModalOpen(false);
+                      setQuickLaunchCard(null);
+                    }} 
+                    disabled={loading}
+                    className="flex-1 font-bold text-slate-400 text-sm py-3 disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={handleSaveQuickLaunch}
+                    disabled={loading}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl shadow-lg shadow-blue-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {loading ? 'Salvando...' : 'Salvar'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Global Toast Notification */}
       {toast && (
         <div className="fixed bottom-6 right-6 z-[100] bg-slate-900 text-white px-6 py-3.5 rounded-2xl shadow-xl flex items-center gap-3 animate-fadeIn border border-slate-800">
-          <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${toast.type === 'error' ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+          <span className={`w-2.5 h-2.5 rounded-full animate-pulse ${
+            toast.type === 'error' ? 'bg-rose-500' :
+            toast.type === 'warning' ? 'bg-amber-500' :
+            toast.type === 'info' ? 'bg-blue-500' :
+            'bg-emerald-500'
+          }`} />
           <p className="text-sm font-black tracking-wide">{toast.message}</p>
         </div>
       )}
