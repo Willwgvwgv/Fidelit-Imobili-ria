@@ -268,6 +268,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   // Reconciliation workspace states
   const [importedFile, setImportedFile] = useState<string | null>(null);
   const [reconciliationItems, setReconciliationItems] = useState<any[]>([]);
+  const [currentImportGroupId, setCurrentImportGroupId] = useState<string>('');
+  const [isReconciliationConcluded, setIsReconciliationConcluded] = useState<boolean>(false);
   const [currentFileExternalIds, setCurrentFileExternalIds] = useState<string[]>([]);
   const [selectedImportedIndex, setSelectedImportedIndex] = useState<number | null>(null);
   const [selectedSystemTxId, setSelectedSystemTxId] = useState<string | null>(null);
@@ -709,12 +711,16 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             setReconciliationItems(items);
             setImportedFile('Extrato Salvo');
             setSelectedImportedIndex(null);
+            
+            const isConcluded = items.every(item => item.status === 'CONCLUDED');
+            setIsReconciliationConcluded(isConcluded);
           }
         });
       } else {
         setReconciliationItems([]);
         setImportedFile(null);
         setSelectedImportedIndex(null);
+        setIsReconciliationConcluded(false);
       }
     }
   }, [activeView, currentFileExternalIds]);
@@ -1418,6 +1424,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         setReconciliationItems(parsed);
         const externalIds = parsed.map((item: any) => item.id).filter(Boolean);
         setCurrentFileExternalIds(externalIds);
+        
+        // Generate a new import group id
+        const newGroupId = 'group-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+        setCurrentImportGroupId(newGroupId);
+        
         supabaseService.saveReconciliationItems(
           parsed.map((item: any) => ({
             statement_date: item.date,
@@ -1430,6 +1441,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           supabaseService.getReconciliationItemsByExternalIds(externalIds).then(dbItems => {
             if (dbItems.length > 0) {
               setReconciliationItems(dbItems);
+              const isConcluded = dbItems.every(item => item.status === 'CONCLUDED');
+              setIsReconciliationConcluded(isConcluded);
             }
           });
         });
@@ -1694,6 +1707,27 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     } catch (err) {
       console.error(err);
       showToast('Erro ao ignorar item.', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Concluir conciliação do lote/grupo
+  const handleConcludeReconciliation = async () => {
+    setLoading(true);
+    try {
+      const externalIds = reconciliationItems.map(item => item.external_id || item.id).filter(Boolean);
+      const success = await supabaseService.concludeReconciliation(currentImportGroupId, externalIds);
+      if (success) {
+        setIsReconciliationConcluded(true);
+        setReconciliationItems(prev => prev.map(item => ({ ...item, status: 'CONCLUDED', matched: true })));
+        showToast('Conciliação concluída com sucesso!', 'success');
+      } else {
+        showToast('Erro ao concluir conciliação.', 'error');
+      }
+    } catch (err) {
+      console.error('Error concluding reconciliation:', err);
+      showToast('Erro ao concluir conciliação.', 'error');
     } finally {
       setLoading(false);
     }
@@ -4119,48 +4153,50 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             </div>
             
             <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-between min-h-[110px]">
-              <div>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Progresso de Conciliação</p>
-                <p className={`text-lg font-black ${
-                  (progressPercent || 0) >= 80 ? 'text-emerald-600' : (progressPercent || 0) >= 50 ? 'text-amber-600' : 'text-rose-600'
-                }`}>{(progressPercent || 0)}%</p>
-                <p className="text-[10px] text-slate-400 font-medium mt-0.5">
-                  {(countConciliated || 0)} de {(totalImportedCount || 0)} itens
-                </p>
-              </div>
-              <div className="w-full bg-slate-100 h-1.5 rounded-full mt-1.5 overflow-hidden">
-                <div 
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    (progressPercent || 0) >= 80 ? 'bg-emerald-500' : (progressPercent || 0) >= 50 ? 'bg-amber-500' : 'bg-rose-500'
-                  }`}
-                  style={{ width: `${progressPercent || 0}%` }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Second Row: 3 Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[90px]">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Saldo Banco</p>
-              <p className={`text-lg font-black ${(importedBalance || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                {formatCurrency(importedBalance || 0)}
-              </p>
-              <p className="text-[10px] text-slate-400 font-medium mt-0.5">Saldo líquido do extrato</p>
-            </div>
-            
-            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[90px]">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Saldo ERP</p>
-              <p className="text-lg font-black text-slate-800">{formatCurrency(systemBalance || 0)}</p>
-              <p className="text-[10px] text-slate-400 font-medium mt-0.5">Saldo de lançamentos ERP</p>
-            </div>
-            
-            <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[90px]">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Diferença</p>
-              <p className={`text-lg font-black ${Math.abs(diffAmt || 0) < 0.01 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                {formatCurrency(diffAmt || 0)}
-              </p>
-              <p className="text-[10px] text-slate-400 font-medium mt-0.5">Diferença entre banco e ERP</p>
+              {totalImportedCount > 0 && progressPercent === 100 ? (
+                <div className="flex flex-col h-full justify-between">
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Progresso de Conciliação</p>
+                    <p className="text-emerald-600 font-black text-xs uppercase mb-1 flex items-center justify-center gap-1">
+                      <Check size={14} /> 100% Pronto
+                    </p>
+                  </div>
+                  
+                  {isReconciliationConcluded ? (
+                    <div className="text-[10px] text-emerald-600 font-black bg-emerald-50 py-1.5 px-3 rounded-lg border border-emerald-100 flex items-center justify-center gap-1 uppercase tracking-wider">
+                      <CheckCircle2 size={12} /> Concluída
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleConcludeReconciliation}
+                      disabled={loading}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-black text-[10px] py-1.5 px-3 rounded-lg transition-all shadow-sm cursor-pointer uppercase tracking-wider"
+                    >
+                      {loading ? 'Processando...' : 'Concluir Conciliação'}
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Progresso de Conciliação</p>
+                    <p className={`text-lg font-black ${
+                      (progressPercent || 0) >= 80 ? 'text-emerald-600' : (progressPercent || 0) >= 50 ? 'text-amber-600' : 'text-rose-600'
+                    }`}>{(progressPercent || 0)}%</p>
+                    <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                      {(countConciliated || 0)} de {(totalImportedCount || 0)} itens
+                    </p>
+                  </div>
+                  <div className="w-full bg-slate-100 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        (progressPercent || 0) >= 80 ? 'bg-emerald-500' : (progressPercent || 0) >= 50 ? 'bg-amber-500' : 'bg-rose-500'
+                      }`}
+                      style={{ width: `${progressPercent || 0}%` }}
+                    />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -4182,16 +4218,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 >
                   <CheckCircle2 size={13} />
                   Conciliar Selecionados ({selectedMatches.length})
-                </button>
-              )}
-              {importedFile && (
-                <button
-                  onClick={handleAutoConciliateAll}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-lg transition-all shadow-sm"
-                  title="Conciliar automaticamente itens com alta confiança (≥85%)"
-                >
-                  <Zap size={13} />
-                  Conciliar automaticamente
                 </button>
               )}
               {importedFile && (
@@ -4314,23 +4340,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     </div>
                   )}
                 </div>
-
-                {/* Informacoes do Extrato (Banco, Agencia, Conta, Periodo Original) */}
-                {(ofxBankName || ofxAccount || ofxPeriod) && (
-                  <div className="bg-blue-50/30 p-3 rounded-2xl border border-blue-50/80 text-[11px] text-slate-600 space-y-1">
-                    <p className="font-bold text-[10px] uppercase text-blue-500 tracking-wider mb-1.5 flex items-center gap-1.5">
-                      <Landmark size={12} /> Detalhes do Arquivo
-                    </p>
-                    {ofxBankName && <p><strong>Banco:</strong> {normalizeDescription(ofxBankName)}</p>}
-                    {(ofxAgency || ofxAccount) && (
-                      <p>
-                        {ofxAgency && <span className="mr-3"><strong>Agência:</strong> {ofxAgency}</span>}
-                        {ofxAccount && <span><strong>Conta:</strong> {ofxAccount}</span>}
-                      </p>
-                    )}
-                    {ofxPeriod && <p><strong>Período Original:</strong> {ofxPeriod}</p>}
-                  </div>
-                )}
 
                 <div className="divide-y divide-slate-100 border border-slate-100 rounded-2xl max-h-[500px] overflow-y-auto bg-slate-50/20">
                   {reconciliationItems
@@ -4463,7 +4472,52 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   Painel de Conciliação
                 </span>
 
-                {!activeImportedItem ? (
+                {isReconciliationConcluded ? (
+                  <div className="space-y-4">
+                    {activeImportedItem ? (
+                      <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm space-y-3">
+                        <div className="flex justify-between items-start">
+                          <span className="text-[9px] bg-emerald-50 text-emerald-600 font-bold px-2 py-0.5 rounded uppercase tracking-wider font-sans">
+                            Item do Histórico (Conciliado)
+                          </span>
+                        </div>
+                        
+                        <h4 className="text-sm font-black text-slate-800 leading-tight font-sans">
+                          {normalizeDescription(activeImportedItem.description)}
+                        </h4>
+
+                        <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-50 text-xs text-slate-500 font-medium">
+                          <div>
+                            <p className="text-[9px] text-slate-400 uppercase font-black tracking-wider">Data</p>
+                            <p className="text-slate-700 font-bold">{formatDateBR(activeImportedItem.date)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[9px] text-slate-400 uppercase font-black tracking-wider">Valor</p>
+                            <p className={`font-black ${activeImportedItem.type === TransactionType.INCOME ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              {activeImportedItem.type === TransactionType.INCOME ? 'Entrada (+)' : 'Saída (-)'} {formatCurrency(activeImportedItem.amount)}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-8 text-center text-slate-400">
+                        <RefreshCw size={24} className="mx-auto text-slate-300 mb-2" />
+                        <p className="text-xs font-bold uppercase tracking-wider">Lote Concluído</p>
+                        <p className="text-[10px] mt-1">Selecione uma transação à esquerda para visualizar seu histórico.</p>
+                      </div>
+                    )}
+
+                    <div className="bg-emerald-50/40 border border-emerald-200 rounded-2xl p-6 text-center space-y-3 shadow-sm">
+                      <CheckCircle2 size={32} className="text-emerald-500 mx-auto" />
+                      <div>
+                        <h4 className="text-xs font-black text-emerald-800 uppercase tracking-wider">Lote Concluído</h4>
+                        <p className="text-[10px] text-emerald-600 font-medium mt-1 leading-relaxed">
+                          Esta conciliação foi finalizada com sucesso. As edições e novos vínculos estão desabilitados para preservar o histórico.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : !activeImportedItem ? (
                   <div className="py-16 text-center text-slate-400">
                     <RefreshCw size={24} className="mx-auto text-slate-300 mb-2 animate-pulse" />
                     <p className="text-xs font-bold uppercase tracking-wider">Selecione um item</p>

@@ -583,7 +583,7 @@ export const supabaseService = {
       amount: r.amount,
       type: r.type,
       external_id: r.external_id,
-      matched: r.status === 'MATCHED',
+      matched: r.status === 'MATCHED' || r.status === 'CONCLUDED',
       matchedTxId: r.matched_transaction_id,
       status: r.status,
     }));
@@ -679,7 +679,7 @@ export const supabaseService = {
       amount: r.amount,
       type: r.type,
       external_id: r.external_id,
-      matched: r.status === 'MATCHED',
+      matched: r.status === 'MATCHED' || r.status === 'CONCLUDED',
       matchedTxId: r.matched_transaction_id,
       status: r.status,
     }));
@@ -753,6 +753,43 @@ export const supabaseService = {
       .eq('id', reconciliationId);
     if (error) { console.error('ignoreReconciliationItem:', error); return false; }
     return true;
+  },
+
+  // Concluir conciliação do grupo
+  async concludeReconciliation(groupId: string, externalIds?: string[]): Promise<boolean> {
+    if (!supabase) return false;
+    try {
+      // Tenta primeiro atualizar usando o import_group_id se groupId for fornecido
+      if (groupId) {
+        const { error } = await supabase
+          .from('financial_reconciliations')
+          .update({ status: 'CONCLUDED', updated_at: new Date().toISOString() })
+          .eq('import_group_id', groupId);
+        
+        if (!error) {
+          return true;
+        }
+      }
+      
+      // Se não houver groupId ou se falhar/não existir o campo, tenta usar external_ids
+      if (externalIds && externalIds.length > 0) {
+        const { error } = await supabase
+          .from('financial_reconciliations')
+          .update({ status: 'CONCLUDED', updated_at: new Date().toISOString() })
+          .in('external_id', externalIds);
+        
+        if (error) {
+          console.error('concludeReconciliation by externalIds error:', error);
+          return false;
+        }
+        return true;
+      }
+      
+      return false;
+    } catch (err) {
+      console.error('concludeReconciliation exception:', err);
+      return false;
+    }
   },
 
   // Seed default data into Supabase if empty
