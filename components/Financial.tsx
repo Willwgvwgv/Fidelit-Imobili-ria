@@ -177,6 +177,14 @@ const formatDateBR = (dateStr: string | null | undefined): string => {
   return dateStr;
 };
 
+const parseDateSafe = (dStr: string | null | undefined): number => {
+  if (!dStr) return 0;
+  const date = new Date(
+    dStr.includes("T") ? dStr : `${dStr}T00:00:00`
+  );
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+};
+
 export const BANKS = [
   { code: "sicoob",     name: "Sicoob",           color: "#006B3F", initials: "SIC" },
   { code: "cresol",     name: "Cresol",           color: "#007BC0", initials: "CRS" },
@@ -4204,9 +4212,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         {/* Workspace Layout */}
         <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4 mb-6">
-            <div>
-              <p className="text-xs text-slate-400 font-medium">Selecione lançamentos para realizar o vínculo ou crie novos em lote.</p>
-            </div>
+            <div />
             
             <div className="flex items-center gap-2 flex-wrap">
               {importedFile && selectedMatches.length > 0 && (
@@ -4383,6 +4389,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         return true;
                       }
                       return true;
+                    })
+                    .sort((a, b) => {
+                      const aMatched = !!a.matched;
+                      const bMatched = !!b.matched;
+                      if (aMatched !== bMatched) {
+                        return aMatched ? 1 : -1;
+                      }
+                      return parseDateSafe(b.date) - parseDateSafe(a.date);
                     })
                     .map((item) => {
                       const isSelected = selectedImportedIndex === item.originalIndex;
