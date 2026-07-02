@@ -311,6 +311,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [currentPeriod, setCurrentPeriod] = useState<Date>(new Date());
   const [kpiFilter, setKpiFilter] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [accountFilter, setAccountFilter] = useState<string>('ALL');
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
   const [selectedTxIds, setSelectedTxIds] = useState<string[]>([]);
   const [editingTransaction, setEditingTransaction] = useState<FinancialTransaction | null>(null);
@@ -745,7 +746,20 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const parts = t.due_date.split('-');
       const txYear = parseInt(parts[0], 10);
       const txMonth = parseInt(parts[1], 10) - 1;
-      return txYear === startOfYear && txMonth === startOfMonth;
+      const matchesPeriod = txYear === startOfYear && txMonth === startOfMonth;
+      if (!matchesPeriod) return false;
+
+      // Filter by category
+      if (categoryFilter !== 'ALL' && t.category_id !== categoryFilter) {
+        return false;
+      }
+
+      // Filter by account
+      if (accountFilter !== 'ALL' && t.account_id !== accountFilter) {
+        return false;
+      }
+
+      return true;
     });
     
     const overdue = periodTxs
@@ -768,7 +782,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       .reduce((acc, curr) => acc + (curr.type === TransactionType.INCOME ? curr.amount : -curr.amount), 0);
     
     return { overdue, todays, pending, paid, totalPeriod };
-  }, [transactions, currentPeriod]);
+  }, [transactions, currentPeriod, categoryFilter, accountFilter]);
 
   // Filters for current period, type, category, search term, and active KPI card click
   const filteredTransactions = useMemo(() => {
@@ -797,6 +811,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         return false;
       }
 
+      // 4b. Account Filter from dropdown
+      if (accountFilter !== 'ALL' && t.account_id !== accountFilter) {
+        return false;
+      }
+
       // 5. Active KPI Card filter
       if (kpiFilter) {
         if (kpiFilter === 'VENCIDOS') {
@@ -816,7 +835,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
       return true;
     });
-  }, [transactions, searchTerm, typeFilter, currentPeriod, kpiFilter, categoryFilter]);
+  }, [transactions, searchTerm, typeFilter, currentPeriod, kpiFilter, categoryFilter, accountFilter]);
 
   // Utility to format Portuguese Real currency
   const formatCurrency = (val: number) => {
@@ -5419,6 +5438,20 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           <option value="ALL">Todas as Categorias</option>
                           {categories.map(cat => (
                             <option key={cat.id} value={cat.id}>{cat.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Conta</label>
+                        <select 
+                          value={accountFilter}
+                          onChange={(e) => setAccountFilter(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                        >
+                          <option value="ALL">Todas as Contas</option>
+                          {accounts.map(acc => (
+                            <option key={acc.id} value={acc.id}>{acc.name}</option>
                           ))}
                         </select>
                       </div>
