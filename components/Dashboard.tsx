@@ -139,6 +139,8 @@ const Dashboard: React.FC<DashboardProps> = ({ sales, team, currentUser }) => {
       comissionTotal: number; 
     }> = {};
 
+    let agencyCommissionTotal = 0;
+
     filteredSales.forEach(sale => {
       const seenBrokersInSale = new Set<string>();
 
@@ -148,7 +150,10 @@ const Dashboard: React.FC<DashboardProps> = ({ sales, team, currentUser }) => {
         const nameLower = (split.brokerName || '').toLowerCase();
         const isAgencyName = nameLower.includes('agência') || nameLower.includes('agencia') || nameLower.includes('imobiliária') || nameLower.includes('imobiliaria');
         const isAgencyRole = split.role === 'AGENCY' || split.role === 'Agência' || split.role === SplitRole.AGENCY || isAgencyName;
-        if (isAgencyRole) return;
+        if (isAgencyRole) {
+          agencyCommissionTotal += (split.calculatedValue || 0);
+          return;
+        }
         
         if (!brokerMap[split.brokerId]) {
           brokerMap[split.brokerId] = {
@@ -212,7 +217,8 @@ const Dashboard: React.FC<DashboardProps> = ({ sales, team, currentUser }) => {
         comissionRate: agencyComissionRate,
         ticketMedio: agencyTicketMedio,
         badgeText,
-        badgeColorClass
+        badgeColorClass,
+        agencyCommissionTotal
       }
     };
   }, [filteredSales]);
@@ -503,7 +509,7 @@ const Dashboard: React.FC<DashboardProps> = ({ sales, team, currentUser }) => {
         </h3>
 
         {/* Resumo Consolidado */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 p-5 bg-slate-50 rounded-2xl border border-slate-100/80 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 p-5 bg-slate-50 rounded-2xl border border-slate-100/80 mb-6">
           <div>
             <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Vendas da Agência</span>
             <span className="text-xl font-bold text-slate-700">{efficiencyData.agency.salesCount}</span>
@@ -528,6 +534,16 @@ const Dashboard: React.FC<DashboardProps> = ({ sales, team, currentUser }) => {
           <div>
             <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Ticket Médio</span>
             <span className="text-xl font-bold text-slate-700">{formatCurrency(efficiencyData.agency.ticketMedio)}</span>
+          </div>
+          <div>
+            <span className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Comissão da Agência</span>
+            <span className="block text-xl font-bold text-slate-700">{formatCurrency(efficiencyData.agency.agencyCommissionTotal)}</span>
+            <span className="text-[10px] text-slate-500 font-medium mt-0.5 block">
+              {(efficiencyData.agency.comissionTotal > 0 
+                ? (efficiencyData.agency.agencyCommissionTotal / efficiencyData.agency.comissionTotal) * 100 
+                : 0
+              ).toFixed(2)}% do total
+            </span>
           </div>
         </div>
 
