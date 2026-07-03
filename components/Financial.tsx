@@ -7523,6 +7523,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       <th className="py-3 px-4 text-right">Valor</th>
                       <th className="py-3 px-4">Categoria</th>
                       <th className="py-3 px-4">Período/Fatura</th>
+                      <th className="py-3 px-4 text-center">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100/60">
@@ -7549,8 +7550,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           <td className="py-3 px-4 text-slate-500 font-medium whitespace-nowrap">
                             {formatDateBR(line.date)}
                           </td>
-                          <td className="py-3 px-4 text-slate-800 font-bold truncate max-w-xs" title={line.description}>
-                            {line.description}
+                          <td className="py-3 px-4 min-w-[200px]">
+                            <input
+                              type="text"
+                              value={line.description}
+                              onChange={(e) => {
+                                setImportedLines(prev =>
+                                  prev.map((item, i) =>
+                                    i === idx
+                                      ? { ...item, description: e.target.value }
+                                      : item
+                                  )
+                                );
+                              }}
+                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-xs font-bold outline-none text-slate-800 focus:bg-white focus:border-blue-300 transition-colors"
+                            />
                           </td>
                           <td className="py-3 px-4 text-right font-bold text-slate-900 whitespace-nowrap">
                             {formatCurrency(line.amount)}
@@ -7559,9 +7573,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             <select
                               value={line.categoryId}
                               onChange={(e) => {
-                                const updated = [...importedLines];
-                                updated[idx].categoryId = e.target.value;
-                                setImportedLines(updated);
+                                setImportedLines(prev =>
+                                  prev.map((item, i) =>
+                                    i === idx
+                                      ? { ...item, categoryId: e.target.value }
+                                      : item
+                                  )
+                                );
                               }}
                               className="w-full bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-[11px] font-bold outline-none"
                             >
@@ -7575,6 +7593,17 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           </td>
                           <td className="py-3 px-4 text-slate-500 font-medium whitespace-nowrap">
                             {computedPeriod || 'Desconhecido'}
+                          </td>
+                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                            <button
+                              onClick={() => {
+                                setImportedLines(prev => prev.filter((_, i) => i !== idx));
+                              }}
+                              className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors"
+                              title="Remover este lançamento"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </td>
                         </tr>
                       );
@@ -7596,9 +7625,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 >
                   Cancelar
                 </button>
-                <div className="ml-auto flex items-center gap-3">
+                <div className="ml-auto flex items-center gap-4 sm:gap-6">
                   <p className="text-xs text-slate-400 font-bold uppercase hidden sm:block">
-                    Total de lançamentos: <span className="text-slate-800">{importedLines.length}</span>
+                    Total de lançamentos: <span className="text-slate-800 font-black">{importedLines.length}</span>
+                  </p>
+                  <p className="text-xs text-slate-400 font-bold uppercase hidden sm:block border-l border-slate-200 pl-4 sm:pl-6">
+                    Valor Total: <span className="text-blue-600 font-black">{formatCurrency(importedLines.reduce((sum, line) => sum + (line.amount || 0), 0))}</span>
                   </p>
                   <button 
                     onClick={handleSaveImportedInvoice}
