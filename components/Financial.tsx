@@ -323,6 +323,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [recurrenceType, setRecurrenceType] = useState<'NONE' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'>('NONE');
   const [recurrencePeriods, setRecurrencePeriods] = useState<number>(1);
   const [markAsPaid, setMarkAsPaid] = useState<boolean>(false);
+  const [isSubmittingTransaction, setIsSubmittingTransaction] = useState<boolean>(false);
   const monthInputRef = useRef<HTMLInputElement>(null);
 
   // Pay Credit Card Invoice States
@@ -902,6 +903,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   // Submit handlings
   const handleCreateTransaction = async () => {
+    if (isSubmittingTransaction) return;
+
     // 1. Centralized BRL currency parser and validation
     const parsedAmount = parseBrlValue(amountInputStr);
     
@@ -921,105 +924,114 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       return;
     }
 
-    // 2. Map payload properties, converting empty UUID values to null
-    let dueDateVal = newTransaction.due_date;
-    if (!dueDateVal) {
-      dueDateVal = getLocalTodayStr();
-    }
+    setIsSubmittingTransaction(true);
 
-    const cleanPaymentDate = markAsPaid ? (newTransaction.payment_date || getLocalTodayStr()) : null;
-    const computedStatus = cleanPaymentDate ? TransactionStatus.PAID : TransactionStatus.PENDING;
-
-    const payload = {
-      ...newTransaction,
-      amount: parsedAmount,
-      agency_id: currentUser.agencyId,
-      account_id: !newTransaction.account_id || newTransaction.account_id === '' ? null : newTransaction.account_id,
-      category_id: !newTransaction.category_id || newTransaction.category_id === '' ? null : newTransaction.category_id,
-      due_date: dueDateVal,
-      status: computedStatus,
-      payment_date: cleanPaymentDate,
-      contact_name: responsibleClient && responsibleClient.trim() !== '' ? responsibleClient.trim() : null
-    } as any;
-
-    // 4. Generate recurrences using the precise monthly/yearly helper
-    const copiesToCreate: any[] = [];
-    if (recurrenceType !== 'NONE' && recurrencePeriods > 0 && !editingTransaction) {
-      const recurrenceGroupId = crypto.randomUUID();
-      payload.recurrence_group_id = recurrenceGroupId;
-      for (let i = 1; i <= recurrencePeriods; i++) {
-        const nextDueDate = addPeriodToDate(payload.due_date, recurrenceType, i);
-        copiesToCreate.push({
-          ...payload,
-          due_date: nextDueDate,
-          description: `${payload.description} (Cópia ${i})`,
-          status: TransactionStatus.PENDING,
-          payment_date: null
-        });
+    try {
+      // 2. Map payload properties, converting empty UUID values to null
+      let dueDateVal = newTransaction.due_date;
+      if (!dueDateVal) {
+        dueDateVal = getLocalTodayStr();
       }
-    }
 
-    if (editingTransaction) {
-      if (supabase) {
-        if (editingTransaction.recurrence_group_id) {
-          setRecurrenceEditPayload(payload);
-          setRecurrenceEditOption('single');
-          setIsRecurrenceEditModalOpen(true);
-        } else {
-          const success = await supabaseService.updateFinancialTransaction(editingTransaction.id, payload);
-          
-          if (!success) {
-            alert('Erro ao atualizar lançamento.');
-          } else {
-            setIsModalOpen(false);
-            setEditingTransaction(null);
-            loadFinancialData();
-          }
+      const cleanPaymentDate = markAsPaid ? (newTransaction.payment_date || getLocalTodayStr()) : null;
+      const computedStatus = cleanPaymentDate ? TransactionStatus.PAID : TransactionStatus.PENDING;
+
+      const payload = {
+        ...newTransaction,
+        amount: parsedAmount,
+        agency_id: currentUser.agencyId,
+        account_id: !newTransaction.account_id || newTransaction.account_id === '' ? null : newTransaction.account_id,
+        category_id: !newTransaction.category_id || newTransaction.category_id === '' ? null : newTransaction.category_id,
+        due_date: dueDateVal,
+        status: computedStatus,
+        payment_date: cleanPaymentDate,
+        contact_name: responsibleClient && responsibleClient.trim() !== '' ? responsibleClient.trim() : null
+      } as any;
+
+      // 4. Generate recurrences using the precise monthly/yearly helper
+      const copiesToCreate: any[] = [];
+      if (recurrenceType !== 'NONE' && recurrencePeriods > 0 && !editingTransaction) {
+        const recurrenceGroupId = crypto.randomUUID();
+        payload.recurrence_group_id = recurrenceGroupId;
+        for (let i = 1; i <= recurrencePeriods; i++) {
+          const nextDueDate = addPeriodToDate(payload.due_date, recurrenceType, i);
+          copiesToCreate.push({
+            ...payload,
+            due_date: nextDueDate,
+            description: payload.description,
+            status: TransactionStatus.PENDING,
+            payment_date: null
+          });
         }
-      } else {
-        alert('Conexão com o banco de dados indisponível.');
       }
-    } else {
-      // Insertion of new transactions or recurring batches
-      if (supabase) {
-        if (copiesToCreate.length > 0) {
-          // Batch insertion returning created rows to prevent manual reload
-          const { data, error } = await supabase
-            .from('financial_transactions')
-            .insert([payload, ...copiesToCreate])
-            .select();
-          
-          if (error) {
-            console.error('Error creating recurring transactions:', error);
-            alert('Erro ao criar lançamentos recorrentes: ' + error.message);
+
+      if (editingTransaction) {
+        if (supabase) {
+          if (editingTransaction.recurrence_group_id) {
+            setRecurrenceEditPayload(payload);
+            setRecurrenceEditOption('single');
+            setIsRecurrenceEditModalOpen(true);
           } else {
-            if (data && data.length > 0) {
-              setTransactions(prev => [...data, ...prev]);
+            const success = await supabaseService.updateFinancialTransaction(editingTransaction.id, payload);
+            
+            if (!success) {
+              alert('Erro ao atualizar lançamento.');
+            } else {
+              setIsModalOpen(false);
+              setEditingTransaction(null);
+              loadFinancialData();
             }
-            setIsModalOpen(false);
-            loadFinancialData(); // Background refresh to update accounts/balances
           }
         } else {
-          // Single insertion
-          const { data, error } = await supabase
-            .from('financial_transactions')
-            .insert([payload])
-            .select();
-          
-          if (error) {
-            console.error('Error creating transaction:', error);
-            alert('Erro ao criar lançamento: ' + error.message);
-          } else {
-            if (data && data.length > 0) {
-              setTransactions(prev => [data[0], ...prev]);
-            }
-            setIsModalOpen(false);
-            loadFinancialData(); // Background refresh to update accounts/balances
-          }
+          alert('Conexão com o banco de dados indisponível.');
         }
       } else {
-        alert('Conexão com o banco de dados indisponível.');
+        // Insertion of new transactions or recurring batches
+        if (supabase) {
+          if (copiesToCreate.length > 0) {
+            // Batch insertion returning created rows to prevent manual reload
+            const { data, error } = await supabase
+              .from('financial_transactions')
+              .insert([payload, ...copiesToCreate])
+              .select();
+            
+            if (error) {
+              console.error('Error creating recurring transactions:', error);
+              alert('Erro ao criar lançamentos recorrentes: ' + error.message);
+            } else {
+              if (data && data.length > 0) {
+                setTransactions(prev => [...data, ...prev]);
+              }
+              setIsModalOpen(false);
+              loadFinancialData(); // Background refresh to update accounts/balances
+            }
+          } else {
+            // Single insertion
+            const { data, error } = await supabase
+              .from('financial_transactions')
+              .insert([payload])
+              .select();
+            
+            if (error) {
+              console.error('Error creating transaction:', error);
+              alert('Erro ao criar lançamento: ' + error.message);
+            } else {
+              if (data && data.length > 0) {
+                setTransactions(prev => [data[0], ...prev]);
+              }
+              setIsModalOpen(false);
+              loadFinancialData(); // Background refresh to update accounts/balances
+            }
+          }
+        } else {
+          alert('Conexão com o banco de dados indisponível.');
+        }
       }
+    } catch (err: any) {
+      console.error('Error in handleCreateTransaction:', err);
+      alert('Erro inesperado: ' + err.message);
+    } finally {
+      setIsSubmittingTransaction(false);
     }
   };
 
@@ -6822,9 +6834,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                    </button>
                    <button 
                      onClick={handleCreateTransaction}
-                     className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold shadow-lg shadow-blue-100 transition-colors"
+                     disabled={isSubmittingTransaction}
+                     className={`px-5 py-2.5 rounded-xl text-sm font-semibold shadow-lg transition-colors ${
+                       isSubmittingTransaction 
+                         ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
+                         : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-100'
+                     }`}
                    >
-                     Confirmar Lançamento
+                     {isSubmittingTransaction ? 'Salvando...' : 'Confirmar Lançamento'}
                    </button>
                  </div>
                </div>
