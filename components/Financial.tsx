@@ -7580,10 +7580,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               </div>
 
               {/* Transactions Preview Table Container */}
-              <div className="flex-1 overflow-y-auto border border-slate-100 rounded-2xl mb-6 shadow-inner">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50/75 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100 sticky top-0 backdrop-blur-[2px] z-10">
+              <div className="flex-1 overflow-auto border border-slate-100 rounded-2xl mb-6 shadow-inner">
+                <table className="w-full min-w-[1200px] text-left border-collapse">
+                  <thead className="sticky top-0 z-20 bg-slate-50 border-b border-slate-100 shadow-sm">
+                    <tr className="text-slate-400 text-[10px] font-black uppercase tracking-widest">
                       <th className="py-3 px-4 text-center w-12">
                         <input
                           type="checkbox"
@@ -7595,18 +7595,19 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer h-4 w-4"
                         />
                       </th>
-                      <th className="py-3 px-4 text-center">Status</th>
-                      <th className="py-3 px-4">Data Compra</th>
-                      <th className="py-3 px-4">Descrição</th>
-                      <th className="py-3 px-4 text-right">Valor</th>
-                      <th className="py-3 px-4">Categoria</th>
-                      <th className="py-3 px-4">Período/Fatura</th>
-                      <th className="py-3 px-4 text-center">Ações</th>
+                      <th className="py-3 px-4 text-center min-w-[150px]">Status</th>
+                      <th className="py-3 px-4 min-w-[110px]">Data Compra</th>
+                      <th className="py-3 px-4 min-w-[320px]">Descrição</th>
+                      <th className="py-3 px-4 text-right min-w-[115px]">Valor</th>
+                      <th className="py-3 px-4 min-w-[260px]">Categoria</th>
+                      <th className="py-3 px-4 min-w-[130px]">Período/Fatura</th>
+                      <th className="py-3 px-4 text-center min-w-[80px]">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100/60">
                     {importedLines.map((line, idx) => {
                       const computedPeriod = getPurchaseInvoicePeriodStr(line.date, importingCard);
+                      const selectedCategoryName = categories.find(c => c.id === (line.categoryId || defaultImportCategoryId))?.name || 'Nenhuma';
                       return (
                         <tr 
                           key={line.id || idx} 
@@ -7628,7 +7629,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer h-4 w-4"
                             />
                           </td>
-                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                          <td className="py-3 px-4 text-center whitespace-nowrap min-w-[150px]">
                             {line.isBalanceAdjustment ? (
                               <span 
                                 className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[9px] font-black uppercase px-2.5 py-1 rounded-full border border-amber-300 shadow-sm"
@@ -7652,13 +7653,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               </span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-slate-500 font-medium whitespace-nowrap">
+                          <td className="py-3 px-4 text-slate-500 font-medium whitespace-nowrap min-w-[110px]">
                             {formatDateBR(line.date)}
                           </td>
-                          <td className="py-3 px-4 min-w-[200px]">
+                          <td className="py-3 px-4 min-w-[320px]" title={line.description}>
                             <input
                               type="text"
                               value={line.description}
+                              title={line.description}
                               onChange={(e) => {
                                 setImportedLines(prev =>
                                   prev.map((item, i) =>
@@ -7671,22 +7673,22 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               className="w-full bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-xs font-bold outline-none text-slate-800 focus:bg-white focus:border-blue-300 transition-colors"
                             />
                           </td>
-                          <td className="py-3 px-4 text-right font-bold text-slate-900 whitespace-nowrap">
+                          <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 whitespace-nowrap min-w-[115px]">
                             {formatCurrency(line.amount)}
                           </td>
-                          <td className="py-3 px-4 min-w-[150px]">
+                          <td className="py-3 px-4 min-w-[260px]" title={selectedCategoryName}>
                             <select
-                              value={line.categoryId}
-                              onChange={(e) => {
-                                setImportedLines(prev =>
-                                  prev.map((item, i) =>
-                                    i === idx
-                                      ? { ...item, categoryId: e.target.value }
-                                      : item
-                                  )
-                                );
-                              }}
-                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-[11px] font-bold outline-none"
+                               value={line.categoryId}
+                               onChange={(e) => {
+                                 setImportedLines(prev =>
+                                   prev.map((item, i) =>
+                                     i === idx
+                                       ? { ...item, categoryId: e.target.value }
+                                       : item
+                                   )
+                                 );
+                               }}
+                               className="w-full bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-[11px] font-bold outline-none"
                             >
                               <option value="">(Usar Padrão: {categories.find(c => c.id === defaultImportCategoryId)?.name || 'Nenhuma'})</option>
                               {categories
@@ -7696,10 +7698,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 ))}
                             </select>
                           </td>
-                          <td className="py-3 px-4 text-slate-500 font-medium whitespace-nowrap">
+                          <td className="py-3 px-4 text-slate-500 font-medium whitespace-nowrap min-w-[130px]">
                             {computedPeriod || 'Desconhecido'}
                           </td>
-                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                          <td className="py-3 px-4 text-center whitespace-nowrap min-w-[80px]">
                             <button
                               onClick={() => {
                                 setImportedLines(prev => prev.filter((_, i) => i !== idx));
