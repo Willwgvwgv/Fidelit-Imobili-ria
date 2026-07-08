@@ -345,6 +345,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     amount: number;
     categoryId: string;
     isDuplicate: boolean;
+    isBalanceAdjustment?: boolean;
+    selected?: boolean;
   }>>([]);
   const [defaultImportCategoryId, setDefaultImportCategoryId] = useState<string>('');
 
@@ -1211,13 +1213,30 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           Math.abs(t.amount - item.amount) < 0.01
         );
 
+        const descLower = (item.description || '').toLowerCase();
+        const obsLower = (item.observation || '').toLowerCase();
+        
+        let isBalanceAdjustment = false;
+        if (obsLower) {
+          if (obsLower.includes('fatura anterior') || obsLower.includes('saldo anterior')) {
+            isBalanceAdjustment = true;
+          } else if (obsLower.includes('pagamento') && (obsLower.includes('credito') || obsLower.includes('crédito'))) {
+            isBalanceAdjustment = true;
+          }
+        }
+        if (/^mdte\d+/.test(descLower)) {
+          isBalanceAdjustment = true;
+        }
+
         return {
           id: item.id || crypto.randomUUID(),
           date: item.date || getLocalTodayStr(),
           description: item.description || 'Transação Importada',
           amount: item.amount || 0,
           categoryId: '',
-          isDuplicate
+          isDuplicate,
+          isBalanceAdjustment,
+          selected: !isBalanceAdjustment
         };
       });
 
@@ -1235,16 +1254,24 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setLoading(true);
 
     try {
-      const transactionsToInsert = importedLines.map(line => ({
-        type: TransactionType.EXPENSE,
-        account_id: importingCard.id,
-        status: TransactionStatus.PENDING,
-        due_date: line.date,
-        amount: line.amount,
-        description: line.description,
-        category_id: line.categoryId || defaultImportCategoryId || null,
-        agency_id: currentUser.agencyId
-      }));
+      const transactionsToInsert = importedLines
+        .filter(line => line.selected !== false)
+        .map(line => ({
+          type: TransactionType.EXPENSE,
+          account_id: importingCard.id,
+          status: TransactionStatus.PENDING,
+          due_date: line.date,
+          amount: line.amount,
+          description: line.description,
+          category_id: line.categoryId || defaultImportCategoryId || null,
+          agency_id: currentUser.agencyId
+        }));
+
+      if (transactionsToInsert.length === 0) {
+        showToast("Nenhum lançamento selecionado para importação.", "warning");
+        setLoading(false);
+        return;
+      }
 
       if (supabase) {
         const promises = transactionsToInsert.map(tx => supabaseService.createFinancialTransaction(tx));
@@ -1739,14 +1766,26 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     let dateIdx = -1;
     let descIdx = -1;
     let valIdx = -1;
+    let anoIdx = -1;
+    let obsIdx = -1;
     
+    let delimiter = ';';
+    const headerLine = lines[0] || '';
+    const semiColons = (headerLine.match(/;/g) || []).length;
+    const commas = (headerLine.match(/,/g) || []).length;
+    if (commas > semiColons) {
+      delimiter = ',';
+    }
+
     // Attempt header index resolution
-    const headers = lines[0].split(/[;,]/).map(h => h.trim().toLowerCase());
+    const headers = headerLine.split(delimiter).map(h => h.trim().replace(/^["']|["']$/g, '').toLowerCase());
     for (let idx = 0; idx < headers.length; idx++) {
       const h = headers[idx];
       if (h.includes('data') || h.includes('date')) dateIdx = idx;
-      else if (h.includes('desc') || h.includes('memo') || h.includes('historico') || h.includes('histórico') || h.includes('detalhe')) descIdx = idx;
+      else if (h.includes('desc') || h.includes('memo') || h.includes('historico') || h.includes('histórico') || h.includes('detalhe') || h.includes('estabelecimento') || h.includes('lançamento') || h.includes('lancamento')) descIdx = idx;
       else if (h.includes('valor') || h.includes('amount') || h.includes('val')) valIdx = idx;
+      else if (h.includes('ano') || h.includes('year')) anoIdx = idx;
+      else if (h.includes('observacao') || h.includes('observação') || h.includes('obs')) obsIdx = idx;
     }
     
     if (dateIdx === -1) dateIdx = 0;
@@ -1757,7 +1796,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const line = lines[i].trim();
       if (!line) continue;
       
-      const columns = line.split(/[;,]/).map(c => c.trim().replace(/^["']|["']$/g, ''));
+      const columns = line.split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
       if (columns.length <= Math.max(dateIdx, descIdx, valIdx)) continue;
       
       const rawDate = columns[dateIdx];
@@ -1773,6 +1812,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           const day = parts[0].padStart(2, '0');
           const month = parts[1].padStart(2, '0');
           const year = parts[2];
+          dateStr = `${year}-${month}-${day}`;
+        } else if (parts.length === 2 && anoIdx !== -1 && columns[anoIdx]) {
+          const day = parts[0].padStart(2, '0');
+          const month = parts[1].padStart(2, '0');
+          let year = columns[anoIdx].trim();
+          if (year.length === 2) {
+            year = '20' + year;
+          }
           dateStr = `${year}-${month}-${day}`;
         }
       }
@@ -1790,7 +1837,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         description: desc,
         amount,
         type: isExpense ? TransactionType.EXPENSE : TransactionType.INCOME,
-        matched: false
+        matched: false,
+        observation: obsIdx !== -1 && columns[obsIdx] ? columns[obsIdx].trim() : ''
       });
     }
     return parsed;
@@ -4617,7 +4665,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   // 4. View: Contas Bancárias (Bank Accounts list)
   const renderContas = () => {
-    if (accounts.length === 0) {
+    const bankAccounts = accounts.filter(a => a.type !== 'credit_card' && a.account_type !== 'credit_card');
+
+    if (bankAccounts.length === 0) {
       return (
         <div className="bg-white rounded-3xl border border-slate-100 p-12 shadow-sm text-center flex flex-col items-center justify-center space-y-4">
           <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center shadow-inner">
@@ -4643,7 +4693,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
-          {accounts.map(account => {
+          {bankAccounts.map(account => {
             const liveBalance = getAccountLiveBalance(account);
             const bank = BANKS.find(b => b.code === (account as any).bank_code);
             const initials = bank ? bank.initials : 'BC';
@@ -7534,6 +7584,17 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50/75 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100 sticky top-0 backdrop-blur-[2px] z-10">
+                      <th className="py-3 px-4 text-center w-12">
+                        <input
+                          type="checkbox"
+                          checked={importedLines.length > 0 && importedLines.every(line => line.selected !== false)}
+                          onChange={(e) => {
+                            const isChecked = e.target.checked;
+                            setImportedLines(prev => prev.map(line => ({ ...line, selected: isChecked })));
+                          }}
+                          className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer h-4 w-4"
+                        />
+                      </th>
                       <th className="py-3 px-4 text-center">Status</th>
                       <th className="py-3 px-4">Data Compra</th>
                       <th className="py-3 px-4">Descrição</th>
@@ -7547,9 +7608,36 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     {importedLines.map((line, idx) => {
                       const computedPeriod = getPurchaseInvoicePeriodStr(line.date, importingCard);
                       return (
-                        <tr key={line.id || idx} className={`text-xs hover:bg-slate-50/50 transition-colors ${line.isDuplicate ? 'bg-amber-50/20' : ''}`}>
+                        <tr 
+                          key={line.id || idx} 
+                          className={`text-xs hover:bg-slate-50/50 transition-colors ${line.isDuplicate ? 'bg-amber-50/20' : ''} ${line.selected === false ? 'opacity-60 bg-slate-50/30' : ''}`}
+                        >
+                          <td className="py-3 px-4 text-center">
+                            <input
+                              type="checkbox"
+                              checked={line.selected !== false}
+                              onChange={(e) => {
+                                setImportedLines(prev =>
+                                  prev.map((item, i) =>
+                                    i === idx
+                                      ? { ...item, selected: e.target.checked }
+                                      : item
+                                  )
+                                );
+                              }}
+                              className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer h-4 w-4"
+                            />
+                          </td>
                           <td className="py-3 px-4 text-center whitespace-nowrap">
-                            {line.isDuplicate ? (
+                            {line.isBalanceAdjustment ? (
+                              <span 
+                                className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[9px] font-black uppercase px-2.5 py-1 rounded-full border border-amber-300 shadow-sm"
+                                title="Lançamento identificado como acerto de saldo ou pagamento de fatura anterior."
+                              >
+                                <AlertCircle size={10} className="text-amber-600" />
+                                ⚠️ Acerto de Saldo — Revisar
+                              </span>
+                            ) : line.isDuplicate ? (
                               <span 
                                 className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-[9px] font-black uppercase px-2.5 py-1 rounded-full border border-amber-200"
                                 title="Aviso de possível duplicidade com lançamento existente no mesmo cartão, mesma data e mesmo valor."
@@ -7644,10 +7732,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 </button>
                 <div className="ml-auto flex items-center gap-4 sm:gap-6">
                   <p className="text-xs text-slate-400 font-bold uppercase hidden sm:block">
-                    Total de lançamentos: <span className="text-slate-800 font-black">{importedLines.length}</span>
+                    Selecionados: <span className="text-slate-800 font-black">{importedLines.filter(line => line.selected !== false).length} de {importedLines.length}</span>
                   </p>
                   <p className="text-xs text-slate-400 font-bold uppercase hidden sm:block border-l border-slate-200 pl-4 sm:pl-6">
-                    Valor Total: <span className="text-blue-600 font-black">{formatCurrency(importedLines.reduce((sum, line) => sum + (line.amount || 0), 0))}</span>
+                    Valor Total: <span className="text-blue-600 font-black">{formatCurrency(importedLines.filter(line => line.selected !== false).reduce((sum, line) => sum + (line.amount || 0), 0))}</span>
                   </p>
                   <button 
                     onClick={handleSaveImportedInvoice}
