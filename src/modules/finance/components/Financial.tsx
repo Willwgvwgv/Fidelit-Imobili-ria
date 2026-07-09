@@ -255,6 +255,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   // Card invoice import and quick launch states
   const cardFileInputRef = useRef<HTMLInputElement>(null);
+  const importHeaderCheckboxRef = useRef<HTMLInputElement>(null);
   const [importingCard, setImportingCard] = useState<FinancialAccount | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importedLines, setImportedLines] = useState<Array<{
@@ -268,6 +269,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     selected?: boolean;
   }>>([]);
   const [defaultImportCategoryId, setDefaultImportCategoryId] = useState<string>('');
+
+  useEffect(() => {
+    if (importHeaderCheckboxRef.current) {
+      const selectedCount = importedLines.filter(line => line.selected !== false).length;
+      const totalCount = importedLines.length;
+      importHeaderCheckboxRef.current.indeterminate = selectedCount > 0 && selectedCount < totalCount;
+    }
+  }, [importedLines]);
 
   const [quickLaunchCard, setQuickLaunchCard] = useState<FinancialAccount | null>(null);
   const [isQuickLaunchModalOpen, setIsQuickLaunchModalOpen] = useState(false);
@@ -7149,7 +7158,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               initial={{ scale: 0.95, opacity: 0 }} 
               animate={{ scale: 1, opacity: 1 }} 
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-3xl w-full max-w-5xl shadow-2xl relative z-10 p-8 overflow-hidden flex flex-col max-h-[90vh]"
+              className="bg-white rounded-3xl w-[90vw] max-w-[1400px] shadow-2xl relative z-10 p-6 md:p-8 overflow-hidden flex flex-col max-h-[90vh]"
             >
               <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-6">
                 <div className="flex items-center gap-3">
@@ -7198,13 +7207,18 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               </div>
 
               {/* Transactions Preview Table Container */}
-              <div className="flex-1 overflow-auto border border-slate-100 rounded-2xl mb-6 shadow-inner">
-                <table className="w-full min-w-[1200px] text-left border-collapse">
-                  <thead className="sticky top-0 z-20 bg-slate-50 border-b border-slate-100 shadow-sm">
+              <div className={`border border-slate-100 rounded-2xl mb-6 shadow-inner overflow-x-auto lg:overflow-x-clip ${
+                importedLines.length > 10 
+                  ? 'max-h-[70vh] overflow-y-auto' 
+                  : ''
+              }`}>
+                <table className="w-full text-left border-collapse table-fixed min-w-full">
+                  <thead className="sticky top-0 z-20 bg-slate-50/95 backdrop-blur-sm border-b border-slate-100 shadow-sm">
                     <tr className="text-slate-400 text-[10px] font-black uppercase tracking-widest">
-                      <th className="py-3 px-4 text-center w-12">
+                      <th className="py-3.5 px-3 text-center w-[48px] shrink-0">
                         <input
                           type="checkbox"
+                          ref={importHeaderCheckboxRef}
                           checked={importedLines.length > 0 && importedLines.every(line => line.selected !== false)}
                           onChange={(e) => {
                             const isChecked = e.target.checked;
@@ -7213,25 +7227,27 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer h-4 w-4"
                         />
                       </th>
-                      <th className="py-3 px-4 text-center min-w-[150px]">Status</th>
-                      <th className="py-3 px-4 min-w-[110px]">Data Compra</th>
-                      <th className="py-3 px-4 min-w-[320px]">Descrição</th>
-                      <th className="py-3 px-4 text-right min-w-[115px]">Valor</th>
-                      <th className="py-3 px-4 min-w-[260px]">Categoria</th>
-                      <th className="py-3 px-4 min-w-[130px]">Período/Fatura</th>
-                      <th className="py-3 px-4 text-center min-w-[80px]">Ações</th>
+                      <th className="py-3.5 px-3 text-center w-[130px] shrink-0">Status</th>
+                      <th className="py-3.5 px-3 w-[110px] shrink-0">Data Compra</th>
+                      <th className="py-3.5 px-3 w-auto min-w-[300px]">Descrição</th>
+                      <th className="py-3.5 px-3 text-right w-[110px] shrink-0">Valor</th>
+                      <th className="py-3.5 px-3 w-[170px] shrink-0">Categoria</th>
+                      <th className="py-3.5 px-3 w-[110px] shrink-0">Período/Fatura</th>
+                      <th className="py-3.5 px-3 text-center w-[60px] shrink-0">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100/60">
                     {importedLines.map((line, idx) => {
                       const computedPeriod = getPurchaseInvoicePeriodStr(line.date, importingCard);
                       const selectedCategoryName = categories.find(c => c.id === (line.categoryId || defaultImportCategoryId))?.name || 'Nenhuma';
+                      const defaultCategory = categories.find(c => c.id === defaultImportCategoryId);
+                      const isUsingDefaultCategory = !line.categoryId;
                       return (
                         <tr 
                           key={line.id || idx} 
                           className={`text-xs hover:bg-slate-50/50 transition-colors ${line.isDuplicate ? 'bg-amber-50/20' : ''} ${line.selected === false ? 'opacity-60 bg-slate-50/30' : ''}`}
                         >
-                          <td className="py-3 px-4 text-center">
+                          <td className="py-3.5 px-3 text-center">
                             <input
                               type="checkbox"
                               checked={line.selected !== false}
@@ -7247,34 +7263,31 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               className="rounded text-blue-600 focus:ring-blue-500 cursor-pointer h-4 w-4"
                             />
                           </td>
-                          <td className="py-3 px-4 text-center whitespace-nowrap min-w-[150px]">
+                          <td className="py-3.5 px-3 text-center whitespace-nowrap">
                             {line.isBalanceAdjustment ? (
                               <span 
                                 className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[9px] font-black uppercase px-2.5 py-1 rounded-full border border-amber-300 shadow-sm"
-                                title="Lançamento identificado como acerto de saldo ou pagamento de fatura anterior."
+                                title="Lançamento de acerto de saldo."
                               >
-                                <AlertCircle size={10} className="text-amber-600" />
-                                ⚠️ Acerto de Saldo — Revisar
+                                Acerto de Saldo
                               </span>
                             ) : line.isDuplicate ? (
                               <span 
                                 className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-[9px] font-black uppercase px-2.5 py-1 rounded-full border border-amber-200"
                                 title="Aviso de possível duplicidade com lançamento existente no mesmo cartão, mesma data e mesmo valor."
                               >
-                                <AlertCircle size={10} />
                                 Duplicado?
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[9px] font-black uppercase px-2.5 py-1 rounded-full border border-emerald-100">
-                                <CheckCircle2 size={10} />
                                 Novo
                               </span>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-slate-500 font-medium whitespace-nowrap min-w-[110px]">
+                          <td className="py-3.5 px-3 text-slate-500 font-medium whitespace-nowrap">
                             {formatDateBR(line.date)}
                           </td>
-                          <td className="py-3 px-4 min-w-[320px]" title={line.description}>
+                          <td className="py-3.5 px-3" title={line.description}>
                             <input
                               type="text"
                               value={line.description}
@@ -7288,13 +7301,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                   )
                                 );
                               }}
-                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-xs font-bold outline-none text-slate-800 focus:bg-white focus:border-blue-300 transition-colors"
+                              className="w-full bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-xs font-bold outline-none text-slate-800 focus:bg-white focus:border-blue-300 transition-colors truncate overflow-hidden text-ellipsis whitespace-nowrap"
                             />
                           </td>
-                          <td className="py-3 px-4 text-right font-mono font-bold text-slate-900 whitespace-nowrap min-w-[115px]">
+                          <td className="py-3.5 px-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
                             {formatCurrency(line.amount)}
                           </td>
-                          <td className="py-3 px-4 min-w-[260px]" title={selectedCategoryName}>
+                          <td className="py-3.5 px-3" title={selectedCategoryName}>
                             <select
                                value={line.categoryId}
                                onChange={(e) => {
@@ -7306,20 +7319,26 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                    )
                                  );
                                }}
-                               className="w-full bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-[11px] font-bold outline-none"
+                               className={`w-full bg-slate-50 border rounded-lg p-1.5 text-[11px] font-bold outline-none transition-all ${
+                                 isUsingDefaultCategory
+                                   ? 'border-slate-100 text-slate-400 font-medium'
+                                   : 'border-blue-200 text-slate-800 font-extrabold bg-blue-50/20'
+                               }`}
                             >
-                              <option value="">(Usar Padrão: {categories.find(c => c.id === defaultImportCategoryId)?.name || 'Nenhuma'})</option>
+                              <option value="" className="text-slate-400 font-medium">
+                                {defaultCategory ? `${defaultCategory.name} (Padrão)` : 'Usar Padrão'}
+                              </option>
                               {categories
                                 .filter(c => c.type === TransactionType.EXPENSE)
                                 .map(cat => (
-                                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                                  <option key={cat.id} value={cat.id} className="text-slate-800 font-bold">{cat.name}</option>
                                 ))}
                             </select>
                           </td>
-                          <td className="py-3 px-4 text-slate-500 font-medium whitespace-nowrap min-w-[130px]">
+                          <td className="py-3.5 px-3 text-slate-500 font-medium whitespace-nowrap">
                             {computedPeriod || 'Desconhecido'}
                           </td>
-                          <td className="py-3 px-4 text-center whitespace-nowrap min-w-[80px]">
+                          <td className="py-3.5 px-3 text-center whitespace-nowrap">
                             <button
                               onClick={() => {
                                 setImportedLines(prev => prev.filter((_, i) => i !== idx));
@@ -7337,8 +7356,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 </table>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex gap-4 pt-4 border-t border-slate-100">
+              {/* Action Buttons & Footer with Floating Shadow */}
+              <div className="flex flex-col sm:flex-row items-center gap-4 pt-5 mt-auto border-t border-slate-100 shadow-[0_-8px_24px_rgba(0,0,0,0.04)] -mx-6 md:-mx-8 px-6 md:px-8 pb-1 bg-white z-20">
                 <button 
                   onClick={() => {
                     setIsImportModalOpen(false);
@@ -7346,21 +7365,32 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     setImportingCard(null);
                   }}
                   disabled={loading}
-                  className="px-6 py-3 text-slate-500 bg-slate-50 hover:bg-slate-100 font-bold text-sm rounded-xl transition-all cursor-pointer"
+                  className="px-6 py-3 text-slate-500 bg-slate-50 hover:bg-slate-100 font-bold text-sm rounded-xl transition-all cursor-pointer w-full sm:w-auto text-center"
                 >
                   Cancelar
                 </button>
-                <div className="ml-auto flex items-center gap-4 sm:gap-6">
-                  <p className="text-xs text-slate-400 font-bold uppercase hidden sm:block">
-                    Selecionados: <span className="text-slate-800 font-black">{importedLines.filter(line => line.selected !== false).length} de {importedLines.length}</span>
-                  </p>
-                  <p className="text-xs text-slate-400 font-bold uppercase hidden sm:block border-l border-slate-200 pl-4 sm:pl-6">
-                    Valor Total: <span className="text-blue-600 font-black">{formatCurrency(importedLines.filter(line => line.selected !== false).reduce((sum, line) => sum + (line.amount || 0), 0))}</span>
-                  </p>
+                <div className="ml-auto flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
+                  {/* Modern Badges for Counter and Total Value */}
+                  <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-center sm:justify-start">
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm border transition-all ${
+                      importedLines.filter(line => line.selected !== false).length > 0
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100/80'
+                        : 'bg-slate-50 text-slate-400 border-slate-100'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${importedLines.filter(line => line.selected !== false).length > 0 ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                      ✓ {importedLines.filter(line => line.selected !== false).length} de {importedLines.length} itens
+                    </span>
+
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-100/80 shadow-sm">
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                      {formatCurrency(importedLines.filter(line => line.selected !== false).reduce((sum, line) => sum + (line.amount || 0), 0))}
+                    </span>
+                  </div>
+
                   <button 
                     onClick={handleSaveImportedInvoice}
                     disabled={loading}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-black py-3 px-8 rounded-xl shadow-lg shadow-blue-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-black py-3 px-8 rounded-xl shadow-lg shadow-blue-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 w-full sm:w-auto"
                   >
                     {loading ? 'Importando...' : 'Confirmar Importação'}
                   </button>
