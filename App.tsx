@@ -6,7 +6,7 @@ import Sales from './components/Sales';
 import Commissions from './components/Commissions';
 import Team from './components/Team';
 import Reports from './components/Reports';
-import Financial from './components/Financial';
+import Financial from './src/modules/finance/components/Financial';
 import { User, Sale, UserRole, CommissionStatus, SplitRole } from './types';
 import { LogIn, Key, Loader2, Database, AlertTriangle, Check } from 'lucide-react';
 import { supabaseService } from './services/supabaseService';

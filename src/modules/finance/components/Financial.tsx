@@ -50,102 +50,27 @@ import {
   FinancialAccount, 
   FinancialCategory, 
   FinancialTransaction, 
-  TransactionType, 
-  TransactionStatus 
-} from '../types';
-import { supabaseService, FinancialAccountInsert } from '../services/supabaseService';
-import { supabase } from '../supabase';
+} from '../../../../types';
+import { TransactionType, TransactionStatus } from '../constants';
+import { supabaseService, FinancialAccountInsert } from '../../../../services/supabaseService';
+import { supabase } from '../../../../supabase';
+import { RecurrenceEditModal } from './financial/RecurrenceEditModal';
+import { PayInvoiceModal } from './financial/PayInvoiceModal';
+import { InvoiceDetailsModal } from './financial/InvoiceDetailsModal';
+import { useAccounts } from '../hooks/useAccounts';
+import { useFinancialCategories } from '../hooks/useFinancialCategories';
+import { useFinancialTransactions } from '../hooks/useFinancialTransactions';
+import { useRecurringTransactions } from '../hooks/useRecurringTransactions';
+import { useInvoicePayment } from '../hooks/useInvoicePayment';
+import { parseBrlValue, parseBRL, formatBRL, formatCurrency } from '../utils/currency';
+import { addPeriodToDate, getLocalTodayStr, formatDateBR, parseDateSafe } from '../utils/dates';
+import { getAccountLiveBalance as calcAccountLiveBalance } from '../domain/BalanceCalculator';
+import * as InvoiceDomain from '../domain/InvoiceCalculator';
 
 interface FinancialProps {
   currentUser: User;
   activeView?: string;
 }
-
-// Robust Brazilian Real format to float number converter
-const parseBrlValue = (valueStr: string): number => {
-  if (!valueStr) return 0;
-  let clean = valueStr.replace(/[R$\s]/gi, '');
-  if (!clean) return 0;
-  
-  // If there is a comma, it is the decimal separator (BRL standard)
-  if (clean.includes(',')) {
-    clean = clean.replace(/\./g, '').replace(',', '.');
-  } else {
-    // No comma. If there is a dot:
-    // A single dot followed by exactly 3 digits is assumed to be a thousands separator (e.g., "1.500" -> 1500, but "1500.50" -> 1500.50)
-    // Multiple dots (e.g. "1.500.000") are also treated as thousands separators and removed.
-    const dotCount = (clean.match(/\./g) || []).length;
-    if (dotCount > 1) {
-      clean = clean.replace(/\./g, '');
-    } else if (dotCount === 1) {
-      const parts = clean.split('.');
-      if (parts[1].length === 3) {
-        clean = clean.replace(/\./g, '');
-      }
-    }
-  }
-  
-  const parsed = parseFloat(clean);
-  return isNaN(parsed) ? 0 : parsed;
-};
-
-const parseBRL = (value: string): number => {
-  if (!value) return 0;
-  const clean = value.replace(/[R$\s]/gi, '').trim();
-  if (!clean) return 0;
-  return Number(
-    clean
-      .replace(/\./g, '')
-      .replace(',', '.')
-  );
-};
-
-const formatBRL = (value: string | number | undefined | null): string => {
-  if (value === undefined || value === null || value === '') return '';
-  const valueStr = typeof value === 'number' ? value.toFixed(2).replace('.', '') : String(value);
-  const digits = valueStr.replace(/\D/g, '');
-  if (!digits) return '';
-  const numberValue = parseFloat(digits) / 100;
-  return numberValue.toLocaleString('pt-BR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-};
-
-// Precise date incrementer for recurrences avoiding date-boundary errors and month hopping
-const addPeriodToDate = (dateStr: string, type: 'WEEKLY' | 'MONTHLY' | 'YEARLY', index: number): string => {
-  if (!dateStr) return dateStr;
-  const parts = dateStr.split('-');
-  if (parts.length !== 3) return dateStr;
-  
-  const year = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10) - 1; // 0-indexed month
-  const day = parseInt(parts[2], 10);
-  
-  if (isNaN(year) || isNaN(month) || isNaN(day)) return dateStr;
-
-  if (type === 'WEEKLY') {
-    const d = new Date(year, month, day, 12, 0, 0);
-    d.setDate(d.getDate() + 7 * index);
-    return d.toISOString().split('T')[0];
-  } else if (type === 'MONTHLY') {
-    const targetMonth = month + index;
-    // Get max days in target month
-    const testDate = new Date(year, targetMonth, 1, 12, 0, 0);
-    const maxDays = new Date(testDate.getFullYear(), testDate.getMonth() + 1, 0).getDate();
-    const targetDay = Math.min(day, maxDays);
-    const resultDate = new Date(testDate.getFullYear(), testDate.getMonth(), targetDay, 12, 0, 0);
-    return resultDate.toISOString().split('T')[0];
-  } else if (type === 'YEARLY') {
-    const targetYear = year + index;
-    // Handle leap years (e.g. Feb 29 -> Feb 28)
-    const maxDays = new Date(targetYear, month + 1, 0).getDate();
-    const targetDay = Math.min(day, maxDays);
-    const resultDate = new Date(targetYear, month, targetDay, 12, 0, 0);
-    return resultDate.toISOString().split('T')[0];
-  }
-  return dateStr;
-};
 
 // Visual color choices for gradients
 const CARD_GRADIENTS = [
@@ -155,35 +80,6 @@ const CARD_GRADIENTS = [
   'from-purple-900 to-indigo-950 text-white',
   'from-rose-900 to-rose-950 text-white'
 ];
-
-// Retorna a data atual no fuso local no formato YYYY-MM-DD
-const getLocalTodayStr = (): string => {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const formatDateBR = (dateStr: string | null | undefined): string => {
-  if (!dateStr) return '';
-  const parts = dateStr.split('-');
-  if (parts.length === 3) {
-    const year = parts[0];
-    const month = parts[1];
-    const day = parts[2].slice(0, 2);
-    return `${day}/${month}/${year}`;
-  }
-  return dateStr;
-};
-
-const parseDateSafe = (dStr: string | null | undefined): number => {
-  if (!dStr) return 0;
-  const date = new Date(
-    dStr.includes("T") ? dStr : `${dStr}T00:00:00`
-  );
-  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
-};
 
 export const BANKS = [
   { code: "sicoob",     name: "Sicoob",           color: "#006B3F", initials: "SIC" },
@@ -202,9 +98,9 @@ export const BANKS = [
 
 export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 'financial-extrato' }) => {
   // State managers
-  const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
-  const [categories, setCategories] = useState<FinancialCategory[]>([]);
-  const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
+  const { accounts, setAccounts, loadAccounts } = useAccounts();
+  const { categories, setCategories, loadCategories } = useFinancialCategories();
+  const { transactions, setTransactions, loadTransactions } = useFinancialTransactions();
   const [loading, setLoading] = useState(true);
   
   const getAccountBank = (account: FinancialAccount) => {
@@ -320,18 +216,41 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   // New states for form formatting, recurrence, and payment
   const [amountInputStr, setAmountInputStr] = useState<string>('');
-  const [recurrenceType, setRecurrenceType] = useState<'NONE' | 'WEEKLY' | 'MONTHLY' | 'YEARLY'>('NONE');
-  const [recurrencePeriods, setRecurrencePeriods] = useState<number>(1);
+  const {
+    recurrenceType,
+    setRecurrenceType,
+    recurrencePeriods,
+    setRecurrencePeriods,
+    isRecurrenceEditModalOpen,
+    setIsRecurrenceEditModalOpen,
+    recurrenceEditOption,
+    setRecurrenceEditOption,
+    recurrenceEditPayload,
+    setRecurrenceEditPayload,
+    handleConfirmRecurrenceEdit
+  } = useRecurringTransactions(loadFinancialData);
   const [markAsPaid, setMarkAsPaid] = useState<boolean>(false);
   const [isSubmittingTransaction, setIsSubmittingTransaction] = useState<boolean>(false);
   const monthInputRef = useRef<HTMLInputElement>(null);
 
   // Pay Credit Card Invoice States
-  const [payInvoiceModalOpen, setPayInvoiceModalOpen] = useState(false);
-  const [selectedCardForPayment, setSelectedCardForPayment] = useState<FinancialAccount | null>(null);
-  const [payInvoiceSourceAccountId, setPayInvoiceSourceAccountId] = useState<string>('');
-  const [payInvoiceAmountStr, setPayInvoiceAmountStr] = useState<string>('');
-  const [payInvoiceDate, setPayInvoiceDate] = useState<string>(getLocalTodayStr());
+  const {
+    payInvoiceModalOpen,
+    setPayInvoiceModalOpen,
+    payInvoiceSourceAccountId,
+    setPayInvoiceSourceAccountId,
+    payInvoiceAmountStr,
+    setPayInvoiceAmountStr,
+    payInvoiceDate,
+    setPayInvoiceDate,
+    selectedCardForPayment,
+    setSelectedCardForPayment,
+    resetInvoicePaymentStates
+  } = useInvoicePayment();
+
+  // Card invoice details states
+  const [selectedCardForDetails, setSelectedCardForDetails] = useState<FinancialAccount | null>(null);
+  const [detailPeriod, setDetailPeriod] = useState<Date>(new Date());
   const [showMismatchConfirm, setShowMismatchConfirm] = useState<boolean>(false);
 
   // Card invoice import and quick launch states
@@ -372,56 +291,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [confirmModalConfirmColor, setConfirmModalConfirmColor] = useState('bg-rose-600 hover:bg-rose-700 text-white');
   const [onConfirmAction, setOnConfirmAction] = useState<(() => void) | null>(null);
 
-  // Recurrence Edit Modal States
-  const [isRecurrenceEditModalOpen, setIsRecurrenceEditModalOpen] = useState(false);
-  const [recurrenceEditOption, setRecurrenceEditOption] = useState<'single' | 'following' | 'all'>('single');
-  const [recurrenceEditPayload, setRecurrenceEditPayload] = useState<any>(null);
-
-  const handleConfirmRecurrenceEdit = async () => {
-    if (!supabase || !editingTransaction || !recurrenceEditPayload) return;
-    
-    let success = false;
-    if (recurrenceEditOption === 'single') {
-      success = await supabaseService.updateFinancialTransaction(editingTransaction.id, recurrenceEditPayload);
-    } else if (recurrenceEditOption === 'following') {
-      success = await supabaseService.updateRecurrenceGroup(
-        editingTransaction.recurrence_group_id!,
-        editingTransaction.due_date,
-        recurrenceEditPayload
-      );
-    } else if (recurrenceEditOption === 'all') {
-      success = await supabaseService.updateRecurrenceGroup(
-        editingTransaction.recurrence_group_id!,
-        '2000-01-01',
-        recurrenceEditPayload
-      );
-    }
-    
-    if (success) {
-      setIsRecurrenceEditModalOpen(false);
-      setIsModalOpen(false);
-      setEditingTransaction(null);
-      setRecurrenceEditPayload(null);
-      loadFinancialData();
-    } else {
-      alert('Erro ao atualizar lançamento(s) recorrente(s).');
-    }
-  };
-
   const getAccountLiveBalance = (account: FinancialAccount) => {
-    const sumTransactions = transactions
-      .filter(t => t.account_id === account.id && t.status === TransactionStatus.PAID)
-      .reduce((acc, curr) => {
-        if (curr.type === TransactionType.INCOME) {
-          return acc + (curr.amount || 0);
-        } else if (curr.type === TransactionType.EXPENSE) {
-          return acc - (curr.amount || 0);
-        } else if (curr.type === TransactionType.TRANSFER) {
-          return acc - (curr.amount || 0);
-        }
-        return acc;
-      }, 0);
-    return Number(account.initial_balance || 0) + sumTransactions;
+    return calcAccountLiveBalance(account, transactions);
   };
   
   // Accounts payable and receivable states
@@ -446,6 +317,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setIsRecurrenceEditModalOpen(false);
     setRecurrenceEditOption('single');
     setRecurrenceEditPayload(null);
+    resetInvoicePaymentStates();
     setNewAccount({
       name: '',
       initial_balance: '',
@@ -730,14 +602,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setLoading(true);
     try {
       const [accs, cats, txs] = await Promise.all([
-        supabaseService.getFinancialAccounts(),
-        supabaseService.getFinancialCategories(),
-        supabaseService.getFinancialTransactions()
+        loadAccounts(),
+        loadCategories(),
+        loadTransactions()
       ]);
-
-      setAccounts(accs);
-      setCategories(cats);
-      setTransactions(txs);
     } catch (error) {
       console.error('Erro ao buscar dados do Supabase:', error);
     } finally {
@@ -886,10 +754,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     });
   }, [transactions, searchTerm, typeFilter, currentPeriod, kpiFilter, categoryFilter, accountFilter]);
 
-  // Utility to format Portuguese Real currency
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
-  };
+
 
   // Toggle transaction status
   const handleToggleStatus = async (tx: FinancialTransaction) => {
@@ -1037,103 +902,24 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
   };
 
-  const isTxInCardInvoicePeriod = (dueDateStr: string, card: FinancialAccount, targetPeriod: Date) => {
-    const closingDay = card.closing_day;
-    if (!closingDay || closingDay < 1 || closingDay > 31) {
-      const parts = dueDateStr.split('-');
-      if (parts.length < 2) return false;
-      const txYear = parseInt(parts[0], 10);
-      const txMonth = parseInt(parts[1], 10) - 1;
-      return txYear === targetPeriod.getFullYear() && txMonth === targetPeriod.getMonth();
-    }
-
-    const targetYear = targetPeriod.getFullYear();
-    const targetMonth = targetPeriod.getMonth();
-
-    let prevYear = targetYear;
-    let prevMonth = targetMonth - 1;
-    if (prevMonth < 0) {
-      prevMonth = 11;
-      prevYear = targetYear - 1;
-    }
-
-    const daysInPrevMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
-    const safePrevDay = Math.min(closingDay, daysInPrevMonth);
-    const startDateObj = new Date(prevYear, prevMonth, safePrevDay);
-    startDateObj.setDate(startDateObj.getDate() + 1);
-
-    const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
-    const safeTargetDay = Math.min(closingDay, daysInTargetMonth);
-    const endDateObj = new Date(targetYear, targetMonth, safeTargetDay);
-
-    const formatLocalYYYYMMDD = (d: Date) => {
-      const yr = d.getFullYear();
-      const mo = String(d.getMonth() + 1).padStart(2, '0');
-      const dy = String(d.getDate()).padStart(2, '0');
-      return `${yr}-${mo}-${dy}`;
-    };
-
-    const startDateStr = formatLocalYYYYMMDD(startDateObj);
-    const endDateStr = formatLocalYYYYMMDD(endDateObj);
-
-    return dueDateStr >= startDateStr && dueDateStr <= endDateStr;
-  };
-
   const getPendingInvoiceAmount = (cardId: string) => {
     const card = accounts.find(a => a.id === cardId);
-    if (!card) return 0;
-    return transactions
-      .filter(t => {
-        if (t.account_id !== cardId) return false;
-        if (t.status !== TransactionStatus.PENDING) return false;
-        return isTxInCardInvoicePeriod(t.due_date, card, currentPeriod);
-      })
-      .reduce((sum, t) => sum + t.amount, 0);
+    return InvoiceDomain.getPendingInvoiceAmount(cardId, card, transactions, currentPeriod);
   };
 
-  const getInvoicePeriodRangeStr = (card: FinancialAccount, targetPeriod: Date) => {
-    const closingDay = card.closing_day;
-    if (!closingDay || closingDay < 1 || closingDay > 31) {
-      const startOfMonth = new Date(targetPeriod.getFullYear(), targetPeriod.getMonth(), 1);
-      const endOfMonth = new Date(targetPeriod.getFullYear(), targetPeriod.getMonth() + 1, 0);
-      
-      const formatBR = (d: Date) => {
-        const dy = String(d.getDate()).padStart(2, '0');
-        const mo = String(d.getMonth() + 1).padStart(2, '0');
-        const yr = d.getFullYear();
-        return `${dy}/${mo}/${yr}`;
-      };
-      
-      return `${formatBR(startOfMonth)} a ${formatBR(endOfMonth)}`;
-    }
+  const getInvoiceTransactions = (cardId: string, period: Date) => {
+    const card = accounts.find(a => a.id === cardId);
+    return InvoiceDomain.getInvoiceTransactions(cardId, card, transactions, period);
+  };
 
-    const targetYear = targetPeriod.getFullYear();
-    const targetMonth = targetPeriod.getMonth();
+  const getInvoiceTotalAmount = (cardId: string, period: Date) => {
+    const card = accounts.find(a => a.id === cardId);
+    return InvoiceDomain.getInvoiceTotalAmount(cardId, card, transactions, period);
+  };
 
-    let prevYear = targetYear;
-    let prevMonth = targetMonth - 1;
-    if (prevMonth < 0) {
-      prevMonth = 11;
-      prevYear = targetYear - 1;
-    }
-
-    const daysInPrevMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
-    const safePrevDay = Math.min(closingDay, daysInPrevMonth);
-    const startDateObj = new Date(prevYear, prevMonth, safePrevDay);
-    startDateObj.setDate(startDateObj.getDate() + 1);
-
-    const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
-    const safeTargetDay = Math.min(closingDay, daysInTargetMonth);
-    const endDateObj = new Date(targetYear, targetMonth, safeTargetDay);
-
-    const formatBR = (d: Date) => {
-      const dy = String(d.getDate()).padStart(2, '0');
-      const mo = String(d.getMonth() + 1).padStart(2, '0');
-      const yr = d.getFullYear();
-      return `${dy}/${mo}/${yr}`;
-    };
-
-    return `${formatBR(startDateObj)} a ${formatBR(endDateObj)}`;
+  const getInvoiceStatus = (cardId: string, period: Date) => {
+    const card = accounts.find(a => a.id === cardId);
+    return InvoiceDomain.getInvoiceStatus(cardId, card, transactions, period);
   };
 
   const normalizeCategoryName = (name: string): string => {
@@ -1146,35 +932,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   const getPurchaseInvoicePeriodStr = (dueDateStr: string, card: FinancialAccount) => {
-    const testPeriods = [
-      new Date(currentPeriod.getFullYear(), currentPeriod.getMonth() - 1, 1),
-      new Date(currentPeriod.getFullYear(), currentPeriod.getMonth(), 1),
-      new Date(currentPeriod.getFullYear(), currentPeriod.getMonth() + 1, 1),
-    ];
-    
-    for (const period of testPeriods) {
-      if (isTxInCardInvoicePeriod(dueDateStr, card, period)) {
-        const monthNames = [
-          "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-          "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-        ];
-        return `${monthNames[period.getMonth()]} de ${period.getFullYear()}`;
-      }
-    }
-    
-    const parts = dueDateStr.split('-');
-    if (parts.length >= 2) {
-      const y = parseInt(parts[0]);
-      const m = parseInt(parts[1]) - 1;
-      const monthNames = [
-        "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-        "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
-      ];
-      if (m >= 0 && m < 12) {
-        return `${monthNames[m]} de ${y}`;
-      }
-    }
-    return '';
+    return InvoiceDomain.getPurchaseInvoicePeriodStr(dueDateStr, card, currentPeriod);
   };
 
   const handleOpenImportInvoiceModal = (card: FinancialAccount) => {
@@ -1371,7 +1129,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const pendingTxs = transactions.filter(t => {
       if (t.account_id !== card.id) return false;
       if (t.status !== TransactionStatus.PENDING) return false;
-      return isTxInCardInvoicePeriod(t.due_date, card, currentPeriod);
+      return InvoiceDomain.isTxInCardInvoicePeriod(t.due_date, card, currentPeriod);
     });
 
     if (pendingTxs.length === 0) {
@@ -1471,7 +1229,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const pendingTxs = transactions.filter(t => {
         if (t.account_id !== selectedCardForPayment.id) return false;
         if (t.status !== TransactionStatus.PENDING) return false;
-        return isTxInCardInvoicePeriod(t.due_date, selectedCardForPayment, currentPeriod);
+        return InvoiceDomain.isTxInCardInvoicePeriod(t.due_date, selectedCardForPayment, currentPeriod);
       });
 
       if (pendingTxs.length > 0) {
@@ -1712,13 +1470,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       'Ãµ': 'õ',
       'Ãº': 'ú',
       'Ã§': 'ç',
-      'Ã ': 'à',
+      'Ã\u00a0': 'à',
       'Ã‰': 'É',
       'Ã•': 'Õ',
       'Ã‡': 'Ç',
       'Ãš': 'Ú',
       'Ã“': 'Ó',
-      'Ã ': 'Á',
+      'Ã\u0081': 'Á',
       'Âº': 'º',
       'Âª': 'ª',
       'â€¢': '•',
@@ -4579,8 +4337,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             return (
               <motion.div 
                 key={card.id} 
-                className={`bg-gradient-to-tr ${CARD_GRADIENTS[idx % CARD_GRADIENTS.length]} p-6 rounded-3xl shadow-xl flex flex-col justify-between h-64 relative overflow-hidden`}
+                className={`bg-gradient-to-tr ${CARD_GRADIENTS[idx % CARD_GRADIENTS.length]} p-6 rounded-3xl shadow-xl flex flex-col justify-between h-64 relative overflow-hidden cursor-pointer`}
                 whileHover={{ y: -4 }}
+                onClick={() => {
+                  setDetailPeriod(new Date());
+                  setSelectedCardForDetails(card);
+                }}
               >
                 <div className="absolute right-0 top-0 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none" />
                 <div className="flex items-start justify-between relative z-10">
@@ -7299,208 +7061,64 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       </AnimatePresence>
 
       {/* Recurrence Edit Choice Modal */}
-      <AnimatePresence>
-        {isRecurrenceEditModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
-              onClick={() => setIsRecurrenceEditModalOpen(false)}
-            />
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }} 
-              animate={{ scale: 1, opacity: 1 }} 
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-3xl w-full max-w-md shadow-2xl relative z-10 p-8 overflow-hidden flex flex-col"
-            >
-              <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-6">
-                <AlertCircle className="text-blue-500" size={24} />
-                <h2 className="text-lg font-black text-slate-900 uppercase tracking-wide">
-                  Editar lançamento recorrente
-                </h2>
-              </div>
-              
-              <div className="text-sm font-semibold text-slate-500 mb-6 leading-relaxed">
-                Este lançamento faz parte de uma série. O que deseja alterar?
-              </div>
-
-              <div className="space-y-3 mb-8">
-                <label className={`flex items-center gap-3 p-4 border rounded-2xl cursor-pointer transition-all ${recurrenceEditOption === 'single' ? 'border-blue-500 bg-blue-50/20' : 'border-slate-100 bg-slate-50/50 hover:bg-slate-50'}`}>
-                  <input 
-                    type="radio" 
-                    name="recurrenceEditOption" 
-                    value="single" 
-                    checked={recurrenceEditOption === 'single'} 
-                    onChange={() => setRecurrenceEditOption('single')}
-                    className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
-                  />
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">Somente este lançamento</p>
-                    <p className="text-xs text-slate-400 mt-0.5">Altera apenas o lançamento selecionado.</p>
-                  </div>
-                </label>
-
-                <label className={`flex items-center gap-3 p-4 border rounded-2xl cursor-pointer transition-all ${recurrenceEditOption === 'following' ? 'border-blue-500 bg-blue-50/20' : 'border-slate-100 bg-slate-50/50 hover:bg-slate-50'}`}>
-                  <input 
-                    type="radio" 
-                    name="recurrenceEditOption" 
-                    value="following" 
-                    checked={recurrenceEditOption === 'following'} 
-                    onChange={() => setRecurrenceEditOption('following')}
-                    className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
-                  />
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">Este e os próximos</p>
-                    <p className="text-xs text-slate-400 mt-0.5">Altera este lançamento e todos os futuros não pagos.</p>
-                  </div>
-                </label>
-
-                <label className={`flex items-center gap-3 p-4 border rounded-2xl cursor-pointer transition-all ${recurrenceEditOption === 'all' ? 'border-blue-500 bg-blue-50/20' : 'border-slate-100 bg-slate-50/50 hover:bg-slate-50'}`}>
-                  <input 
-                    type="radio" 
-                    name="recurrenceEditOption" 
-                    value="all" 
-                    checked={recurrenceEditOption === 'all'} 
-                    onChange={() => setRecurrenceEditOption('all')}
-                    className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500"
-                  />
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">Todos do grupo</p>
-                    <p className="text-xs text-slate-400 mt-0.5">Altera todos os lançamentos não pagos deste grupo.</p>
-                  </div>
-                </label>
-              </div>
-              
-              <div className="flex gap-4">
-                <button 
-                  onClick={() => setIsRecurrenceEditModalOpen(false)} 
-                  className="flex-1 py-3 text-slate-500 bg-slate-50 hover:bg-slate-100 font-bold text-sm rounded-xl transition-all cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={handleConfirmRecurrenceEdit}
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl shadow-lg text-sm transition-all cursor-pointer"
-                >
-                  Confirmar
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <RecurrenceEditModal
+        isOpen={isRecurrenceEditModalOpen}
+        onClose={() => setIsRecurrenceEditModalOpen(false)}
+        option={recurrenceEditOption}
+        onOptionChange={setRecurrenceEditOption}
+        onConfirm={() => handleConfirmRecurrenceEdit(editingTransaction, handleCloseModal, setEditingTransaction)}
+      />
 
       {/* Modal: Pagar Fatura de Cartão de Crédito */}
-      <AnimatePresence>
-        {payInvoiceModalOpen && selectedCardForPayment && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
-              onClick={() => {
-                if (!loading) {
-                  setPayInvoiceModalOpen(false);
-                }
-              }}
-            />
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }} 
-              animate={{ scale: 1, opacity: 1 }} 
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-3xl w-full max-w-md shadow-2xl relative z-10 p-8 overflow-hidden flex flex-col"
-            >
-              <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-6">
-                <CreditCard className="text-blue-500 animate-pulse" size={24} />
-                <h2 className="text-xl font-black text-slate-900">
-                  Pagar Fatura
-                </h2>
-              </div>
+      <PayInvoiceModal
+        isOpen={payInvoiceModalOpen}
+        card={selectedCardForPayment}
+        onClose={() => setPayInvoiceModalOpen(false)}
+        loading={loading}
+        sourceAccountId={payInvoiceSourceAccountId}
+        onSourceAccountIdChange={setPayInvoiceSourceAccountId}
+        amountStr={payInvoiceAmountStr}
+        onAmountStrChange={setPayInvoiceAmountStr}
+        paymentDate={payInvoiceDate}
+        onPaymentDateChange={setPayInvoiceDate}
+        onConfirm={handlePreConfirmPayInvoice}
+        data={{
+          accounts,
+          currentPeriod
+        }}
+        invoiceService={{
+          getInvoicePeriodRangeStr: InvoiceDomain.getInvoicePeriodRangeStr,
+          getAccountLiveBalance
+        }}
+        formatters={{
+          currency: formatCurrency,
+          formatBRL
+        }}
+      />
 
-              <div className="space-y-4">
-                <p className="text-xs font-semibold text-slate-500 mb-2">
-                  Lançamento de pagamento da fatura do cartão <span className="font-extrabold text-slate-700">{selectedCardForPayment.name}</span>.
-                </p>
-
-                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-slate-700 text-xs font-semibold leading-relaxed mb-4 flex flex-col gap-1.5 shadow-sm">
-                  <div className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Período de Referência da Fatura</div>
-                  <div className="text-sm font-black text-slate-800 flex items-center gap-1.5">
-                    <Calendar size={14} className="text-blue-500" />
-                    {getInvoicePeriodRangeStr(selectedCardForPayment, currentPeriod)}
-                  </div>
-                  {!selectedCardForPayment.closing_day && (
-                    <div className="text-[10px] text-slate-400 font-medium mt-1">
-                      * Fechamento da fatura não configurado. Utilizando o mês calendário.
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Conta de Origem (Débito)*</label>
-                  <select
-                    value={payInvoiceSourceAccountId}
-                    onChange={(e) => setPayInvoiceSourceAccountId(e.target.value)}
-                    disabled={loading}
-                    className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800 font-bold disabled:opacity-50"
-                  >
-                    <option value="">Selecione uma conta...</option>
-                    {accounts
-                      .filter(a => a.type !== 'credit_card' && a.account_type !== 'credit_card')
-                      .map(acc => (
-                        <option key={acc.id} value={acc.id}>
-                          {acc.name} ({formatCurrency(getAccountLiveBalance(acc))})
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Valor do Pagamento (R$)*</label>
-                  <input 
-                    type="text" 
-                    placeholder="0,00" 
-                    disabled={loading}
-                    className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none font-bold text-slate-800 text-lg disabled:opacity-50"
-                    value={payInvoiceAmountStr} 
-                    onChange={(e) => setPayInvoiceAmountStr(formatBRL(e.target.value))}
-                  />
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Data do Pagamento*</label>
-                  <input 
-                    type="date" 
-                    disabled={loading}
-                    className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800 font-bold disabled:opacity-50"
-                    value={payInvoiceDate} 
-                    onChange={(e) => setPayInvoiceDate(e.target.value)}
-                  />
-                </div>
-
-                <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
-                  <button 
-                    onClick={() => setPayInvoiceModalOpen(false)} 
-                    disabled={loading}
-                    className="flex-1 font-bold text-slate-400 text-sm py-3 disabled:opacity-50"
-                  >
-                    Cancelar
-                  </button>
-                  <button 
-                    onClick={handlePreConfirmPayInvoice}
-                    disabled={loading}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl shadow-lg shadow-blue-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {loading ? 'Processando...' : 'Confirmar'}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Modal: Detalhes da Fatura do Cartão */}
+      <InvoiceDetailsModal
+        isOpen={!!selectedCardForDetails}
+        card={selectedCardForDetails}
+        onClose={() => setSelectedCardForDetails(null)}
+        period={detailPeriod}
+        onPeriodChange={setDetailPeriod}
+        data={{
+          accounts,
+          categories,
+          transactions
+        }}
+        invoiceService={{
+          getInvoicePeriodRangeStr: InvoiceDomain.getInvoicePeriodRangeStr,
+          getInvoiceTransactions,
+          getInvoiceTotalAmount,
+          getInvoiceStatus
+        }}
+        formatters={{
+          currency: formatCurrency,
+          formatDateBR
+        }}
+      />
 
       <input 
         type="file" 
