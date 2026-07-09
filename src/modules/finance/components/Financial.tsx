@@ -610,7 +610,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   // Load finance datasets from DB with visual fallbacks if null
-  const loadFinancialData = async () => {
+  async function loadFinancialData() {
     setLoading(true);
     try {
       const [accs, cats, txs] = await Promise.all([
@@ -623,7 +623,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   useEffect(() => {
     loadFinancialData();
