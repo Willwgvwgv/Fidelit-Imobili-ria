@@ -533,6 +533,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   const handleEditTransactionClick = (tx: FinancialTransaction) => {
+    setSelectedCardForDetails(null);
     setEditingTransaction(tx);
     setNewTransaction({
       type: tx.type,
@@ -581,6 +582,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   const handleDuplicateTransaction = (tx: FinancialTransaction) => {
+    setSelectedCardForDetails(null);
     setEditingTransaction(null);
     setNewTransaction({
       type: tx.type,
