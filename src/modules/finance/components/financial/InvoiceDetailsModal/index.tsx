@@ -58,85 +58,120 @@ export const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
             </div>
 
             {/* Seletor de Mês e Resumo */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-              {/* Seletor de Mês */}
-              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col justify-between">
-                <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase mb-2">Mês de Referência</span>
-                <div className="flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const prev = new Date(period.getFullYear(), period.getMonth() - 1, 1);
-                      onPeriodChange(prev);
-                    }}
-                    className="p-1.5 hover:bg-slate-200/80 rounded-lg text-slate-500 hover:text-slate-700 transition-all cursor-pointer"
-                  >
-                    <ChevronLeft size={18} />
-                  </button>
-                  <span className="text-sm font-black text-slate-800 uppercase tracking-wide">
-                    {period.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = new Date(period.getFullYear(), period.getMonth() + 1, 1);
-                      onPeriodChange(next);
-                    }}
-                    className="p-1.5 hover:bg-slate-200/80 rounded-lg text-slate-500 hover:text-slate-700 transition-all cursor-pointer"
-                  >
-                    <ChevronRight size={18} />
-                  </button>
-                </div>
-              </div>
+            {(() => {
+              const txs = getInvoiceTransactions(card.id, period);
+              const countStr = `${txs.length} ${txs.length === 1 ? 'lançamento' : 'lançamentos'}`;
+              const totalAmount = getInvoiceTotalAmount(card.id, period);
+              const formattedTotal = currency(totalAmount);
 
-              {/* Período de Fechamento */}
-              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex flex-col justify-center">
-                <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase mb-1">Período da Fatura</span>
-                <span className="text-sm font-bold text-slate-700">
-                  {getInvoicePeriodRangeStr(card, period)}
-                </span>
-                {!card.closing_day && (
-                  <span className="text-[9px] text-slate-400 mt-1 font-medium">
-                    * Usando o mês calendário cheio.
-                  </span>
-                )}
-              </div>
+              // Calculate short Closing and Due dates based on card and period month/year
+              const closingDay = card.closing_day || 10;
+              const dueDay = card.due_day || 15;
+              const targetYear = period.getFullYear();
+              const targetMonth = period.getMonth();
+              const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+              const safeClosingDay = Math.min(closingDay, daysInTargetMonth);
+              const safeDueDay = Math.min(dueDay, daysInTargetMonth);
 
-              {/* Resumo Financeiro e Status */}
-              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase block mb-1">Total da Fatura</span>
-                  <span className="text-xl font-black text-slate-900">
-                    {currency(getInvoiceTotalAmount(card.id, period))}
-                  </span>
-                </div>
-                <div>
-                  {(() => {
-                    const status = getInvoiceStatus(card.id, period);
-                    let badgeClass = "";
-                    let statusText = "";
-                    if (status === 'PAGA') {
-                      badgeClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
-                      statusText = "Paga";
-                    } else if (status === 'FECHADA') {
-                      badgeClass = "bg-amber-50 text-amber-700 border-amber-100";
-                      statusText = "Fechada";
-                    } else if (status === 'VENCIDA') {
-                      badgeClass = "bg-rose-50 text-rose-700 border-rose-100";
-                      statusText = "Vencida";
-                    } else {
-                      badgeClass = "bg-blue-50 text-blue-700 border-blue-100";
-                      statusText = "Aberta";
-                    }
-                    return (
-                      <span className={`px-3 py-1.5 rounded-full border text-xs font-black uppercase tracking-wider ${badgeClass}`}>
-                        {statusText}
+              const formatShortDate = (day: number, month: number) => {
+                const dy = String(day).padStart(2, '0');
+                const mo = String(month + 1).padStart(2, '0');
+                return `${dy}/${mo}`;
+              };
+
+              const closingDateStr = formatShortDate(safeClosingDay, targetMonth);
+              const dueDateStr = formatShortDate(safeDueDay, targetMonth);
+
+              const capitalizedMonth = period.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+              const monthYearStr = `${capitalizedMonth.charAt(0).toUpperCase() + capitalizedMonth.slice(1)}/${period.getFullYear()}`;
+
+              return (
+                <div className="bg-slate-50 border border-slate-100 rounded-3xl p-6 mb-6 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">
+                  {/* Left Column: Month Selector with Navigation & Item Count */}
+                  <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const prev = new Date(period.getFullYear(), period.getMonth() - 1, 1);
+                        onPeriodChange(prev);
+                      }}
+                      className="p-3 bg-white hover:bg-slate-100 border border-slate-100 hover:border-slate-200 text-slate-600 hover:text-slate-800 rounded-2xl shadow-sm transition-all cursor-pointer hover:scale-105 active:scale-95 shrink-0 flex items-center justify-center"
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+
+                    <div className="text-center md:text-left min-w-[120px]">
+                      <h3 className="text-lg font-black text-slate-800 capitalize tracking-tight leading-none">
+                        {monthYearStr}
+                      </h3>
+                      <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-black text-slate-400 uppercase tracking-wider bg-slate-200/50 px-2 py-0.5 rounded-full">
+                        {countStr}
                       </span>
-                    );
-                  })()}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = new Date(period.getFullYear(), period.getMonth() + 1, 1);
+                        onPeriodChange(next);
+                      }}
+                      className="p-3 bg-white hover:bg-slate-100 border border-slate-100 hover:border-slate-200 text-slate-600 hover:text-slate-800 rounded-2xl shadow-sm transition-all cursor-pointer hover:scale-105 active:scale-95 shrink-0 flex items-center justify-center"
+                    >
+                      <ChevronRight size={20} />
+                    </button>
+                  </div>
+
+                  {/* Middle Column: Big Invoice Total and Dates Info */}
+                  <div className="flex flex-col items-center text-center gap-1">
+                    <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Valor Total</span>
+                    <span className="text-3xl font-black text-slate-900 tracking-tight leading-none">
+                      {formattedTotal}
+                    </span>
+                    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs font-bold text-slate-500 mt-2">
+                      <span className="bg-white px-2.5 py-1 rounded-xl border border-slate-100 shadow-sm">
+                        Fechamento: <strong className="text-slate-800 font-extrabold">{closingDateStr}</strong>
+                      </span>
+                      <span className="bg-white px-2.5 py-1 rounded-xl border border-slate-100 shadow-sm">
+                        Vencimento: <strong className="text-slate-800 font-extrabold">{dueDateStr}</strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Status Indicator */}
+                  <div className="flex flex-col items-center justify-center shrink-0 w-full md:w-auto">
+                    {(() => {
+                      const status = getInvoiceStatus(card.id, period);
+                      let badgeClass = "";
+                      let statusText = "";
+                      let dotClass = "";
+                      if (status === 'PAGA') {
+                        badgeClass = "bg-emerald-50 text-emerald-700 border-emerald-100";
+                        statusText = "Paga";
+                        dotClass = "bg-emerald-500";
+                      } else if (status === 'FECHADA') {
+                        badgeClass = "bg-amber-50 text-amber-700 border-amber-100";
+                        statusText = "Fechada";
+                        dotClass = "bg-amber-500";
+                      } else if (status === 'VENCIDA') {
+                        badgeClass = "bg-rose-50 text-rose-700 border-rose-100";
+                        statusText = "Vencida";
+                        dotClass = "bg-rose-500";
+                      } else {
+                        badgeClass = "bg-blue-50 text-blue-700 border-blue-100";
+                        statusText = "Aberta";
+                        dotClass = "bg-blue-500";
+                      }
+                      return (
+                        <span className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl border text-xs font-black uppercase tracking-wider shadow-sm ${badgeClass}`}>
+                          <span className={`w-2 h-2 rounded-full ${dotClass}`} />
+                          {statusText}
+                        </span>
+                      );
+                    })()}
+                  </div>
                 </div>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Tabela de Lançamentos */}
             <div className="flex-1 overflow-y-auto min-h-[250px] border border-slate-100 rounded-2xl">

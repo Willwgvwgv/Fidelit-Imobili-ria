@@ -41,7 +41,9 @@ import {
   X,
   Receipt,
   Activity,
-  FileDown
+  FileDown,
+  ArrowLeft,
+  History
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -250,6 +252,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   // Card invoice details states
   const [selectedCardForDetails, setSelectedCardForDetails] = useState<FinancialAccount | null>(null);
+  const [selectedCardForHistory, setSelectedCardForHistory] = useState<FinancialAccount | null>(null);
   const [detailPeriod, setDetailPeriod] = useState<Date>(new Date());
   const [showMismatchConfirm, setShowMismatchConfirm] = useState<boolean>(false);
 
@@ -942,6 +945,54 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   const getPurchaseInvoicePeriodStr = (dueDateStr: string, card: FinancialAccount) => {
     return InvoiceDomain.getPurchaseInvoicePeriodStr(dueDateStr, card, currentPeriod);
+  };
+
+  const getInvoicePeriodForDate = (dueDateStr: string, card: FinancialAccount): Date => {
+    const parts = dueDateStr.split('-');
+    if (parts.length < 3) {
+      return new Date();
+    }
+    const yr = parseInt(parts[0], 10);
+    const mo = parseInt(parts[1], 10); // 1-indexed
+    const dy = parseInt(parts[2], 10);
+
+    const closingDay = card.closing_day;
+    if (!closingDay || closingDay < 1 || closingDay > 31) {
+      return new Date(yr, mo - 1, 1);
+    }
+
+    if (dy <= closingDay) {
+      return new Date(yr, mo - 1, 1);
+    } else {
+      return new Date(yr, mo, 1);
+    }
+  };
+
+  const getCardCompetencies = (card: FinancialAccount): Date[] => {
+    const periodsMap = new Map<string, Date>();
+
+    // 1. Generate last 6 months (including current month)
+    const today = new Date();
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      periodsMap.set(key, d);
+    }
+
+    // 2. Add other months from transactions
+    const cardTxs = transactions.filter(t => t.account_id === card.id);
+    cardTxs.forEach(tx => {
+      if (tx.due_date) {
+        const p = getInvoicePeriodForDate(tx.due_date, card);
+        const key = `${p.getFullYear()}-${p.getMonth()}`;
+        if (!periodsMap.has(key)) {
+          periodsMap.set(key, p);
+        }
+      }
+    });
+
+    // Sort periods in descending order (newest first)
+    return Array.from(periodsMap.values()).sort((a, b) => b.getTime() - a.getTime());
   };
 
   const handleOpenImportInvoiceModal = (card: FinancialAccount) => {
@@ -4330,9 +4381,145 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     );
   };
 
+  const getInvoiceStatusLabelAndBadge = (status: string) => {
+    switch (status) {
+      case 'PAGA':
+        return {
+          label: 'Paga',
+          badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+          dotClass: 'bg-emerald-500'
+        };
+      case 'FECHADA':
+        return {
+          label: 'Fechada',
+          badgeClass: 'bg-amber-50 text-amber-700 border-amber-100',
+          dotClass: 'bg-amber-500'
+        };
+      case 'VENCIDA':
+        return {
+          label: 'Vencida',
+          badgeClass: 'bg-rose-50 text-rose-700 border-rose-100',
+          dotClass: 'bg-rose-500'
+        };
+      default:
+        return {
+          label: 'Aberta',
+          badgeClass: 'bg-blue-50 text-blue-700 border-blue-100',
+          dotClass: 'bg-blue-500'
+        };
+    }
+  };
+
+  const renderHistoricoCompleto = (card: FinancialAccount) => {
+    const competencies = getCardCompetencies(card);
+    const groupedByYear: { [year: number]: Date[] } = {};
+    competencies.forEach(d => {
+      const yr = d.getFullYear();
+      if (!groupedByYear[yr]) {
+        groupedByYear[yr] = [];
+      }
+      groupedByYear[yr].push(d);
+    });
+    const years = Object.keys(groupedByYear).map(Number).sort((a, b) => b - a);
+
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <button 
+            onClick={() => setSelectedCardForHistory(null)}
+            className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200/80 px-4 py-2.5 rounded-xl transition-all cursor-pointer w-fit"
+          >
+            <ArrowLeft size={14} /> Voltar para os Cartões
+          </button>
+          <div className="flex items-center gap-2 bg-blue-50 text-blue-700 border border-blue-100 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide">
+            <History size={14} /> Histórico Completo de Faturas
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm">
+          <div className="flex items-center gap-4 mb-6 pb-4 border-b border-slate-100">
+            <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black">
+              <CreditCard size={22} />
+            </div>
+            <div>
+              <h3 className="text-xl font-black text-slate-900">{card.name}</h3>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Limite Total: {formatCurrency(card.credit_limit || 25000)}
+              </p>
+            </div>
+          </div>
+
+          {years.length === 0 ? (
+            <div className="text-center py-12 text-slate-400">
+              <Calendar size={32} className="mx-auto mb-2 opacity-50" />
+              <p className="text-xs font-bold uppercase tracking-wider">Nenhuma fatura encontrada.</p>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              {years.map(year => (
+                <div key={year} className="space-y-4">
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-base font-black text-slate-900 tracking-tight">{year}</span>
+                    <div className="h-px bg-slate-100 flex-1" />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {groupedByYear[year].map((period, pIdx) => {
+                      const total = getInvoiceTotalAmount(card.id, period);
+                      const count = getInvoiceTransactions(card.id, period).length;
+                      const status = getInvoiceStatus(card.id, period);
+                      const { label, badgeClass, dotClass } = getInvoiceStatusLabelAndBadge(status);
+
+                      return (
+                        <motion.div
+                          key={pIdx}
+                          whileHover={{ y: -2, borderColor: '#bfdbfe' }}
+                          onClick={() => {
+                            setDetailPeriod(period);
+                            setSelectedCardForDetails(card);
+                          }}
+                          className="bg-slate-50 hover:bg-white border border-slate-100 rounded-2xl p-4 shadow-sm hover:shadow-md cursor-pointer transition-all flex flex-col justify-between space-y-3"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-black text-slate-800 uppercase tracking-wide">
+                              {period.toLocaleDateString('pt-BR', { month: 'long' })}
+                            </span>
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${badgeClass}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
+                              {label}
+                            </span>
+                          </div>
+
+                          <div className="flex items-end justify-between">
+                            <div>
+                              <span className="text-[9px] font-black tracking-widest text-slate-400 uppercase block">Total</span>
+                              <span className="text-base font-black text-slate-900">{formatCurrency(total)}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[9px] font-black tracking-widest text-slate-400 uppercase block">Lançamentos</span>
+                              <span className="text-xs font-bold text-slate-600">{count} {count === 1 ? 'item' : 'itens'}</span>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // 3. View: Cartões (Credit Card Wallet)
   const renderCartoes = () => {
     const cardAccounts = accounts.filter(a => a.type === 'credit_card' || a.type === 'CREDIT' || a.name.toLowerCase().includes('cartão'));
+
+    if (selectedCardForHistory) {
+      return renderHistoricoCompleto(selectedCardForHistory);
+    }
 
     return (
       <div className="space-y-6">
@@ -4342,75 +4529,140 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             const openInvoices = Math.abs(getAccountLiveBalance(card));
             const available = limit - openInvoices;
             const progressPct = Math.round((openInvoices / limit) * 100);
+            const competencies = getCardCompetencies(card).slice(0, 6);
 
             return (
-              <motion.div 
-                key={card.id} 
-                className={`bg-gradient-to-tr ${CARD_GRADIENTS[idx % CARD_GRADIENTS.length]} p-6 rounded-3xl shadow-xl flex flex-col justify-between h-64 relative overflow-hidden cursor-pointer`}
-                whileHover={{ y: -4 }}
-                onClick={() => {
-                  setDetailPeriod(new Date());
-                  setSelectedCardForDetails(card);
-                }}
-              >
-                <div className="absolute right-0 top-0 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none" />
-                <div className="flex items-start justify-between relative z-10">
+              <div key={card.id} className="bg-white border border-slate-100 rounded-3xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col space-y-4">
+                {/* Physical Credit Card Visual */}
+                <motion.div 
+                  className={`bg-gradient-to-tr ${CARD_GRADIENTS[idx % CARD_GRADIENTS.length]} p-6 rounded-2xl shadow-lg flex flex-col justify-between h-56 relative overflow-hidden cursor-pointer shrink-0`}
+                  whileHover={{ y: -2 }}
+                  onClick={() => {
+                    setDetailPeriod(new Date());
+                    setSelectedCardForDetails(card);
+                  }}
+                >
+                  <div className="absolute right-0 top-0 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none" />
+                  <div className="flex items-start justify-between relative z-10">
+                    <div>
+                      <h3 className="text-base font-black tracking-tight leading-none text-white">{card.name}</h3>
+                    </div>
+                    <div className="w-10 h-6 bg-amber-400/80 rounded-md border border-amber-300 opacity-80" />
+                  </div>
+
+                  <div className="mt-2 relative z-10">
+                    <p className="text-xl font-black text-white">{formatCurrency(openInvoices)}</p>
+                  </div>
+
+                  <div className="space-y-1 mt-auto relative z-10">
+                    <div className="flex items-center justify-between text-[10px] font-bold text-white/80 uppercase">
+                      <span>Limite: {formatCurrency(limit)}</span>
+                      <span>Disp: {formatCurrency(available)}</span>
+                    </div>
+                    <div className="w-full bg-white/20 h-1.5 rounded-full overflow-hidden">
+                      <div className="bg-white h-full" style={{ width: `${Math.min(progressPct, 100)}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-3 gap-1.5 relative z-10">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenImportInvoiceModal(card);
+                      }}
+                      className="py-1.5 px-1 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex flex-col items-center justify-center gap-0.5 cursor-pointer"
+                      title="Importar Fatura"
+                    >
+                      <Upload size={10} />
+                      <span className="text-center text-[8px]">Importar</span>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenQuickLaunchModal(card);
+                      }}
+                      className="py-1.5 px-1 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex flex-col items-center justify-center gap-0.5 cursor-pointer"
+                      title="+ Lançar"
+                    >
+                      <Plus size={10} />
+                      <span className="text-center text-[8px]">+ Lançar</span>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenPayInvoiceModal(card);
+                      }}
+                      className="py-1.5 px-1 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex flex-col items-center justify-center gap-0.5 cursor-pointer"
+                      title="Pagar Fatura"
+                    >
+                      <DollarSign size={10} />
+                      <span className="text-center text-[8px]">Pagar</span>
+                    </button>
+                  </div>
+                </motion.div>
+
+                {/* Últimas Faturas Section */}
+                <div className="flex-1 flex flex-col justify-between">
                   <div>
-                    <h3 className="text-lg font-black tracking-tight leading-none">{card.name}</h3>
-                  </div>
-                  <div className="w-10 h-6 bg-amber-400/80 rounded-md border border-amber-300 opacity-80" />
-                </div>
+                    <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
+                      <Clock size={11} className="text-slate-400" /> Últimas Faturas (Competências)
+                    </h4>
 
-                <div className="mt-2">
-                  <p className="text-2xl font-black">{formatCurrency(openInvoices)}</p>
-                </div>
+                    {competencies.length === 0 ? (
+                      <div className="text-center py-6 text-slate-400 border border-dashed border-slate-100 rounded-2xl">
+                        <p className="text-[10px] font-bold uppercase tracking-wider">Nenhuma competência.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {competencies.map((period, pIdx) => {
+                          const total = getInvoiceTotalAmount(card.id, period);
+                          const count = getInvoiceTransactions(card.id, period).length;
+                          const status = getInvoiceStatus(card.id, period);
+                          const { label, badgeClass, dotClass } = getInvoiceStatusLabelAndBadge(status);
 
-                <div className="space-y-1 mt-auto">
-                  <div className="flex items-center justify-between text-[10px] font-bold text-white/80 uppercase">
-                    <span>Limite: {formatCurrency(limit)}</span>
-                    <span>Disp: {formatCurrency(available)}</span>
-                  </div>
-                  <div className="w-full bg-white/20 h-1.5 rounded-full overflow-hidden">
-                    <div className="bg-white h-full" style={{ width: `${Math.min(progressPct, 100)}%` }} />
-                  </div>
-                </div>
+                          return (
+                            <div 
+                              key={pIdx}
+                              onClick={() => {
+                                setDetailPeriod(period);
+                                setSelectedCardForDetails(card);
+                              }}
+                              className="flex items-center justify-between p-2 rounded-xl border border-slate-100 hover:border-blue-100 bg-slate-50/50 hover:bg-white hover:shadow-sm cursor-pointer transition-all"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <Calendar size={11} className="text-slate-400 shrink-0" />
+                                <span className="text-[11px] font-black text-slate-700 capitalize">
+                                  {period.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '')}
+                                </span>
+                              </div>
 
-                <div className="mt-4 grid grid-cols-3 gap-1.5 relative z-10">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenImportInvoiceModal(card);
-                    }}
-                    className="py-2 px-1 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex flex-col items-center justify-center gap-1 cursor-pointer"
-                    title="Importar Fatura"
+                              <div className="flex items-center gap-2">
+                                <span className="text-[9px] font-bold text-slate-400">
+                                  {count} {count === 1 ? 'item' : 'itens'}
+                                </span>
+                                <span className="text-[11px] font-black text-slate-900 min-w-[65px] text-right">
+                                  {formatCurrency(total)}
+                                </span>
+                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border ${badgeClass}`}>
+                                  <span className={`w-1 h-1 rounded-full ${dotClass}`} />
+                                  {label}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <button 
+                    onClick={() => setSelectedCardForHistory(card)}
+                    className="w-full mt-3 py-2 text-center text-[10px] font-black uppercase tracking-wider text-blue-600 hover:text-blue-700 bg-blue-50/40 hover:bg-blue-50 rounded-xl transition-all border border-blue-100/50 cursor-pointer flex items-center justify-center gap-1"
                   >
-                    <Upload size={11} />
-                    <span className="text-center">Importar Fatura</span>
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenQuickLaunchModal(card);
-                    }}
-                    className="py-2 px-1 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex flex-col items-center justify-center gap-1 cursor-pointer"
-                    title="+ Lançar"
-                  >
-                    <Plus size={11} />
-                    <span className="text-center">+ Lançar</span>
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenPayInvoiceModal(card);
-                    }}
-                    className="py-2 px-1 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex flex-col items-center justify-center gap-1 cursor-pointer"
-                    title="Pagar Fatura"
-                  >
-                    <DollarSign size={11} />
-                    <span className="text-center">Pagar Fatura</span>
+                    <History size={10} /> Ver Histórico Completo
                   </button>
                 </div>
-              </motion.div>
+              </div>
             );
           })}
 
