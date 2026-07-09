@@ -24,4 +24,11 @@ export interface InvoiceDetailsModalProps {
     currency: (val: number) => string;
     formatDateBR: (date: string | null | undefined) => string;
   };
+
+  onEditTransaction?: (tx: FinancialTransaction) => void;
+  onDeleteTransaction?: (id: string) => void;
+  onDuplicateTransaction?: (tx: FinancialTransaction) => void;
+  onQuickLaunch?: (card: FinancialAccount) => void;
+  onPayInvoice?: (card: FinancialAccount) => void;
+  categoryGroups?: Record<string, string>;
 }

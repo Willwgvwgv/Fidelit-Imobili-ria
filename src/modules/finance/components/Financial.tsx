@@ -17,6 +17,7 @@ import {
   Tag,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   HelpCircle,
   Bell,
   Landmark,
@@ -255,6 +256,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [selectedCardForHistory, setSelectedCardForHistory] = useState<FinancialAccount | null>(null);
   const [detailPeriod, setDetailPeriod] = useState<Date>(new Date());
   const [showMismatchConfirm, setShowMismatchConfirm] = useState<boolean>(false);
+  const [expandedYears, setExpandedYears] = useState<Record<number, boolean>>({ [new Date().getFullYear()]: true });
 
   // Card invoice import and quick launch states
   const cardFileInputRef = useRef<HTMLInputElement>(null);
@@ -576,6 +578,24 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       }
     });
     setConfirmModalOpen(true);
+  };
+
+  const handleDuplicateTransaction = (tx: FinancialTransaction) => {
+    setEditingTransaction(null);
+    setNewTransaction({
+      type: tx.type,
+      amount: tx.amount,
+      description: `${tx.description} (Cópia)`,
+      due_date: tx.due_date,
+      status: tx.status,
+      account_id: tx.account_id,
+      category_id: tx.category_id,
+      notes: tx.notes || '',
+      payment_date: tx.payment_date || undefined,
+      agency_id: tx.agency_id
+    });
+    setModalType('transaction');
+    setIsModalOpen(true);
   };
 
   const handleDeleteSelected = () => {
@@ -971,19 +991,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const getCardCompetencies = (card: FinancialAccount): Date[] => {
     const periodsMap = new Map<string, Date>();
 
-    // 1. Generate last 6 months (including current month)
-    const today = new Date();
-    for (let i = 0; i < 6; i++) {
-      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
-      periodsMap.set(key, d);
-    }
-
-    // 2. Add other months from transactions
+    // Add only months from actual transactions that belong to this card
     const cardTxs = transactions.filter(t => t.account_id === card.id);
     cardTxs.forEach(tx => {
-      if (tx.due_date) {
-        const p = getInvoicePeriodForDate(tx.due_date, card);
+      const dateStr = tx.due_date || tx.payment_date;
+      if (dateStr) {
+        const p = getInvoicePeriodForDate(dateStr, card);
         const key = `${p.getFullYear()}-${p.getMonth()}`;
         if (!periodsMap.has(key)) {
           periodsMap.set(key, p);
@@ -4432,12 +4445,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             <ArrowLeft size={14} /> Voltar para os Cartões
           </button>
           <div className="flex items-center gap-2 bg-blue-50 text-blue-700 border border-blue-100 px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide">
-            <History size={14} /> Histórico Completo de Faturas
+            <History size={14} /> Linha do Tempo de Faturas
           </div>
         </div>
 
         <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm">
-          <div className="flex items-center gap-4 mb-6 pb-4 border-b border-slate-100">
+          <div className="flex items-center gap-4 mb-8 pb-4 border-b border-slate-100">
             <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black">
               <CreditCard size={22} />
             </div>
@@ -4455,57 +4468,118 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <p className="text-xs font-bold uppercase tracking-wider">Nenhuma fatura encontrada.</p>
             </div>
           ) : (
-            <div className="space-y-8">
-              {years.map(year => (
-                <div key={year} className="space-y-4">
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-base font-black text-slate-900 tracking-tight">{year}</span>
-                    <div className="h-px bg-slate-100 flex-1" />
-                  </div>
+            <div className="relative pl-6 md:pl-8 border-l border-slate-100 ml-3 md:ml-4 space-y-12 py-2">
+              {years.map(year => {
+                const yearPeriods = groupedByYear[year];
+                return (
+                  <div key={year} className="relative">
+                    {/* Year Marker Node */}
+                    <div className="absolute -left-[31px] md:-left-[39px] top-1.5 w-6 h-6 rounded-full bg-slate-900 border-4 border-white shadow-sm flex items-center justify-center text-[10px] font-black text-white shrink-0" />
+                    <div className="mb-4">
+                      <span className="text-base font-black text-slate-900 tracking-tight block">Ano {year}</span>
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                        {yearPeriods.length} {yearPeriods.length === 1 ? 'fatura registrada' : 'faturas registradas'}
+                      </span>
+                    </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {groupedByYear[year].map((period, pIdx) => {
-                      const total = getInvoiceTotalAmount(card.id, period);
-                      const count = getInvoiceTransactions(card.id, period).length;
-                      const status = getInvoiceStatus(card.id, period);
-                      const { label, badgeClass, dotClass } = getInvoiceStatusLabelAndBadge(status);
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                      {yearPeriods.map((period, pIdx) => {
+                        const txs = getInvoiceTransactions(card.id, period);
+                        const total = getInvoiceTotalAmount(card.id, period);
+                        const count = txs.length;
+                        const status = getInvoiceStatus(card.id, period);
+                        const { label, badgeClass, dotClass } = getInvoiceStatusLabelAndBadge(status);
 
-                      return (
-                        <motion.div
-                          key={pIdx}
-                          whileHover={{ y: -2, borderColor: '#bfdbfe' }}
-                          onClick={() => {
-                            setDetailPeriod(period);
-                            setSelectedCardForDetails(card);
-                          }}
-                          className="bg-slate-50 hover:bg-white border border-slate-100 rounded-2xl p-4 shadow-sm hover:shadow-md cursor-pointer transition-all flex flex-col justify-between space-y-3"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-black text-slate-800 uppercase tracking-wide">
-                              {period.toLocaleDateString('pt-BR', { month: 'long' })}
-                            </span>
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${badgeClass}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
-                              {label}
-                            </span>
-                          </div>
+                        // Calculate paid vs pending amounts
+                        const paid = txs.reduce((sum, tx) => {
+                          const isPaid = tx.status === TransactionStatus.PAID || (tx.settled_by_transaction_id && tx.settled_by_transaction_id.trim() !== '');
+                          return isPaid ? sum + tx.amount : sum;
+                        }, 0);
+                        const pending = Math.max(0, total - paid);
 
-                          <div className="flex items-end justify-between">
-                            <div>
-                              <span className="text-[9px] font-black tracking-widest text-slate-400 uppercase block">Total</span>
-                              <span className="text-base font-black text-slate-900">{formatCurrency(total)}</span>
+                        const capitalizedMonth = period.toLocaleDateString('pt-BR', { month: 'long' });
+                        const displayMonth = capitalizedMonth.charAt(0).toUpperCase() + capitalizedMonth.slice(1);
+
+                        const closingDay = card.closing_day || 10;
+                        const dueDay = card.due_day || 15;
+                        const targetYear = period.getFullYear();
+                        const targetMonth = period.getMonth();
+                        const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+                        const safeClosingDay = Math.min(closingDay, daysInTargetMonth);
+                        const safeDueDay = Math.min(dueDay, daysInTargetMonth);
+
+                        const formatShortDate = (day: number, month: number, yr: number) => {
+                          const dy = String(day).padStart(2, '0');
+                          const mo = String(month + 1).padStart(2, '0');
+                          return `${dy}/${mo}/${yr}`;
+                        };
+
+                        const closingDateStr = formatShortDate(safeClosingDay, targetMonth, targetYear);
+                        const dueDateStr = formatShortDate(safeDueDay, targetMonth, targetYear);
+
+                        return (
+                          <div
+                            key={pIdx}
+                            onClick={() => {
+                              setDetailPeriod(period);
+                              setSelectedCardForDetails(card);
+                            }}
+                            className="bg-slate-50/35 hover:bg-white border border-slate-100 hover:border-blue-100 p-4.5 rounded-2xl shadow-sm hover:shadow-md cursor-pointer transition-all duration-200 relative group"
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-white border border-slate-100 flex items-center justify-center text-slate-500 shrink-0">
+                                  <Calendar size={14} />
+                                </div>
+                                <div>
+                                  <span className="text-sm font-black text-slate-800 block leading-none">
+                                    {displayMonth}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-400 block mt-1">
+                                    {count} {count === 1 ? 'lançamento' : 'lançamentos'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border shadow-sm ${badgeClass}`}>
+                                <span className={`w-1 h-1 rounded-full ${dotClass}`} />
+                                {label}
+                              </span>
                             </div>
-                            <div className="text-right">
-                              <span className="text-[9px] font-black tracking-widest text-slate-400 uppercase block">Lançamentos</span>
-                              <span className="text-xs font-bold text-slate-600">{count} {count === 1 ? 'item' : 'itens'}</span>
+
+                            {/* Financial Data Row */}
+                            <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-slate-100/60 text-xs">
+                              <div>
+                                <span className="text-[8px] font-black tracking-widest text-slate-400 uppercase block mb-0.5">Total</span>
+                                <span className="font-black text-slate-800 font-mono block">{formatCurrency(total)}</span>
+                              </div>
+                              <div>
+                                <span className="text-[8px] font-black tracking-widest text-emerald-600 uppercase block mb-0.5">Pago</span>
+                                <span className="font-black text-emerald-700 font-mono block">{formatCurrency(paid)}</span>
+                              </div>
+                              <div>
+                                <span className="text-[8px] font-black tracking-widest text-amber-500 uppercase block mb-0.5">Pendente</span>
+                                <span className="font-black text-amber-700 font-mono block">{formatCurrency(pending)}</span>
+                              </div>
+                            </div>
+
+                            {/* Closing and Due dates */}
+                            <div className="flex justify-between items-center mt-3 pt-2.5 border-t border-slate-100/40 text-[10px]">
+                              <span className="font-bold text-slate-400">Fechamento: <strong className="text-slate-600 font-mono font-black">{closingDateStr}</strong></span>
+                              <span className="font-bold text-slate-400">Vencimento: <strong className="text-slate-600 font-mono font-black">{dueDateStr}</strong></span>
+                            </div>
+
+                            {/* Chevron navigation overlay */}
+                            <div className="absolute right-3 bottom-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <ChevronRight size={14} className="text-blue-500" />
                             </div>
                           </div>
-                        </motion.div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -4528,97 +4602,146 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             const limit = card.credit_limit || 25000;
             const openInvoices = Math.abs(getAccountLiveBalance(card));
             const available = limit - openInvoices;
-            const progressPct = Math.round((openInvoices / limit) * 100);
-            const competencies = getCardCompetencies(card).slice(0, 6);
+            const progressPct = limit > 0 ? Math.round((openInvoices / limit) * 100) : 0;
+            const competencies = getCardCompetencies(card).slice(0, 5);
+
+            // Latest transaction for last update tracking
+            const cardTxs = transactions.filter(t => t.account_id === card.id);
+            const latestTx = cardTxs.length > 0 
+              ? cardTxs.reduce((latest, current) => {
+                  const latDate = latest.due_date || latest.payment_date || '';
+                  const curDate = current.due_date || current.payment_date || '';
+                  return curDate > latDate ? current : latest;
+                }) 
+              : null;
+
+            const lastUpdateStr = latestTx 
+              ? `${formatDateBR(latestTx.due_date || latestTx.payment_date)}`
+              : 'N/A';
+
+            // Guessed brand and bank for Bloco 1
+            const getCardMeta = (name: string) => {
+              const lowercase = name.toLowerCase();
+              let brand = 'Visa';
+              if (lowercase.includes('master') || lowercase.includes('mc')) brand = 'Mastercard';
+              else if (lowercase.includes('elo')) brand = 'Elo';
+              else if (lowercase.includes('amex') || lowercase.includes('american')) brand = 'Amex';
+
+              let bank = 'Itaú';
+              if (lowercase.includes('nubank') || lowercase.includes('nu')) bank = 'Nubank';
+              else if (lowercase.includes('inter')) bank = 'Inter';
+              else if (lowercase.includes('bradesco')) bank = 'Bradesco';
+              else if (lowercase.includes('santander')) bank = 'Santander';
+              else if (lowercase.includes('brasil') || lowercase.includes('bb')) bank = 'Banco do Brasil';
+              return { brand, bank };
+            };
+            const meta = getCardMeta(card.name);
+
+            // 16-segment custom progress bar requested: ██████████░░░░░░
+            const barLength = 16;
+            const filledCount = Math.min(Math.max(Math.round((progressPct / 100) * barLength), 0), barLength);
+            const barStr = "█".repeat(filledCount) + "░".repeat(barLength - filledCount);
 
             return (
-              <div key={card.id} className="bg-white border border-slate-100 rounded-3xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col space-y-4">
-                {/* Physical Credit Card Visual */}
-                <motion.div 
-                  className={`bg-gradient-to-tr ${CARD_GRADIENTS[idx % CARD_GRADIENTS.length]} p-6 rounded-2xl shadow-lg flex flex-col justify-between h-56 relative overflow-hidden cursor-pointer shrink-0`}
-                  whileHover={{ y: -2 }}
-                  onClick={() => {
-                    setDetailPeriod(new Date());
-                    setSelectedCardForDetails(card);
-                  }}
-                >
-                  <div className="absolute right-0 top-0 w-32 h-32 bg-white/5 rounded-full blur-2xl pointer-events-none" />
-                  <div className="flex items-start justify-between relative z-10">
-                    <div>
-                      <h3 className="text-base font-black tracking-tight leading-none text-white">{card.name}</h3>
-                    </div>
-                    <div className="w-10 h-6 bg-amber-400/80 rounded-md border border-amber-300 opacity-80" />
-                  </div>
+              <div key={card.id} className="bg-white border border-slate-200/80 rounded-3xl p-5 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col space-y-4 relative overflow-hidden">
+                {/* BLOCO 1: Identificação */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <span className="text-sm font-black text-slate-800 tracking-tight flex items-center gap-1.5">
+                    💳 {card.name}
+                  </span>
+                  <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider">
+                    <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" /> Ativo
+                  </span>
+                </div>
 
-                  <div className="mt-2 relative z-10">
-                    <p className="text-xl font-black text-white">{formatCurrency(openInvoices)}</p>
-                  </div>
+                {/* BLOCO 3: Indicador Visual de Utilização */}
+                <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 flex items-center justify-between font-mono text-xs font-bold tracking-wider text-slate-600">
+                  <span title={`${progressPct}% utilizado`}>{barStr}</span>
+                  <span className="text-[10px] font-black font-sans text-slate-500 uppercase tracking-wider">
+                    {progressPct}%
+                  </span>
+                </div>
 
-                  <div className="space-y-1 mt-auto relative z-10">
-                    <div className="flex items-center justify-between text-[10px] font-bold text-white/80 uppercase">
-                      <span>Limite: {formatCurrency(limit)}</span>
-                      <span>Disp: {formatCurrency(available)}</span>
-                    </div>
-                    <div className="w-full bg-white/20 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-white h-full" style={{ width: `${Math.min(progressPct, 100)}%` }} />
-                    </div>
+                {/* BLOCO 2: KPIs Principais (Vertically-stacked clean list) */}
+                <div className="space-y-2.5 py-1">
+                  <div className="flex justify-between items-center bg-slate-50/40 px-3 py-2 rounded-xl border border-slate-100/60">
+                    <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Limite</span>
+                    <span className="text-sm font-black text-slate-700 font-mono">{formatCurrency(limit)}</span>
                   </div>
-
-                  <div className="mt-3 grid grid-cols-3 gap-1.5 relative z-10">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenImportInvoiceModal(card);
-                      }}
-                      className="py-1.5 px-1 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex flex-col items-center justify-center gap-0.5 cursor-pointer"
-                      title="Importar Fatura"
-                    >
-                      <Upload size={10} />
-                      <span className="text-center text-[8px]">Importar</span>
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenQuickLaunchModal(card);
-                      }}
-                      className="py-1.5 px-1 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex flex-col items-center justify-center gap-0.5 cursor-pointer"
-                      title="+ Lançar"
-                    >
-                      <Plus size={10} />
-                      <span className="text-center text-[8px]">+ Lançar</span>
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenPayInvoiceModal(card);
-                      }}
-                      className="py-1.5 px-1 bg-white/10 hover:bg-white/20 active:scale-[0.98] text-white rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border border-white/20 shadow-sm flex flex-col items-center justify-center gap-0.5 cursor-pointer"
-                      title="Pagar Fatura"
-                    >
-                      <DollarSign size={10} />
-                      <span className="text-center text-[8px]">Pagar</span>
-                    </button>
+                  <div className="flex justify-between items-center bg-slate-50/40 px-3 py-2 rounded-xl border border-slate-100/60">
+                    <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Disponível</span>
+                    <span className="text-sm font-black text-emerald-600 font-mono">{formatCurrency(available)}</span>
                   </div>
-                </motion.div>
+                  <div className="flex justify-between items-center bg-slate-50/40 px-3 py-2 rounded-xl border border-slate-100/60">
+                    <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Fatura Atual</span>
+                    <span className="text-sm font-black text-rose-600 font-mono">{formatCurrency(openInvoices)}</span>
+                  </div>
+                </div>
 
-                {/* Últimas Faturas Section */}
-                <div className="flex-1 flex flex-col justify-between">
+                {/* BLOCO 4: Fechamento & Vencimento (Secundário, minimalista e limpo) */}
+                <div className="text-center text-[10px] font-black text-slate-500 py-1.5 bg-slate-50 rounded-xl border border-slate-100/60 tracking-wider uppercase">
+                  Fechamento {String(card.closing_day || 10).padStart(2, '0')} • Vencimento {String(card.due_day || 15).padStart(2, '0')}
+                </div>
+
+                {/* Três botões continuam iguais */}
+                <div className="grid grid-cols-3 gap-2 py-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenImportInvoiceModal(card);
+                    }}
+                    className="py-2 px-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 hover:text-slate-800 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all shadow-sm flex flex-col items-center justify-center gap-1 cursor-pointer active:scale-95"
+                    title="Importar fatura de cartão"
+                  >
+                    <Upload size={11} className="text-slate-500" />
+                    <span>Importar</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenQuickLaunchModal(card);
+                    }}
+                    className="py-2 px-1 bg-blue-50/60 hover:bg-blue-50 border border-blue-100 text-blue-600 hover:text-blue-700 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all shadow-sm flex flex-col items-center justify-center gap-1 cursor-pointer active:scale-95"
+                    title="Lançar nova despesa"
+                  >
+                    <Plus size={11} className="text-blue-500" />
+                    <span>Lançar</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleOpenPayInvoiceModal(card);
+                    }}
+                    className="py-2 px-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 hover:text-slate-800 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all shadow-sm flex flex-col items-center justify-center gap-1 cursor-pointer active:scale-95"
+                    title="Pagar fatura acumulada"
+                  >
+                    <DollarSign size={11} className="text-slate-500" />
+                    <span>Pagar</span>
+                  </button>
+                </div>
+
+                {/* Últimas Faturas Section: Structured as individual visual cards */}
+                <div className="flex-1 flex flex-col justify-between pt-1">
                   <div>
-                    <h4 className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
-                      <Clock size={11} className="text-slate-400" /> Últimas Faturas (Competências)
+                    <h4 className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
+                      <Clock size={11} className="text-slate-400 shrink-0" /> Últimas Faturas com Lançamentos
                     </h4>
 
                     {competencies.length === 0 ? (
-                      <div className="text-center py-6 text-slate-400 border border-dashed border-slate-100 rounded-2xl">
-                        <p className="text-[10px] font-bold uppercase tracking-wider">Nenhuma competência.</p>
+                      <div className="text-center py-6 text-slate-400 border border-dashed border-slate-100 rounded-2xl bg-slate-50/20">
+                        <p className="text-[9px] font-bold uppercase tracking-widest">Sem faturas com lançamentos</p>
                       </div>
                     ) : (
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         {competencies.map((period, pIdx) => {
                           const total = getInvoiceTotalAmount(card.id, period);
                           const count = getInvoiceTransactions(card.id, period).length;
                           const status = getInvoiceStatus(card.id, period);
                           const { label, badgeClass, dotClass } = getInvoiceStatusLabelAndBadge(status);
+
+                          // Display short format month, capitalized
+                          const capMonth = period.toLocaleDateString('pt-BR', { month: 'long' });
+                          const displayMonthYear = `${capMonth.charAt(0).toUpperCase() + capMonth.slice(1)} ${period.getFullYear()}`;
 
                           return (
                             <div 
@@ -4627,25 +4750,29 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 setDetailPeriod(period);
                                 setSelectedCardForDetails(card);
                               }}
-                              className="flex items-center justify-between p-2 rounded-xl border border-slate-100 hover:border-blue-100 bg-slate-50/50 hover:bg-white hover:shadow-sm cursor-pointer transition-all"
+                              className="group relative flex flex-col justify-between p-3.5 rounded-2xl border border-slate-100 hover:border-blue-200 bg-slate-50/20 hover:bg-white hover:shadow-md cursor-pointer transition-all duration-200"
                             >
-                              <div className="flex items-center gap-1.5">
-                                <Calendar size={11} className="text-slate-400 shrink-0" />
-                                <span className="text-[11px] font-black text-slate-700 capitalize">
-                                  {period.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '')}
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <span className="text-xs font-black text-slate-800 capitalize leading-tight block">
+                                    {displayMonthYear}
+                                  </span>
+                                  <span className="text-[10px] font-bold text-slate-400 block mt-0.5">
+                                    {count} {count === 1 ? 'lançamento' : 'lançamentos'}
+                                  </span>
+                                </div>
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border shadow-sm ${badgeClass}`}>
+                                  <span className={`w-1 h-1 rounded-full ${dotClass}`} />
+                                  {label}
                                 </span>
                               </div>
 
-                              <div className="flex items-center gap-2">
-                                <span className="text-[9px] font-bold text-slate-400">
-                                  {count} {count === 1 ? 'item' : 'itens'}
-                                </span>
-                                <span className="text-[11px] font-black text-slate-900 min-w-[65px] text-right">
+                              <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-slate-100/50">
+                                <span className="text-xs font-black text-slate-800 font-mono">
                                   {formatCurrency(total)}
                                 </span>
-                                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider border ${badgeClass}`}>
-                                  <span className={`w-1 h-1 rounded-full ${dotClass}`} />
-                                  {label}
+                                <span className="text-blue-500 group-hover:translate-x-1 transition-transform">
+                                  <ChevronRight size={14} />
                                 </span>
                               </div>
                             </div>
@@ -4657,9 +4784,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                   <button 
                     onClick={() => setSelectedCardForHistory(card)}
-                    className="w-full mt-3 py-2 text-center text-[10px] font-black uppercase tracking-wider text-blue-600 hover:text-blue-700 bg-blue-50/40 hover:bg-blue-50 rounded-xl transition-all border border-blue-100/50 cursor-pointer flex items-center justify-center gap-1"
+                    className="w-full mt-4 py-2.5 text-center text-[10px] font-black uppercase tracking-wider text-blue-600 hover:text-blue-700 bg-blue-50/40 hover:bg-blue-50 rounded-xl transition-all border border-blue-100/50 cursor-pointer flex items-center justify-center gap-1 shadow-sm"
                   >
-                    <History size={10} /> Ver Histórico Completo
+                    <History size={10} /> Ver Linha do Tempo de Faturas
                   </button>
                 </div>
               </div>
@@ -7379,6 +7506,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           currency: formatCurrency,
           formatDateBR
         }}
+        onEditTransaction={handleEditTransactionClick}
+        onDeleteTransaction={handleDeleteTransaction}
+        onDuplicateTransaction={handleDuplicateTransaction}
+        onQuickLaunch={handleOpenQuickLaunchModal}
+        onPayInvoice={handleOpenPayInvoiceModal}
+        categoryGroups={categoryGroups}
       />
 
       <input 
