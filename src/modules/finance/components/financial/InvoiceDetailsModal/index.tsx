@@ -81,13 +81,11 @@ export const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
     setActiveRowId(null);
   }, [card, period]);
 
-  if (!card) return null;
-
   // Get raw transactions for current card and period
-  const txs = getInvoiceTransactions(card.id, period);
+  const txs = card ? getInvoiceTransactions(card.id, period) : [];
 
   // Compute Summary KPI figures from raw transactions
-  const totalAmount = getInvoiceTotalAmount(card.id, period);
+  const totalAmount = card ? getInvoiceTotalAmount(card.id, period) : 0;
   const paidAmount = txs.reduce((sum, tx) => {
     const isPaid = tx.status === TransactionStatus.PAID || (tx.settled_by_transaction_id && tx.settled_by_transaction_id.trim() !== '');
     return isPaid ? sum + tx.amount : sum;
@@ -161,6 +159,8 @@ export const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
       return matchesSearch && matchesCategory && matchesStatus && matchesOrigin && matchesInstallment && matchesRecurring && matchesCostCenter && matchesValue;
     });
   }, [txs, searchQuery, categoryFilter, statusFilter, originFilter, installmentFilter, recurringFilter, costCenterFilter, minValue, maxValue]);
+
+  if (!card) return null;
 
   // Calculate short Closing and Due dates based on card and period month/year
   const closingDay = card.closing_day || 10;
