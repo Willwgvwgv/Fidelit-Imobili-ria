@@ -2129,9 +2129,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
         // Remove da fila apenas os que deram sucesso
         setSelectedMatches(prev => prev.filter(m => !succeededMatches.some(sm => sm.reconciliation_id === m.reconciliation_id)));
-        
-        // Recarrega todos os dados financeiros de forma reativa e consistente
-        await loadFinancialData();
       }
 
       if (failedMatches.length > 0) {
@@ -2221,6 +2218,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setLoading(true);
     const desc = quickDescription.trim() || importedItem.description;
     
+    let recurrenceGroupId: string | null = null;
+    if (recurrenceType !== 'NONE' && recurrencePeriods > 0) {
+      recurrenceGroupId = crypto.randomUUID();
+    }
+
     const payload = {
       agency_id: currentUser.agencyId,
       description: desc,
@@ -2230,7 +2232,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       account_id: quickAccountId,
       status: TransactionStatus.PAID,
       due_date: importedItem.date,
-      payment_date: importedItem.date
+      payment_date: importedItem.date,
+      recurrence_group_id: recurrenceGroupId
     };
     
     try {
@@ -2239,6 +2242,40 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       if (!result || !result.id) {
         showToast('Erro ao criar o lançamento no servidor. Nenhuma alteração foi realizada.', 'error');
         return;
+      }
+
+      // Se houver recorrência, gerar ocorrências futuras e inserir em lote
+      if (recurrenceType !== 'NONE' && recurrencePeriods > 0) {
+        const copiesToCreate: any[] = [];
+        for (let i = 1; i <= recurrencePeriods; i++) {
+          const nextDueDate = addPeriodToDate(payload.due_date, recurrenceType, i);
+          copiesToCreate.push({
+            agency_id: payload.agency_id,
+            description: payload.description,
+            amount: payload.amount,
+            type: payload.type,
+            category_id: payload.category_id,
+            account_id: payload.account_id,
+            status: TransactionStatus.PENDING,
+            due_date: nextDueDate,
+            payment_date: null,
+            recurrence_group_id: recurrenceGroupId
+          });
+        }
+
+        if (supabase && copiesToCreate.length > 0) {
+          const { data, error } = await supabase
+            .from('financial_transactions')
+            .insert(copiesToCreate)
+            .select();
+          
+          if (error) {
+            console.error('Error creating recurring transactions in bank reconciliation:', error);
+            showToast('Erro ao criar lançamentos recorrentes futuros: ' + error.message, 'error');
+          } else if (data && data.length > 0) {
+            setTransactions(prev => [...data, ...prev]);
+          }
+        }
       }
 
       // 2. Tentar vincular com o item do extrato
@@ -2267,6 +2304,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       setSelectedImportedIndex(null);
       setSelectedSystemTxId(null);
       setQuickDescription('');
+      setRecurrenceType('NONE');
+      setRecurrencePeriods(1);
     } catch (err) {
       console.error(err);
       showToast('Erro de rede ou permissão ao realizar o fluxo do lançamento rápido.', 'error');
@@ -4470,7 +4509,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <p className="text-xs font-bold uppercase tracking-wider">Nenhuma fatura encontrada.</p>
             </div>
           ) : (
-            <div className="relative pl-6 md:pl-8 border-l border-slate-100 ml-3 md:ml-4 space-y-12 py-2">
+            <div className="relative pl-6 md:pl-8 border-l border-slate-100 ml-3 md:ml-4 mr-3 md:mr-4 space-y-12 py-2">
               {years.map(year => {
                 const yearPeriods = groupedByYear[year];
                 return (
@@ -5113,6 +5152,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     setSelectedMatches([]);
                     setReconciliationSearch('');
                     setShowQuickCreateForm(false);
+                    setRecurrenceType('NONE');
+                    setRecurrencePeriods(1);
                   }}
                   className="flex items-center gap-1 bg-slate-100 text-slate-600 rounded-lg px-2.5 py-1.5 text-xs font-bold hover:bg-slate-200 transition-all cursor-pointer"
                   title="Trocar Extrato"
@@ -5273,6 +5314,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             setSelectedSystemTxId(null);
                             setAutoMatchScore(null);
                             setShowQuickCreateForm(false);
+                            setRecurrenceType('NONE');
+                            setRecurrencePeriods(1);
                             
                             // Check if this item is prepared in selectedMatches
                             const prep = selectedMatches.find(m => m.reconciliation_id === itemKey);
@@ -5526,7 +5569,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 <Plus size={14} className="text-indigo-600" /> Novo lançamento
                               </span>
                               <button
-                                onClick={() => setShowQuickCreateForm(false)}
+                                onClick={() => {
+                                  setShowQuickCreateForm(false);
+                                  setRecurrenceType('NONE');
+                                  setRecurrencePeriods(1);
+                                }}
                                 className="text-[10px] font-bold text-slate-400 hover:text-slate-600 cursor-pointer"
                               >
                                 Cancelar
@@ -5572,6 +5619,58 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                     ))}
                                   </select>
                                 </div>
+                              </div>
+
+                              {/* Lançamento Recorrente Toggle & Options */}
+                              <div className="space-y-2 pt-1 border-t border-slate-50">
+                                <div className="flex items-center gap-2">
+                                  <input 
+                                    type="checkbox" 
+                                    id="quickRecurrent"
+                                    className="rounded text-indigo-600 focus:ring-indigo-400 cursor-pointer w-4 h-4"
+                                    checked={recurrenceType !== 'NONE'}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setRecurrenceType('MONTHLY');
+                                        setRecurrencePeriods(1);
+                                      } else {
+                                        setRecurrenceType('NONE');
+                                        setRecurrencePeriods(1);
+                                      }
+                                    }}
+                                  />
+                                  <label htmlFor="quickRecurrent" className="text-xs font-bold text-slate-700 cursor-pointer select-none">
+                                    Lançamento recorrente
+                                  </label>
+                                </div>
+
+                                {recurrenceType !== 'NONE' && (
+                                  <div className="grid grid-cols-2 gap-3 pl-6">
+                                    <div>
+                                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Frequência</label>
+                                      <select 
+                                        value={recurrenceType}
+                                        onChange={(e) => setRecurrenceType(e.target.value as any)}
+                                        className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2 text-xs outline-none text-slate-800 focus:border-indigo-300 focus:ring-1 focus:ring-indigo-100 font-medium"
+                                      >
+                                        <option value="WEEKLY">Semanal</option>
+                                        <option value="MONTHLY">Mensal</option>
+                                        <option value="YEARLY">Anual</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Repetições futuras</label>
+                                      <input 
+                                        type="number" 
+                                        min={1}
+                                        max={60}
+                                        value={recurrencePeriods}
+                                        onChange={(e) => setRecurrencePeriods(Math.max(1, Number(e.target.value)))}
+                                        className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2 text-xs outline-none text-slate-800 focus:border-indigo-300 focus:ring-1 focus:ring-indigo-100 font-medium"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
                               </div>
 
                               <button 
@@ -5661,6 +5760,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                   setQuickDescription(activeImportedItem.description);
                                   setShowQuickCreateForm(true);
                                   setSelectedSystemTxId(null);
+                                  setRecurrenceType('NONE');
+                                  setRecurrencePeriods(1);
                                 }}
                                 className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-black py-2.5 px-4 rounded-xl transition-all inline-flex items-center justify-center gap-1 cursor-pointer mx-auto"
                               >
@@ -5728,6 +5829,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           setSelectedSystemTxId(tx.id);
                           setAutoMatchScore(score);
                           setShowQuickCreateForm(false);
+                          setRecurrenceType('NONE');
+                          setRecurrencePeriods(1);
                         }}
                         className={`p-4 rounded-2xl border transition-all flex flex-col justify-between cursor-pointer space-y-3 ${
                           isSelected 
@@ -5779,6 +5882,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               setSelectedSystemTxId(tx.id);
                               setAutoMatchScore(score);
                               setShowQuickCreateForm(false);
+                              setRecurrenceType('NONE');
+                              setRecurrencePeriods(1);
                               // Smooth scroll to Center Panel for easy confirmation
                               document.getElementById('reconciliation-search-input')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                               showToast('Selecione e confirme o vínculo no painel central.', 'info');
@@ -5822,6 +5927,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               setQuickDescription(activeImportedItem.description);
                               setShowQuickCreateForm(true);
                               setSelectedSystemTxId(null);
+                              setRecurrenceType('NONE');
+                              setRecurrencePeriods(1);
                               showToast('Utilize o formulário de Novo Lançamento no painel central.', 'info');
                             }}
                             className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-black py-2 px-4 rounded-xl transition-all cursor-pointer inline-flex items-center justify-center gap-1"
