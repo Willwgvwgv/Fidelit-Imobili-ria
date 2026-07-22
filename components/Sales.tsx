@@ -40,6 +40,11 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
   const [saleToDelete, setSaleToDelete] = useState<string | null>(null);
   const [detailSale, setDetailSale] = useState<Sale | null>(null);
   
+  // Estados para edição inline de NF no modal de detalhes
+  const [isEditingInlineNF, setIsEditingInlineNF] = useState(false);
+  const [inlineNFNumber, setInlineNFNumber] = useState('');
+  const [isSavingInlineNF, setIsSavingInlineNF] = useState(false);
+  
   // Estados para Filtros
   const [period, setPeriod] = useState<string>('all');
   const [startDate, setStartDate] = useState<string>('');
@@ -264,57 +269,134 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
   };
 
   const handleExportCSV = () => {
+    // 1. Encontrar o número máximo de participantes em todas as vendas filtradas
+    const maxSplits = Math.max(1, ...filteredSales.map(s => (s.splits || []).length));
+
+    // 2. Montar cabeçalho com todas as colunas para IR e contabilidade
     const headers = [
-      "Data",
-      "Imóvel",
-      "Comprador",
-      "CPF/CNPJ Comprador",
-      "Vendedor/Construtora",
-      "CPF/CNPJ Vendedor",
-      "VGV",
-      "% Comissão",
-      "Comissão Total",
-      "Corretores",
-      "NF Nº",
-      "Parcelas"
+      "Data da Venda",
+      "Endereço do Imóvel",
+      "Município / UF",
+      "CEP",
+      "Tipo de Imóvel",
+      "Nome do Comprador",
+      "CPF/CNPJ do Comprador",
+      "Nome do Vendedor",
+      "CPF/CNPJ do Vendedor",
+      "VGV (Valor Geral de Venda)",
+      "% de Comissão",
+      "Valor Total da Comissão",
+      "Nota Fiscal Emitida",
+      "Número da NF"
     ];
 
+    // Colunas dinâmicas para participantes do rateio
+    for (let i = 1; i <= maxSplits; i++) {
+      headers.push(
+        `Participante ${i} - Nome`,
+        `Participante ${i} - Função`,
+        `Participante ${i} - % Repasse`,
+        `Participante ${i} - Valor Repasse`,
+        `Participante ${i} - Status Pagamento`,
+        `Participante ${i} - Data Pagamento`
+      );
+    }
+
+    headers.push(
+      "Observações da Venda",
+      "Status da Venda",
+      "É parcelada?",
+      "Número de Parcelas"
+    );
+
+    // Helpers de formatação BR
+    const formatCurrencyBR = (val: number) => {
+      return (val || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    };
+
+    const formatDateBR = (dateStr?: string) => {
+      if (!dateStr) return '';
+      const parts = dateStr.split('T')[0].split('-');
+      if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      }
+      return dateStr;
+    };
+
+    const sanitize = (text?: string) => {
+      if (!text) return '""';
+      const clean = String(text).replace(/"/g, '""').replace(/[\r\n]+/g, ' ');
+      return `"${clean}"`;
+    };
+
     const rows = filteredSales.map(s => {
-      const dateParts = (s.saleDate || '').split('-');
-      const dateFormatted = dateParts.length === 3
-        ? `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`
-        : s.saleDate || '';
+      const cityUf = [s.propertyCity, s.propertyUf].filter(Boolean).join(' / ');
+      const propertyTypeFormatted = s.propertyType
+        ? (s.propertyType.charAt(0).toUpperCase() + s.propertyType.slice(1))
+        : 'Urbano';
 
       const commissionPct = s.vgv > 0
         ? ((s.totalCommissionValue / s.vgv) * 100).toFixed(2).replace('.', ',') + '%'
-        : '0%';
+        : '0,00%';
 
-      const brokers = (s.splits || [])
-        .map(sp => `${sp.brokerName} (${sp.role || 'Corretor'})`)
-        .join(' | ');
+      const splits = s.splits || [];
+      const splitCols: string[] = [];
+
+      for (let i = 0; i < maxSplits; i++) {
+        const sp = splits[i];
+        if (sp) {
+          const splitPct = s.totalCommissionValue > 0
+            ? ((sp.totalValue / s.totalCommissionValue) * 100).toFixed(2).replace('.', ',') + '%'
+            : '0,00%';
+          const statusStr = sp.status === 'PAID' ? 'Pago' : 'Pendente';
+          const payDate = formatDateBR(sp.paymentDate || sp.paidAt);
+
+          splitCols.push(
+            sanitize(sp.brokerName || 'Agência'),
+            sanitize(sp.role || 'Corretor'),
+            splitPct,
+            formatCurrencyBR(sp.totalValue),
+            statusStr,
+            payDate
+          );
+        } else {
+          splitCols.push('""', '""', '""', '""', '""', '""');
+        }
+      }
 
       const installmentCount = Array.isArray(s.installments)
         ? s.installments.length
-        : (typeof s.installments === 'number' ? s.installments : 0);
+        : (typeof s.installments === 'number' ? s.installments : (s.is_installment ? 2 : 1));
 
-      const installments = installmentCount > 1
-        ? `${installmentCount}x`
-        : 'À vista';
+      const statusFormatted = s.status === 'DRAFT'
+        ? 'Rascunho'
+        : s.status === 'CANCELLED'
+        ? 'Cancelada'
+        : 'Ativa';
 
-      return [
-        dateFormatted,
-        `"${(s.propertyAddress || '').replace(/"/g, '')}"`,
-        `"${(s.buyerName || '').replace(/"/g, '')}"`,
-        s.buyer_cpf || '',
-        `"${(s.sellerName || '').replace(/"/g, '')}"`,
-        s.seller_cpf || '',
-        s.vgv.toFixed(2).replace('.', ','),
+      const rowValues = [
+        formatDateBR(s.saleDate),
+        sanitize(s.propertyAddress),
+        sanitize(cityUf),
+        sanitize(s.propertyCep),
+        propertyTypeFormatted,
+        sanitize(s.buyerName),
+        sanitize(s.buyer_cpf),
+        sanitize(s.sellerName),
+        sanitize(s.seller_cpf),
+        formatCurrencyBR(s.vgv),
         commissionPct,
-        s.totalCommissionValue.toFixed(2).replace('.', ','),
-        `"${brokers}"`,
-        s.invoiceNumber || (s.invoiceIssued ? 'Emitida' : 'Não emitida'),
-        installments
+        formatCurrencyBR(s.totalCommissionValue),
+        s.invoiceIssued ? 'Sim' : 'Não',
+        sanitize(s.invoiceNumber),
+        ...splitCols,
+        sanitize(s.notes),
+        statusFormatted,
+        s.is_installment ? 'Sim' : 'Não',
+        installmentCount
       ];
+
+      return rowValues;
     });
 
     const csvContent = "\uFEFF" + headers.join(";") + "\n"
@@ -324,7 +406,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute("download", `vendas_contabilidade_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `vendas_IR_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -414,6 +496,26 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
       setInvoiceNumberInput('');
     } catch (err) {
       alert('Erro ao registrar nota fiscal.');
+    }
+  };
+
+  const handleSaveInlineNF = async () => {
+    if (!detailSale) return;
+    setIsSavingInlineNF(true);
+    try {
+      const num = inlineNFNumber.trim();
+      await supabaseService.updateSale(
+        detailSale.id,
+        { invoiceIssued: true, invoiceNumber: num },
+        detailSale.splits as any
+      );
+      setDetailSale(prev => prev ? ({ ...prev, invoiceIssued: true, invoiceNumber: num }) : null);
+      await onRefresh();
+      setIsEditingInlineNF(false);
+    } catch (err) {
+      alert('Erro ao atualizar Nota Fiscal.');
+    } finally {
+      setIsSavingInlineNF(false);
     }
   };
 
@@ -857,15 +959,70 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
               })()}
 
               {/* NF */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Nota Fiscal</p>
-                  <p className="text-sm text-slate-700">
-                    {detailSale.invoiceIssued
-                      ? `Emitida${detailSale.invoiceNumber ? ` — Nº ${detailSale.invoiceNumber}` : ''}`
-                      : 'Não emitida'}
-                  </p>
+              <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Nota Fiscal</p>
+                  {!isEditingInlineNF && (
+                    <button
+                      onClick={() => {
+                        setIsEditingInlineNF(true);
+                        setInlineNFNumber(detailSale.invoiceIssued ? (detailSale.invoiceNumber || '') : '');
+                      }}
+                      className="text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      {detailSale.invoiceIssued ? 'Editar NF' : 'Marcar como Emitida'}
+                    </button>
+                  )}
                 </div>
+
+                {isEditingInlineNF ? (
+                  <div className="space-y-3 pt-1">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1">
+                        Número da NF
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 00124"
+                        value={inlineNFNumber}
+                        onChange={(e) => setInlineNFNumber(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none text-xs font-medium text-slate-800 shadow-sm"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingInlineNF(false)}
+                        className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 rounded-lg text-xs font-semibold hover:bg-slate-100 transition-colors cursor-pointer"
+                        disabled={isSavingInlineNF}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveInlineNF}
+                        disabled={isSavingInlineNF}
+                        className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold hover:bg-blue-700 transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {isSavingInlineNF ? 'Salvando...' : 'Confirmar'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-sm">
+                    {detailSale.invoiceIssued ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold text-xs border border-emerald-200/60">
+                        <FileCheck size={13} />
+                        Emitida {detailSale.invoiceNumber ? `— Nº ${detailSale.invoiceNumber}` : ''}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 font-semibold text-xs border border-slate-200/60">
+                        Não emitida
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Observações / Notas */}
@@ -883,7 +1040,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
             {/* Footer */}
             <div className="px-7 py-5 bg-slate-50 flex justify-end">
               <button
-                onClick={() => setDetailSale(null)}
+                onClick={() => { setDetailSale(null); setIsEditingInlineNF(false); }}
                 className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-100 transition-colors cursor-pointer"
               >
                 Fechar

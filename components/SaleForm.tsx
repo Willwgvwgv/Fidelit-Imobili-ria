@@ -85,6 +85,8 @@ export const SaleForm: React.FC<SaleFormProps> = ({
   const [propertyType, setPropertyType] = useState<'urbano' | 'rural'>('urbano');
   const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
+  const [invoiceIssued, setInvoiceIssued] = useState(false);
+  const [invoiceNumber, setInvoiceNumber] = useState('');
   
   // Participants
   const [buyerName, setBuyerName] = useState('');
@@ -124,6 +126,8 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       setPropertyType(editingSale.propertyType || 'urbano');
       setSaleDate(editingSale.saleDate || new Date().toISOString().split('T')[0]);
       setNotes(editingSale.notes || '');
+      setInvoiceIssued(editingSale.invoiceIssued || false);
+      setInvoiceNumber(editingSale.invoiceNumber || '');
       setBuyerName(editingSale.buyerName || '');
       setBuyerCpf(editingSale.buyer_cpf || '');
       sellerSetName(editingSale.sellerName || '');
@@ -562,8 +566,8 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       vgv,
       commissionPercentage,
       totalCommissionValue: totalCommission,
-      invoiceIssued: editingSale ? editingSale.invoiceIssued : false,
-      invoiceNumber: editingSale ? editingSale.invoiceNumber : '',
+      invoiceIssued: invoiceIssued,
+      invoiceNumber: invoiceIssued ? invoiceNumber.trim() : '',
       notes,
       buyer_cpf: buyerCpf,
       seller_cpf: sellerCpf,
@@ -745,6 +749,37 @@ export const SaleForm: React.FC<SaleFormProps> = ({
               rows={2}
               className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-medium text-slate-800 shadow-sm"
             />
+          </div>
+
+          {/* Nota Fiscal */}
+          <div className="pt-3 border-t border-slate-200/80 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="invoiceIssuedToggle"
+                checked={invoiceIssued}
+                onChange={(e) => setInvoiceIssued(e.target.checked)}
+                className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500 cursor-pointer"
+              />
+              <label htmlFor="invoiceIssuedToggle" className="text-xs font-bold text-slate-700 cursor-pointer select-none">
+                Nota Fiscal Emitida
+              </label>
+            </div>
+
+            {invoiceIssued && (
+              <div className="md:col-span-2 space-y-1">
+                <label className="text-[10px] font-black uppercase tracking-widest text-[#1e3a5f] block">
+                  Número da NF
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: 00124"
+                  value={invoiceNumber}
+                  onChange={(e) => setInvoiceNumber(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-medium text-slate-800 shadow-sm"
+                />
+              </div>
+            )}
           </div>
         </div>
 
