@@ -1,6 +1,6 @@
 {
-  "name": "ComissOne - Gestão de Comissões",
-  "description": "Uma plataforma SaaS avançada para imobiliárias e corretores gerenciarem comissões, VGV e divisões de vendas com inteligência de dados.",
+  "name": "Comissione Finance",
+  "description": "Sistema ERP de Gestão Financeira, Controle de Despesas e Prestação de Contas Imobiliárias",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
