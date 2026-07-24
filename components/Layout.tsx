@@ -146,10 +146,10 @@ const Layout: React.FC<LayoutProps> = ({
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Header principal */}
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 z-30">
-          <div className="flex items-center gap-4">
+        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between gap-4 px-4 sm:px-6 lg:px-8 z-30">
+          <div className="flex items-center gap-4 min-w-0">
             <h2 className="text-lg font-bold text-gray-900">
                {(() => {
                  const mainItem = NAV_ITEMS.find((i: any) => i.id === activeView || i.subItems?.some((s: any) => s.id === activeView));
@@ -198,8 +198,8 @@ const Layout: React.FC<LayoutProps> = ({
         </header>
 
         {/* Fundo do conteúdo principal */}
-        <div className="flex-1 bg-gray-50 overflow-y-auto p-8">
-          <div className="max-w-7xl mx-auto">
+        <div className="flex-1 bg-gray-50 overflow-y-auto overflow-x-hidden p-4 sm:p-6 lg:p-8">
+          <div className="max-w-7xl mx-auto w-full min-w-0">
             {children}
           </div>
         </div>
