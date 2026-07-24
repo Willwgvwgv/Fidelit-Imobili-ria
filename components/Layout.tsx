@@ -36,7 +36,7 @@ const Layout: React.FC<LayoutProps> = ({
   const filteredNavItems = NAV_ITEMS.filter(item => item.roles.includes(currentUser.role));
 
   return (
-    <div className="flex h-screen bg-gray-50" style={{ fontFamily: 'Inter, sans-serif' }}>
+    <div className="flex h-screen bg-gray-50" style={{ fontFamily: "'Nunito Sans', sans-serif" }}>
       {/* Sidebar */}
       <aside className={`${isSidebarCollapsed ? 'w-20' : 'w-64'} bg-white border-r border-gray-200 flex flex-col shrink-0 relative z-20 transition-all duration-300 ease-in-out hidden md:flex h-full`}>
         {/* Logo/Header da sidebar */}
