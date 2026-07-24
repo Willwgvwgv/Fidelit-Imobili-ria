@@ -901,7 +901,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               alert('Erro ao criar lançamentos recorrentes: ' + error.message);
             } else {
               if (data && data.length > 0) {
-                setTransactions(prev => [...data, ...prev]);
+                setTransactions(prev => {
+                  const merged = [...data, ...prev];
+                  return Array.from(new Map(merged.map(t => [t.id, t])).values());
+                });
               }
               setIsModalOpen(false);
               loadFinancialData(); // Background refresh to update accounts/balances
@@ -918,7 +921,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               alert('Erro ao criar lançamento: ' + error.message);
             } else {
               if (data && data.length > 0) {
-                setTransactions(prev => [data[0], ...prev]);
+                setTransactions(prev => {
+                  const merged = [data[0], ...prev];
+                  return Array.from(new Map(merged.map(t => [t.id, t])).values());
+                });
               }
               setIsModalOpen(false);
               loadFinancialData(); // Background refresh to update accounts/balances
@@ -2273,7 +2279,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             console.error('Error creating recurring transactions in bank reconciliation:', error);
             showToast('Erro ao criar lançamentos recorrentes futuros: ' + error.message, 'error');
           } else if (data && data.length > 0) {
-            setTransactions(prev => [...data, ...prev]);
+            setTransactions(prev => {
+              const merged = [...data, ...prev];
+              return Array.from(new Map(merged.map(t => [t.id, t])).values());
+            });
           }
         }
       }
@@ -2290,7 +2299,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           showToast('Lançamento criado no servidor, mas erro ao associar com o extrato. O item continua pendente para nova tentativa.', 'error');
           // Adiciona a transação criada ao estado para que ela fique disponível na listagem manual,
           // mas NÃO marca o item do extrato como conciliado e NÃO limpa a seleção.
-          setTransactions(prev => [result, ...prev]);
+          setTransactions(prev => {
+            const merged = [result, ...prev];
+            return Array.from(new Map(merged.map(t => [t.id, t])).values());
+          });
           return;
         }
       }
@@ -2298,7 +2310,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       // 3. Sucesso completo em ambas as etapas: atualizar UI e limpar estado de seleção
       setMatchedPairs(prev => [...prev, { importedIdx: selectedImportedIndex, systemId: result.id }]);
       setReconciliationItems(prev => prev.map((item, idx) => idx === selectedImportedIndex ? { ...item, matched: true, matchedTxId: result.id } : item));
-      setTransactions(prev => [result, ...prev]);
+      setTransactions(prev => {
+        const merged = [result, ...prev];
+        return Array.from(new Map(merged.map(t => [t.id, t])).values());
+      });
       showToast('Lançamento criado e conciliado com sucesso!', 'success');
       
       setSelectedImportedIndex(null);
@@ -4678,7 +4693,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             };
             const meta = getCardMeta(card.name);
 
-            // 16-segment custom progress bar requested: ██████████░░░░░░
+            // 16-segment custom progress bar requested: ██████████░░░��░░
             const barLength = 16;
             const filledCount = Math.min(Math.max(Math.round((progressPct / 100) * barLength), 0), barLength);
             const barStr = "█".repeat(filledCount) + "░".repeat(barLength - filledCount);

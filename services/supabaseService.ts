@@ -387,9 +387,11 @@ export const supabaseService = {
     const { data, error } = await query;
     if (error) {
       console.error('Error fetching transactions:', error);
-      return [];
+      // Throw so callers can distinguish a real fetch failure from an empty result
+      // and avoid wiping the currently displayed list on transient network errors.
+      throw error;
     }
-    return data;
+    return data || [];
   },
 
   async createFinancialTransaction(transaction: Omit<FinancialTransaction, 'id' | 'created_at'>): Promise<FinancialTransaction | null> {
