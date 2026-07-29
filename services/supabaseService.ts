@@ -1,6 +1,7 @@
 
 import { supabase } from '../supabase';
 import { Sale, User, BrokerSplit, CommissionStatus, SplitRole, FinancialAccount, FinancialCategory, FinancialTransaction, TransactionStatus, BrokerEntry } from '../types';
+import { rateLimiter, RATE_LIMIT_PROFILES } from '../utils/rateLimiter';
 
 export interface FinancialAccountInsert {
   agency_id: string;
@@ -135,6 +136,12 @@ export const supabaseService = {
   async createSale(sale: Omit<Sale, 'id' | 'splits'>, splits: Omit<BrokerSplit, 'id' | 'sale_id'>[]): Promise<Sale | null> {
     if (!supabase) return null;
 
+    const rateLimit = rateLimiter.consume('createSale', RATE_LIMIT_PROFILES.MUTATION);
+    if (!rateLimit.allowed) {
+      alert(`Limite de requisições excedido. Por favor, aguarde ${rateLimit.retryAfterSec} segundo(s) para criar uma venda.`);
+      return null;
+    }
+
     const { data: saleData, error: saleError } = await supabase
       .from('sales')
       .insert({
@@ -202,6 +209,12 @@ export const supabaseService = {
   // Update sale and its splits
   async updateSale(saleId: string, sale: Partial<Sale>, splits: Omit<BrokerSplit, 'id' | 'sale_id'>[]): Promise<boolean> {
     if (!supabase) return false;
+
+    const rateLimit = rateLimiter.consume('updateSale', RATE_LIMIT_PROFILES.MUTATION);
+    if (!rateLimit.allowed) {
+      alert(`Limite de requisições excedido. Por favor, aguarde ${rateLimit.retryAfterSec} segundo(s) para atualizar a venda.`);
+      return false;
+    }
 
     // Update sale main fields
     const { error: saleError } = await supabase
@@ -305,6 +318,13 @@ export const supabaseService = {
 
   async deleteSale(saleId: string): Promise<{ error: any }> {
     if (!supabase) return { error: new Error('Supabase not initialized') };
+
+    const rateLimit = rateLimiter.consume('deleteSale', RATE_LIMIT_PROFILES.MUTATION);
+    if (!rateLimit.allowed) {
+      alert(`Limite de requisições excedido. Por favor, aguarde ${rateLimit.retryAfterSec} segundo(s) antes de excluir a venda.`);
+      return { error: new Error('Rate limit exceeded') };
+    }
+
     const { error } = await supabase
       .from('sales')
       .delete()
@@ -394,6 +414,13 @@ export const supabaseService = {
 
   async createFinancialTransaction(transaction: Omit<FinancialTransaction, 'id' | 'created_at'>): Promise<FinancialTransaction | null> {
     if (!supabase) return null;
+
+    const rateLimit = rateLimiter.consume('createFinancialTransaction', RATE_LIMIT_PROFILES.MUTATION);
+    if (!rateLimit.allowed) {
+      alert(`Limite de requisições excedido. Por favor, aguarde ${rateLimit.retryAfterSec} segundo(s) para criar o lançamento.`);
+      return null;
+    }
+
     const { financial_account_id, ...rest } = transaction as any;
 
     const hasPaymentDate = transaction.payment_date && String(transaction.payment_date).trim() !== '';
