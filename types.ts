@@ -25,6 +25,7 @@ export interface User {
   role: UserRole;
   agencyId: string;
   phone?: string;
+  avatarUrl?: string;
   created_at?: string;
 }
 

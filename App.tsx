@@ -240,6 +240,10 @@ const App: React.FC = () => {
   return (
     <Layout 
       currentUser={currentUser} 
+      onUserUpdated={(updatedUser) => {
+        setCurrentUser(updatedUser);
+        setTeam(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+      }}
       activeView={activeView} 
       setActiveView={setActiveView}
       onLogout={async () => {

@@ -71,8 +71,41 @@ export const supabaseService = {
       role: u.role,
       agencyId: u.agency_id,
       phone: u.phone,
+      avatarUrl: u.avatar_url || u.avatarUrl,
       created_at: u.created_at
     }));
+  },
+
+  async updateUserProfile(userId: string, updates: { name?: string; phone?: string; avatarUrl?: string }): Promise<boolean> {
+    if (!supabase) return false;
+    const dbUpdates: any = {};
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
+    if (updates.avatarUrl !== undefined) dbUpdates.avatar_url = updates.avatarUrl;
+
+    const { error } = await supabase
+      .from('users')
+      .update(dbUpdates)
+      .eq('id', userId);
+
+    if (error) {
+      console.error('Error updating user profile:', error);
+      return false;
+    }
+    return true;
+  },
+
+  async updateUserPassword(newPassword: string): Promise<{ success: boolean; error?: string }> {
+    if (!supabase) return { success: false, error: 'Supabase não inicializado' };
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Erro ao atualizar senha' };
+    }
   },
 
   // Fetch all sales with their splits

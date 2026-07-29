@@ -1,12 +1,14 @@
 
-import React, { useState } from 'react';
-import { LogOut, User as UserIcon, Building2, Bell, ChevronDown, ChevronUp, Database, Wifi, WifiOff, Menu } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { LogOut, User as UserIcon, Building2, Bell, ChevronDown, ChevronUp, Database, Wifi, WifiOff, Menu, Settings, Key, ShieldCheck } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { NAV_ITEMS } from '../constants';
+import UserSettingsModal from './UserSettingsModal';
 
 interface LayoutProps {
   children: React.ReactNode;
   currentUser: User;
+  onUserUpdated?: (updatedUser: User) => void;
   activeView: string;
   setActiveView: (view: string) => void;
   onLogout: () => void;
@@ -17,6 +19,7 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ 
   children, 
   currentUser, 
+  onUserUpdated,
   activeView, 
   setActiveView,
   onLogout,
@@ -25,6 +28,15 @@ const Layout: React.FC<LayoutProps> = ({
 }) => {
   const [expandedItems, setExpandedItems] = useState<string[]>(['financial']);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  
+  // Settings modal state
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'password'>('profile');
+
+  const openSettings = (tab: 'profile' | 'password' = 'profile') => {
+    setSettingsTab(tab);
+    setIsSettingsOpen(true);
+  };
 
   const toggleExpand = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -121,25 +133,53 @@ const Layout: React.FC<LayoutProps> = ({
         </nav>
 
         {/* Footer da sidebar (perfil do usuário) */}
-        <div className="p-4 border-t border-gray-200">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-700 font-bold text-sm shrink-0">
-              {currentUser.name.charAt(0)}
-            </div>
+        <div className="p-3 border-t border-gray-200 bg-gray-50/50">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              onClick={() => openSettings('profile')}
+              className="flex items-center gap-2.5 min-w-0 flex-1 p-1.5 rounded-xl hover:bg-gray-200/60 transition-all text-left group cursor-pointer"
+              title="Configurações do Perfil"
+            >
+              {currentUser.avatarUrl ? (
+                <img
+                  src={currentUser.avatarUrl}
+                  alt={currentUser.name}
+                  className="w-8 h-8 rounded-full object-cover border border-indigo-200 shrink-0"
+                />
+              ) : (
+                <div className="w-8 h-8 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
+                  {currentUser.name.charAt(0).toUpperCase()}
+                </div>
+              )}
+              {!isSidebarCollapsed && (
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-gray-900 truncate leading-tight group-hover:text-indigo-600 transition-colors">
+                    {currentUser.name}
+                  </p>
+                  <p className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+                    {currentUser.role === 'ADMIN' ? 'Admin' : 'Corretor'}
+                  </p>
+                </div>
+              )}
+            </button>
+
             {!isSidebarCollapsed && (
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-gray-900 truncate leading-tight">{currentUser.name}</p>
-                <p className="text-xs text-gray-500 uppercase font-medium">{currentUser.role}</p>
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={() => openSettings('profile')}
+                  className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
+                  title="Configurações do Perfil"
+                >
+                  <Settings size={15} />
+                </button>
+                <button 
+                  onClick={onLogout} 
+                  className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer" 
+                  title="Sair da Conta"
+                >
+                  <LogOut size={15} />
+                </button>
               </div>
-            )}
-            {!isSidebarCollapsed && (
-              <button 
-                onClick={onLogout} 
-                className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-all shrink-0" 
-                title="Sair"
-              >
-                <LogOut size={16} />
-              </button>
             )}
           </div>
         </div>
@@ -159,19 +199,19 @@ const Layout: React.FC<LayoutProps> = ({
             </h2>
             <div className="flex items-center gap-1.5 ml-2">
               {dbStatus === 'connected' && !isDemoData && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-sm">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-xs">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                   Supabase Real
                 </span>
               )}
               {dbStatus === 'connected' && isDemoData && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200/60 shadow-sm" title="Conectado ao Supabase, mas exibindo fallbacks de demonstração">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200/60 shadow-xs" title="Conectado ao Supabase, mas exibindo fallbacks de demonstração">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
                   Banco Vazio (Demo)
                 </span>
               )}
               {dbStatus === 'error' && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200/60 shadow-sm">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200/60 shadow-xs">
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
                   Erro Conexão
                 </span>
@@ -179,21 +219,41 @@ const Layout: React.FC<LayoutProps> = ({
             </div>
           </div>
           
-          <div className="flex items-center gap-6">
-            <button className="relative text-gray-400 hover:text-gray-600 transition-colors bg-gray-50 p-2 rounded-lg">
+          <div className="flex items-center gap-2">
+            <button 
+              className="relative text-gray-400 hover:text-gray-600 transition-colors bg-gray-50 p-2 rounded-xl cursor-pointer hover:bg-gray-100"
+              title="Notificações"
+            >
               <Bell size={18} />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full"></span>
             </button>
-            
-            <div className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-gray-50 transition-all">
-              <div className="w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
-                {currentUser.name.charAt(0)}
-              </div>
-              <div className="text-left hidden sm:block">
-                <p className="text-sm font-semibold text-gray-900 leading-none">{currentUser.name}</p>
-                <p className="text-[11px] text-gray-500 mt-0.5 leading-none">{currentUser.email}</p>
-              </div>
-            </div>
+
+            <button
+              onClick={() => openSettings('profile')}
+              className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 bg-gray-50 rounded-xl transition-all cursor-pointer"
+              title="Configurações da Conta"
+            >
+              <Settings size={18} />
+            </button>
+
+            {/* Avatar do Usuário */}
+            <button
+              onClick={() => openSettings('profile')}
+              className="flex items-center gap-2 p-1 rounded-full hover:ring-2 hover:ring-indigo-200 transition-all cursor-pointer ml-1"
+              title={`${currentUser.name} - Clique para Editar Perfil`}
+            >
+              {currentUser.avatarUrl ? (
+                <img
+                  src={currentUser.avatarUrl}
+                  alt={currentUser.name}
+                  className="w-8 h-8 rounded-full object-cover border border-indigo-200 shadow-2xs"
+                />
+              ) : (
+                <div className="w-8 h-8 bg-indigo-600 text-white rounded-full flex items-center justify-center font-bold text-xs shadow-2xs">
+                  {currentUser.name.charAt(0).toUpperCase()}
+                </div>
+              )}
+            </button>
           </div>
         </header>
 
@@ -204,6 +264,17 @@ const Layout: React.FC<LayoutProps> = ({
           </div>
         </div>
       </main>
+
+      {/* Modal de Configurações do Usuário */}
+      <UserSettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        currentUser={currentUser}
+        onUserUpdated={(updatedUser) => {
+          if (onUserUpdated) onUserUpdated(updatedUser);
+        }}
+        initialTab={settingsTab}
+      />
     </div>
   );
 };
