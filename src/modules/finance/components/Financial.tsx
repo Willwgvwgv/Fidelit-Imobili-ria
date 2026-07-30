@@ -1513,6 +1513,99 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
   };
 
+  // Lê o arquivo detectando a codificação correta (UTF-8 ou Windows-1252/Latin1).
+  // Extratos bancários brasileiros (OFX/CSV) frequentemente usam Latin1, o que gera
+  // acentos corrompidos quando lidos como UTF-8.
+  const readFileAsSmartText = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error);
+      reader.onload = () => {
+        const buffer = reader.result as ArrayBuffer;
+        const bytes = new Uint8Array(buffer);
+
+        // BOM UTF-8 explícito
+        if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+          resolve(new TextDecoder('utf-8').decode(bytes));
+          return;
+        }
+
+        // Tenta ler a codificação declarada no cabeçalho OFX (CHARSET/ENCODING)
+        const preview = new TextDecoder('windows-1252').decode(bytes.slice(0, 2048)).toUpperCase();
+        const declared = (
+          /CHARSET[:=\s]*([A-Z0-9\-]+)/.exec(preview)?.[1] ||
+          /ENCODING[:=\s]*([A-Z0-9\-]+)/.exec(preview)?.[1] ||
+          ''
+        ).trim();
+
+        if (declared) {
+          if (declared.includes('1252') || declared.includes('LATIN') || declared.includes('8859')) {
+            resolve(new TextDecoder('windows-1252').decode(bytes));
+            return;
+          }
+          if (declared.includes('UTF-8') || declared.includes('UTF8') || declared.includes('UNICODE')) {
+            resolve(new TextDecoder('utf-8').decode(bytes));
+            return;
+          }
+        }
+
+        // Heurística: tenta UTF-8 estrito; se falhar, cai para Windows-1252
+        try {
+          resolve(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+        } catch {
+          resolve(new TextDecoder('windows-1252').decode(bytes));
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
+  // Converte um valor monetário do OFX para número, tolerando vírgula decimal (ex: "1.015,99")
+  const parseOfxAmount = (raw: string): number => {
+    let s = (raw || '').trim();
+    if (s.includes(',') && s.includes('.')) {
+      if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+        s = s.replace(/\./g, '').replace(',', '.');
+      } else {
+        s = s.replace(/,/g, '');
+      }
+    } else if (s.includes(',')) {
+      s = s.replace(',', '.');
+    }
+    return parseFloat(s);
+  };
+
+  // Divide uma linha CSV respeitando campos entre aspas que contenham o delimitador
+  const splitCsvLine = (line: string, delimiter: string): string[] => {
+    const result: string[] = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (line[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          cur += ch;
+        }
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === delimiter) {
+        result.push(cur);
+        cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    result.push(cur);
+    return result.map(c => c.trim().replace(/^["']|["']$/g, ''));
+  };
+
   const generateExternalId = (date: string, amount: number, description: string, fitid?: string | null): string => {
     if (fitid) {
       return fitid.trim();
@@ -1611,7 +1704,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
 
     // Attempt header index resolution
-    const headers = headerLine.split(delimiter).map(h => h.trim().replace(/^["']|["']$/g, '').toLowerCase());
+    const headers = splitCsvLine(headerLine, delimiter).map(h => h.toLowerCase());
     for (let idx = 0; idx < headers.length; idx++) {
       const h = headers[idx];
       if (h.includes('data') || h.includes('date')) dateIdx = idx;
@@ -1629,7 +1722,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const line = lines[i].trim();
       if (!line) continue;
       
-      const columns = line.split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
+      const columns = splitCsvLine(line, delimiter);
       if (columns.length <= Math.max(dateIdx, descIdx, valIdx)) continue;
       
       const rawDate = columns[dateIdx];
@@ -4678,7 +4771,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             };
             const meta = getCardMeta(card.name);
 
-            // 16-segment custom progress bar requested: ██████████░░░░░░
+            // 16-segment custom progress bar requested: ██████████░░░��░░
             const barLength = 16;
             const filledCount = Math.min(Math.max(Math.round((progressPct / 100) * barLength), 0), barLength);
             const barStr = "█".repeat(filledCount) + "░".repeat(barLength - filledCount);
