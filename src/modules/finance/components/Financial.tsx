@@ -69,6 +69,7 @@ import { parseBrlValue, parseBRL, formatBRL, formatCurrency } from '../utils/cur
 import { addPeriodToDate, getLocalTodayStr, formatDateBR, parseDateSafe } from '../utils/dates';
 import { getAccountLiveBalance as calcAccountLiveBalance } from '../domain/BalanceCalculator';
 import * as InvoiceDomain from '../domain/InvoiceCalculator';
+import { getPreference, setPreference } from '../../../utils/preferences';
 
 function escapeHtml(input: unknown): string {
   if (input == null) return "";
@@ -159,18 +160,18 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   });
 
   // Local mapping for category group names: { [categoryId]: groupName }
-  const [categoryGroups, setCategoryGroups] = useState<Record<string, string>>(() => {
-    try {
-      const saved = localStorage.getItem('financial_category_groups');
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [categoryGroups, setCategoryGroups] = useState<Record<string, string>>({});
 
-  // Whenever categoryGroups changes, persist it to localStorage
   useEffect(() => {
-    localStorage.setItem('financial_category_groups', JSON.stringify(categoryGroups));
+    getPreference<Record<string, string>>('financial_category_groups', {})
+      .then(setCategoryGroups);
+  }, []);
+
+  // Whenever categoryGroups changes, persist it to user_preferences
+  useEffect(() => {
+    if (Object.keys(categoryGroups).length > 0) {
+      setPreference('financial_category_groups', categoryGroups).catch(console.error);
+    }
   }, [categoryGroups]);
 
   // Toast notification state
@@ -6052,7 +6053,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       if (Object.keys(newGroups).length > 0) {
         setCategoryGroups(prev => {
           const updated = { ...prev, ...newGroups };
-          localStorage.setItem('financial_category_groups', JSON.stringify(updated));
+          setPreference('financial_category_groups', updated).catch(console.error);
           return updated;
         });
       }
