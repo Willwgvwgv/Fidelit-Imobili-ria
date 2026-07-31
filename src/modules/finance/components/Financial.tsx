@@ -70,6 +70,16 @@ import { addPeriodToDate, getLocalTodayStr, formatDateBR, parseDateSafe } from '
 import { getAccountLiveBalance as calcAccountLiveBalance } from '../domain/BalanceCalculator';
 import * as InvoiceDomain from '../domain/InvoiceCalculator';
 
+function escapeHtml(input: unknown): string {
+  if (input == null) return "";
+  return String(input)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 interface FinancialProps {
   currentUser: User;
   activeView?: string;
@@ -4090,7 +4100,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     printDiv.className = 'print-container p-8 text-slate-800 font-sans';
     
     const style = document.createElement('style');
-    style.innerHTML = `
+    style.textContent = `
       @media print {
         body > *:not(.print-container) {
           display: none !important;
@@ -4143,13 +4153,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         <tr style="border-bottom: 1px solid #e2e8f0; font-size: 10px;">
           <td style="padding: 6px; white-space: nowrap;">${formatDateBR(tx.due_date)}</td>
           <td style="padding: 6px; white-space: nowrap;">${formatDateBR(tx.payment_date) || '-'}</td>
-          <td style="padding: 6px; font-weight: 500;">${tx.description}</td>
+          <td style="padding: 6px; font-weight: 500;">${escapeHtml(tx.description)}</td>
           <td style="padding: 6px; color: ${tx.type === TransactionType.INCOME ? '#047857' : '#b91c1c'}; font-weight: bold;">
             ${tx.type === TransactionType.INCOME ? 'Receita' : 'Despesa'}
           </td>
-          <td style="padding: 6px;">${categoryName}</td>
-          <td style="padding: 6px;">${groupName}</td>
-          <td style="padding: 6px;">${accountName}</td>
+          <td style="padding: 6px;">${escapeHtml(categoryName)}</td>
+          <td style="padding: 6px;">${escapeHtml(groupName)}</td>
+          <td style="padding: 6px;">${escapeHtml(accountName)}</td>
           <td style="padding: 6px; text-align: right; font-weight: bold;">${formatCurrency(tx.amount)}</td>
           <td style="padding: 6px; font-weight: bold;">${statusLabel}</td>
         </tr>
