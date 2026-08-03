@@ -161,17 +161,23 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   // Local mapping for category group names: { [categoryId]: groupName }
   const [categoryGroups, setCategoryGroups] = useState<Record<string, string>>({});
+  // Guards persistence until the initial async load has completed, so we never
+  // overwrite saved preferences with an empty object on first mount.
+  const categoryGroupsLoaded = useRef(false);
 
   useEffect(() => {
     getPreference<Record<string, string>>('financial_category_groups', {})
-      .then(setCategoryGroups);
+      .then((value) => {
+        setCategoryGroups(value);
+        categoryGroupsLoaded.current = true;
+      });
   }, []);
 
-  // Whenever categoryGroups changes, persist it to user_preferences
+  // Whenever categoryGroups changes, persist it to user_preferences.
+  // Persists the empty object too, so clearing all groups is saved.
   useEffect(() => {
-    if (Object.keys(categoryGroups).length > 0) {
-      setPreference('financial_category_groups', categoryGroups).catch(console.error);
-    }
+    if (!categoryGroupsLoaded.current) return;
+    setPreference('financial_category_groups', categoryGroups).catch(console.error);
   }, [categoryGroups]);
 
   // Toast notification state
