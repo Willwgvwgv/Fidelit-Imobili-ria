@@ -335,6 +335,11 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                             {tx.type === 'credit' ? 'Crédito' : 'Débito'}
                           </span>
                           <TransferBadge transferId={tx.transfer_id} />
+                          {tx.ofx_fitid?.startsWith('MANUAL-') && (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-amber-100 text-amber-800 border border-amber-300/60 inline-flex items-center gap-1">
+                              ✎ Lançamento manual
+                            </span>
+                          )}
                         </div>
                         <p className="text-sm font-bold text-slate-800 mt-1 leading-snug">{tx.description}</p>
                       </div>

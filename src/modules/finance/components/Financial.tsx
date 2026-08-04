@@ -75,6 +75,7 @@ import { ImportarExtrato } from './ImportarExtrato';
 import { FluxoCaixa } from './FluxoCaixa';
 import { ImportarImobia } from './ImportarImobia';
 import { Cartoes } from './Cartoes'; // Component from Cartoes.tsx
+import { ContasBancarias } from './ContasBancarias';
 import { TransferBadge } from '../../../components/TransferBadge';
 
 function escapeHtml(input: unknown): string {
@@ -225,6 +226,76 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [editingAccount, setEditingAccount] = useState<FinancialAccount | null>(null);
   const [accountTypeFilter, setAccountTypeFilter] = useState<'all' | 'bank' | 'card'>('all');
   const [editingCategory, setEditingCategory] = useState<FinancialCategory | null>(null);
+
+  // Lancar Extrato modal states
+  const [isLancarExtratoModalOpen, setIsLancarExtratoModalOpen] = useState(false);
+  const [lancarExtratoAccount, setLancarExtratoAccount] = useState('');
+  const [lancarExtratoType, setLancarExtratoType] = useState<'credit' | 'debit'>('credit');
+  const [lancarExtratoDate, setLancarExtratoDate] = useState(new Date().toISOString().split('T')[0]);
+  const [lancarExtratoAmount, setLancarExtratoAmount] = useState('');
+  const [lancarExtratoDescription, setLancarExtratoDescription] = useState('');
+  const [submittingLancarExtrato, setSubmittingLancarExtrato] = useState(false);
+
+  const handleOpenLancarExtratoModal = () => {
+    if (accounts.length > 0) {
+      setLancarExtratoAccount(accounts[0].id);
+    }
+    setLancarExtratoType('credit');
+    setLancarExtratoDate(new Date().toISOString().split('T')[0]);
+    setLancarExtratoAmount('');
+    setLancarExtratoDescription('');
+    setIsLancarExtratoModalOpen(true);
+  };
+
+  const handleCreateLancarExtrato = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!lancarExtratoAccount) {
+      showToast('Selecione uma conta bancária', 'error');
+      return;
+    }
+    const val = parseFloat(lancarExtratoAmount.replace(',', '.'));
+    if (isNaN(val) || val <= 0) {
+      showToast('Informe um valor numérico positivo', 'error');
+      return;
+    }
+    if (!lancarExtratoDescription.trim()) {
+      showToast('Informe uma descrição', 'error');
+      return;
+    }
+
+    setSubmittingLancarExtrato(true);
+    try {
+      if (!supabase) throw new Error('Supabase não inicializado');
+
+      const targetAccount = accounts.find(a => a.id === lancarExtratoAccount);
+      const agencyId = currentUser?.agencyId || targetAccount?.agency_id || '';
+
+      const uuidVal = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).substring(2, 8));
+      const fitid = 'MANUAL-' + uuidVal;
+
+      const { error: insertErr } = await supabase.from('bank_transactions').insert({
+        agency_id: agencyId,
+        account_id: lancarExtratoAccount,
+        date: lancarExtratoDate,
+        amount: Math.abs(val),
+        description: lancarExtratoDescription.trim(),
+        type: lancarExtratoType,
+        ofx_fitid: fitid,
+        status: 'pending',
+      });
+
+      if (insertErr) throw insertErr;
+
+      showToast('Lançamento criado', 'success');
+      setIsLancarExtratoModalOpen(false);
+      loadFinancialData();
+    } catch (err: any) {
+      console.error('Erro ao criar lançamento manual:', err);
+      showToast(err.message || 'Erro ao criar lançamento', 'error');
+    } finally {
+      setSubmittingLancarExtrato(false);
+    }
+  };
 
   // Extrato dynamic states
   const [currentPeriod, setCurrentPeriod] = useState<Date>(new Date());
@@ -2625,6 +2696,16 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             </span>
                           </div>
                         )}
+                        {((tx as any).ofx_fitid?.startsWith('MANUAL-') || (tx as any).transfer_id) && (
+                          <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                            {(tx as any).ofx_fitid?.startsWith('MANUAL-') && (
+                              <span className="inline-flex items-center gap-1 text-[9px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md uppercase tracking-wider select-none">
+                                ✎ Lançamento manual
+                              </span>
+                            )}
+                            <TransferBadge transferId={(tx as any).transfer_id} />
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-5">
                         <div className="flex flex-col items-center justify-center text-center">
@@ -4884,150 +4965,20 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   const renderContas = () => {
-    const filteredAccounts = accounts.filter(a => {
-      const isCard = a.type === 'credit_card' || (a as any).account_type === 'credit_card' || a.type === 'CREDIT';
-      if (accountTypeFilter === 'bank') return !isCard;
-      if (accountTypeFilter === 'card') return isCard;
-      return true;
-    });
-
-    if (accounts.length === 0) {
-      return (
-        <div className="bg-white rounded-3xl border border-slate-100 p-12 shadow-sm text-center flex flex-col items-center justify-center space-y-4">
-          <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center shadow-inner">
-            <Wallet size={32} />
-          </div>
-          <div className="space-y-1">
-            <h3 className="text-lg font-black text-slate-800">Nenhuma conta bancária cadastrada</h3>
-            <p className="text-sm text-slate-400 font-medium">Cadastre contas para realizar e controlar os lançamentos financeiros.</p>
-          </div>
-          <button 
-            onClick={() => {
-              setModalType('account');
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-2 bg-slate-900 text-white rounded-xl px-5 py-2.5 text-sm font-bold hover:bg-slate-800 transition-all shadow-md cursor-pointer"
-          >
-            <Plus size={16} /> Adicionar Conta
-          </button>
-        </div>
-      );
-    }
-
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-          <div className="flex gap-2 bg-slate-100 p-1 rounded-xl">
-            <button
-              onClick={() => setAccountTypeFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                accountTypeFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Todos ({accounts.length})
-            </button>
-            <button
-              onClick={() => setAccountTypeFilter('bank')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                accountTypeFilter === 'bank' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Contas ({accounts.filter(a => a.type !== 'credit_card' && (a as any).account_type !== 'credit_card').length})
-            </button>
-            <button
-              onClick={() => setAccountTypeFilter('card')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                accountTypeFilter === 'card' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              Cartões ({accounts.filter(a => a.type === 'credit_card' || (a as any).account_type === 'credit_card').length})
-            </button>
-          </div>
-
-          <button
-            onClick={() => {
-              setModalType('account');
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-2 bg-slate-900 text-white rounded-xl px-4 py-2 text-xs font-bold hover:bg-slate-800 transition-all shadow-xs cursor-pointer"
-          >
-            <Plus size={14} /> Nova Conta
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
-          {filteredAccounts.map(account => {
-            const liveBalance = getAccountLiveBalance(account);
-            const bank = BANKS.find(b => b.code === (account as any).bank_code);
-            const initials = bank ? bank.initials : 'BC';
-            const bankName = bank ? bank.name : 'Banco';
-            const bankColor = bank ? bank.color : '#64748b';
-
-            return (
-              <div key={account.id} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
-                <div>
-                  {/* 1. Cabeçalho */}
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-50 mb-4">
-                    <div className="flex items-center gap-2.5">
-                      <div 
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-sm shrink-0"
-                        style={{ backgroundColor: bankColor }}
-                      >
-                        {initials}
-                      </div>
-                      <span className="text-xs font-extrabold text-slate-700 tracking-tight">
-                        {bankName}
-                      </span>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-full bg-slate-50 border border-slate-100 text-[9px] font-extrabold uppercase text-slate-500 tracking-wider">
-                      {formatAccountTypeLabel(account.type || (account as any).account_type)}
-                    </span>
-                  </div>
-
-                  {/* 2. Nome da conta */}
-                  <div className="mb-4">
-                    <h4 className="text-base font-black text-slate-800 leading-tight">{account.name}</h4>
-                  </div>
-                </div>
-
-                <div>
-                  {/* 3. Saldo */}
-                  <div className="bg-slate-50/50 rounded-xl p-3 border border-slate-100/50 mb-4">
-                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">
-                      Saldo da Conta
-                    </span>
-                    <p className="text-xl font-black text-slate-900 mt-0.5">{formatCurrency(liveBalance)}</p>
-                  </div>
-
-                  {/* 4. Rodapé */}
-                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                    <span className="flex items-center gap-1 text-[9px] font-extrabold text-emerald-600 uppercase tracking-wider bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100/80">
-                      <Check size={10} /> Conciliada
-                    </span>
-
-                    <div className="flex items-center gap-1.5">
-                      <button 
-                        onClick={() => handleEditAccountClick(account)}
-                        className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors p-1.5 rounded-lg cursor-pointer"
-                        title="Editar Conta"
-                      >
-                        <Pencil size={11} /> <span className="sr-only sm:not-sr-only">Editar</span>
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteAccount(account.id)}
-                        className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors p-1.5 rounded-lg cursor-pointer"
-                        title="Excluir Conta"
-                      >
-                        <Trash2 size={11} /> <span className="sr-only sm:not-sr-only">Excluir</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <ContasBancarias
+        currentUser={currentUser}
+        accounts={accounts}
+        getAccountLiveBalance={getAccountLiveBalance}
+        showToast={showToast}
+        onRefreshData={loadFinancialData}
+        onAddAccount={() => {
+          setModalType('account');
+          setIsModalOpen(true);
+        }}
+        onEditAccount={handleEditAccountClick}
+        onDeleteAccount={handleDeleteAccount}
+      />
     );
   };
 
@@ -6464,6 +6415,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 className="flex items-center gap-1.5 px-3.5 py-2.5 bg-rose-600 text-white font-black text-xs uppercase tracking-wider rounded-xl hover:bg-rose-700 hover:scale-[1.02] transform transition-all shadow-sm cursor-pointer"
               >
                 <Plus size={14} /> Despesa
+              </button>
+              <button 
+                onClick={handleOpenLancarExtratoModal}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-indigo-600 text-white font-black text-xs uppercase tracking-wider rounded-xl hover:bg-indigo-700 hover:scale-[1.02] transform transition-all shadow-sm cursor-pointer"
+              >
+                <Plus size={14} /> Lançar Extrato
               </button>
               <button 
                 onClick={handleExportTransactionsCSV}
@@ -8117,6 +8074,152 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   </button>
                 </div>
               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Modal Lançar Extrato */}
+        {isLancarExtratoModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
+              onClick={() => setIsLancarExtratoModalOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100 relative z-10"
+            >
+              <button
+                onClick={() => setIsLancarExtratoModalOpen(false)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-lg cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="flex items-center gap-3 mb-6 pb-3 border-b border-slate-100">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                  <Plus size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800 leading-tight">Lançar Extrato</h3>
+                  <p className="text-xs text-slate-500 font-medium">Lançamento manual no extrato bancário</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreateLancarExtrato} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Conta Bancária
+                  </label>
+                  <select
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                    value={lancarExtratoAccount}
+                    onChange={(e) => setLancarExtratoAccount(e.target.value)}
+                    required
+                  >
+                    <option value="" disabled>Selecione uma conta</option>
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Tipo de Lançamento
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setLancarExtratoType('credit')}
+                      className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                        lancarExtratoType === 'credit'
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-xs'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      Crédito (entrou)
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setLancarExtratoType('debit')}
+                      className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                        lancarExtratoType === 'debit'
+                          ? 'bg-rose-50 border-rose-300 text-rose-800 shadow-xs'
+                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      Débito (saiu)
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Valor (R$)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      placeholder="0,00"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                      value={lancarExtratoAmount}
+                      onChange={(e) => setLancarExtratoAmount(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Data
+                    </label>
+                    <input
+                      type="date"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                      value={lancarExtratoDate}
+                      onChange={(e) => setLancarExtratoDate(e.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Descrição
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Lançamento referente a..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                    value={lancarExtratoDescription}
+                    onChange={(e) => setLancarExtratoDescription(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsLancarExtratoModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submittingLancarExtrato}
+                    className="px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {submittingLancarExtrato ? 'Processando...' : 'Criar Lançamento'}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}
