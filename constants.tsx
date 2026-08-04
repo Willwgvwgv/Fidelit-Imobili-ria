@@ -17,7 +17,8 @@ import {
   CreditCard,
   Receipt,
   Layers,
-  FileDown
+  FileDown,
+  Upload
 } from 'lucide-react';
 import { UserRole, Sale, User, CommissionStatus, SplitRole } from './types';
 

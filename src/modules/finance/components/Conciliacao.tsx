@@ -17,6 +17,7 @@ import {
 import { FinancialAccount, User } from '../../../../types';
 import { useBankTransactions, BankTransaction } from '../../../hooks/useBankTransactions';
 import { supabase } from '../../../../supabase';
+import { TransferBadge } from '../../../components/TransferBadge';
 
 interface RentInstallmentItem {
   id: string;
@@ -307,11 +308,15 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
             <div className="space-y-3">
               {pendingBankTxs.map((tx) => {
                 const suggested = suggestedMatches.get(tx.id);
+                const isTransfer = Boolean(tx.transfer_id);
+
                 return (
                   <div
                     key={tx.id}
                     className={`p-3.5 rounded-xl border transition-all space-y-2.5 ${
-                      suggested
+                      isTransfer
+                        ? 'bg-slate-50/80 border-slate-200 opacity-90'
+                        : suggested
                         ? 'bg-amber-50/40 border-amber-200/80 shadow-2xs'
                         : 'bg-white border-slate-200 hover:border-slate-300'
                     }`}
@@ -329,6 +334,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                           >
                             {tx.type === 'credit' ? 'Crédito' : 'Débito'}
                           </span>
+                          <TransferBadge transferId={tx.transfer_id} />
                         </div>
                         <p className="text-sm font-bold text-slate-800 mt-1 leading-snug">{tx.description}</p>
                       </div>
@@ -346,7 +352,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                     </div>
 
                     {/* Auto-match highlight badge */}
-                    {suggested && (
+                    {suggested && !isTransfer && (
                       <div className="p-2 bg-amber-100/70 border border-amber-300/60 rounded-lg text-xs text-amber-900 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <Sparkles size={14} className="text-amber-600 shrink-0" />
@@ -363,45 +369,50 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
 
                     {/* Action buttons */}
                     <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100/80">
-                      <button
-                        onClick={() => handleLinkClick(tx)}
-                        className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-                      >
-                        <Link2 size={13} />
-                        Vincular
-                      </button>
+                      {!isTransfer ? (
+                        <>
+                          <button
+                            onClick={() => handleLinkClick(tx)}
+                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                          >
+                            <Link2 size={13} />
+                            Vincular
+                          </button>
 
-                      <button
-                        onClick={() => handleDirectReconcile(tx.id)}
-                        className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-                        title="Marcar como concilado direto (sem vincular)"
-                      >
-                        <Check size={13} />
-                        Reconciliar
-                      </button>
+                          <button
+                            onClick={() => handleDirectReconcile(tx.id)}
+                            className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                            title="Marcar como concilado direto (sem vincular)"
+                          >
+                            <Check size={13} />
+                            Reconciliar
+                          </button>
 
-                      {onOpenNewExpenseModal && (
-                        <button
-                          onClick={() =>
-                            onOpenNewExpenseModal({
-                              description: tx.description,
-                              amount: tx.amount,
-                              date: tx.date,
-                            })
-                          }
-                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-                        >
-                          <PlusCircle size={13} />
-                          Lançar
-                        </button>
-                      )}
+                          {onOpenNewExpenseModal && (
+                            <button
+                              onClick={() =>
+                                onOpenNewExpenseModal({
+                                  description: tx.description,
+                                  amount: tx.amount,
+                                  date: tx.date,
+                                })
+                              }
+                              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                            >
+                              <PlusCircle size={13} />
+                              Lançar
+                            </button>
+                          )}
+                        </>
+                      ) : null}
 
                       <button
                         onClick={() => handleIgnore(tx.id)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
-                        title="Ignorar transação"
+                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                        title="Transferência entre contas, sem impacto em receita/despesa"
                       >
-                        <XCircle size={15} />
+                        <XCircle size={14} />
+                        Ignorar
                       </button>
                     </div>
                   </div>

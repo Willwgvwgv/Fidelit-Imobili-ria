@@ -74,6 +74,8 @@ import { Conciliacao } from './Conciliacao';
 import { ImportarExtrato } from './ImportarExtrato';
 import { FluxoCaixa } from './FluxoCaixa';
 import { ImportarImobia } from './ImportarImobia';
+import { Cartoes } from './Cartoes'; // Component from Cartoes.tsx
+import { TransferBadge } from '../../../components/TransferBadge';
 
 function escapeHtml(input: unknown): string {
   if (input == null) return "";
@@ -221,6 +223,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [reconciliationEndDate, setReconciliationEndDate] = useState('');
 
   const [editingAccount, setEditingAccount] = useState<FinancialAccount | null>(null);
+  const [accountTypeFilter, setAccountTypeFilter] = useState<'all' | 'bank' | 'card'>('all');
   const [editingCategory, setEditingCategory] = useState<FinancialCategory | null>(null);
 
   // Extrato dynamic states
@@ -4870,10 +4873,25 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   // 4. View: Contas Bancárias (Bank Accounts list)
-  const renderContas = () => {
-    const bankAccounts = accounts.filter(a => a.type !== 'credit_card' && a.account_type !== 'credit_card');
+  const formatAccountTypeLabel = (typeStr?: string) => {
+    if (!typeStr) return 'Conta Corrente';
+    const t = typeStr.toLowerCase();
+    if (t === 'checking' || t === 'corrente') return 'Conta Corrente';
+    if (t === 'savings' || t === 'poupança') return 'Poupança';
+    if (t === 'credit_card' || t === 'credit' || t === 'cartão') return 'Cartão de Crédito';
+    if (t === 'cash' || t === 'caixa' || t === 'dinheiro') return 'Caixa';
+    return typeStr;
+  };
 
-    if (bankAccounts.length === 0) {
+  const renderContas = () => {
+    const filteredAccounts = accounts.filter(a => {
+      const isCard = a.type === 'credit_card' || (a as any).account_type === 'credit_card' || a.type === 'CREDIT';
+      if (accountTypeFilter === 'bank') return !isCard;
+      if (accountTypeFilter === 'card') return isCard;
+      return true;
+    });
+
+    if (accounts.length === 0) {
       return (
         <div className="bg-white rounded-3xl border border-slate-100 p-12 shadow-sm text-center flex flex-col items-center justify-center space-y-4">
           <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center shadow-inner">
@@ -4898,8 +4916,47 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     return (
       <div className="space-y-6">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex gap-2 bg-slate-100 p-1 rounded-xl">
+            <button
+              onClick={() => setAccountTypeFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                accountTypeFilter === 'all' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Todos ({accounts.length})
+            </button>
+            <button
+              onClick={() => setAccountTypeFilter('bank')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                accountTypeFilter === 'bank' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Contas ({accounts.filter(a => a.type !== 'credit_card' && (a as any).account_type !== 'credit_card').length})
+            </button>
+            <button
+              onClick={() => setAccountTypeFilter('card')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                accountTypeFilter === 'card' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              Cartões ({accounts.filter(a => a.type === 'credit_card' || (a as any).account_type === 'credit_card').length})
+            </button>
+          </div>
+
+          <button
+            onClick={() => {
+              setModalType('account');
+              setIsModalOpen(true);
+            }}
+            className="flex items-center gap-2 bg-slate-900 text-white rounded-xl px-4 py-2 text-xs font-bold hover:bg-slate-800 transition-all shadow-xs cursor-pointer"
+          >
+            <Plus size={14} /> Nova Conta
+          </button>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
-          {bankAccounts.map(account => {
+          {filteredAccounts.map(account => {
             const liveBalance = getAccountLiveBalance(account);
             const bank = BANKS.find(b => b.code === (account as any).bank_code);
             const initials = bank ? bank.initials : 'BC';
@@ -4922,8 +4979,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         {bankName}
                       </span>
                     </div>
-                    <span className="px-2 py-0.5 rounded-full bg-slate-50 border border-slate-100 text-[9px] font-extrabold uppercase text-slate-400 tracking-wider">
-                      {account.is_default ? 'Principal' : (account.type?.toUpperCase() === 'CREDIT_CARD' || account.type === 'credit_card' ? 'Cartão' : account.type || 'Conta')}
+                    <span className="px-2 py-0.5 rounded-full bg-slate-50 border border-slate-100 text-[9px] font-extrabold uppercase text-slate-500 tracking-wider">
+                      {formatAccountTypeLabel(account.type || (account as any).account_type)}
                     </span>
                   </div>
 
@@ -6957,6 +7014,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 onImportDone={() => setLocalActiveView('financial-fluxo')}
               />
             )}
+            {localActiveView === 'financial-cartoes' && (
+              <Cartoes
+                currentUser={currentUser}
+                accounts={accounts}
+                showToast={showToast}
+                onRefreshData={loadFinancialData}
+              />
+            )}
             {localActiveView === 'financial-categorias' && renderCategorias()}
             {localActiveView === 'financial-pagamentos' && renderContasPagarReceber()}
             {localActiveView === 'financial-centrocusto' && renderCentroCusto()}
@@ -7282,10 +7347,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               value={newAccount.type}
                               onChange={(e) => setNewAccount({...newAccount, type: e.target.value})}
                             >
-                              <option value="Corrente">Corrente</option>
-                              <option value="Poupança">Poupança</option>
-                              <option value="Investimentos">Investimentos</option>
-                              <option value="Dinheiro">Dinheiro</option>
+                              <option value="checking">Conta Corrente</option>
+                              <option value="savings">Poupança</option>
+                              <option value="credit_card">Cartão de Crédito</option>
+                              <option value="cash">Caixa</option>
                             </select>
                           </div>
                         </div>

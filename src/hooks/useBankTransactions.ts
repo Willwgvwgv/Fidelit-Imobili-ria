@@ -14,6 +14,7 @@ export interface BankTransaction {
   status: 'pending' | 'matched' | 'reconciled' | 'ignored';
   match_type?: 'rent' | 'sale' | 'broker_split' | 'owner_payout' | 'expense' | 'other' | null;
   match_id?: string | null;
+  transfer_id?: string | null;
   raw_data?: any;
   imported_at?: string;
 }
