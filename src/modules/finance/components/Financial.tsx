@@ -70,6 +70,10 @@ import { addPeriodToDate, getLocalTodayStr, formatDateBR, parseDateSafe } from '
 import { getAccountLiveBalance as calcAccountLiveBalance } from '../domain/BalanceCalculator';
 import * as InvoiceDomain from '../domain/InvoiceCalculator';
 import { getPreference, setPreference } from '@/src/utils/preferences';
+import { Conciliacao } from './Conciliacao';
+import { ImportarExtrato } from './ImportarExtrato';
+import { FluxoCaixa } from './FluxoCaixa';
+import { ImportarImobia } from './ImportarImobia';
 
 function escapeHtml(input: unknown): string {
   if (input == null) return "";
@@ -6914,10 +6918,45 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
           >
-            {localActiveView === 'financial-fluxo' && renderFluxodeCaixa()}
+            {localActiveView === 'financial-fluxo' && (
+              <FluxoCaixa currentUser={currentUser} showToast={showToast} />
+            )}
             {localActiveView === 'financial-cartoes' && renderCartoes()}
             {localActiveView === 'financial-contas' && renderContas()}
-            {localActiveView === 'financial-conciliacao' && renderConciliacao()}
+            {localActiveView === 'financial-conciliacao' && (
+              <Conciliacao
+                currentUser={currentUser}
+                accounts={accounts}
+                showToast={showToast}
+                onOpenNewExpenseModal={(data) => {
+                  setNewTransaction({
+                    description: data.description,
+                    amount: data.amount,
+                    due_date: data.date,
+                    type: TransactionType.EXPENSE,
+                    status: TransactionStatus.PAID,
+                    agency_id: currentUser.agencyId
+                  });
+                  setModalType('transaction');
+                  setIsModalOpen(true);
+                }}
+              />
+            )}
+            {localActiveView === 'financial-importar-extrato' && (
+              <ImportarExtrato
+                accounts={accounts}
+                agencyId={currentUser.agencyId}
+                onImportDone={() => setLocalActiveView('financial-conciliacao')}
+                showToast={showToast}
+              />
+            )}
+            {localActiveView === 'financial-contratos' && (
+              <ImportarImobia
+                currentUser={currentUser}
+                showToast={showToast}
+                onImportDone={() => setLocalActiveView('financial-fluxo')}
+              />
+            )}
             {localActiveView === 'financial-categorias' && renderCategorias()}
             {localActiveView === 'financial-pagamentos' && renderContasPagarReceber()}
             {localActiveView === 'financial-centrocusto' && renderCentroCusto()}

@@ -199,6 +199,8 @@ const App: React.FC = () => {
       case 'financial-cartoes':
       case 'financial-contas':
       case 'financial-conciliacao':
+      case 'financial-importar-extrato':
+      case 'financial-contratos':
       case 'financial-categorias':
       case 'financial-pagamentos':
       case 'financial-centrocusto':
