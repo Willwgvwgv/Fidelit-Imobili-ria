@@ -301,6 +301,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   // Extrato dynamic states
   const [currentPeriod, setCurrentPeriod] = useState<Date>(new Date());
+  const [periodMode, setPeriodMode] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH' | 'CUSTOM'>('ALL');
+  const [visibleCount, setVisibleCount] = useState<number>(20);
   const [kpiFilter, setKpiFilter] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [accountFilter, setAccountFilter] = useState<string>('ALL');
@@ -826,22 +828,53 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return { overdue, todays, pending, paid, totalPeriod };
   }, [transactions, currentPeriod, categoryFilter, accountFilter]);
 
+  const calcDaysDiff = (d1Str: string, d2Str: string): number => {
+    if (!d1Str || !d2Str) return 0;
+    const t1 = new Date(d1Str + 'T12:00:00').getTime();
+    const t2 = new Date(d2Str + 'T12:00:00').getTime();
+    return Math.floor((t1 - t2) / (1000 * 60 * 60 * 24));
+  };
+
   // Filters for current period, type, category, search term, and active KPI card click
   const filteredTransactions = useMemo(() => {
-    const startOfYear = currentPeriod.getFullYear();
-    const startOfMonth = currentPeriod.getMonth();
     const todayStr = getLocalTodayStr();
 
     return transactions.filter(t => {
-      // 1. Month/Year Period Filter
-      const parts = t.due_date.split('-');
-      const txYear = parseInt(parts[0], 10);
-      const txMonth = parseInt(parts[1], 10) - 1;
-      const matchesPeriod = txYear === startOfYear && txMonth === startOfMonth;
-      if (!matchesPeriod) return false;
+      // 1. Period Filter (default = 'ALL' -> no date restriction)
+      if (periodMode === 'THIS_MONTH') {
+        const now = new Date();
+        const curYear = now.getFullYear();
+        const curMonth = now.getMonth();
+        const parts = t.due_date ? t.due_date.split('-') : [];
+        if (parts.length === 3) {
+          const txYear = parseInt(parts[0], 10);
+          const txMonth = parseInt(parts[1], 10) - 1;
+          if (txYear !== curYear || txMonth !== curMonth) return false;
+        }
+      } else if (periodMode === 'LAST_MONTH') {
+        const now = new Date();
+        const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const lmYear = lastMonthDate.getFullYear();
+        const lmMonth = lastMonthDate.getMonth();
+        const parts = t.due_date ? t.due_date.split('-') : [];
+        if (parts.length === 3) {
+          const txYear = parseInt(parts[0], 10);
+          const txMonth = parseInt(parts[1], 10) - 1;
+          if (txYear !== lmYear || txMonth !== lmMonth) return false;
+        }
+      } else if (periodMode === 'CUSTOM') {
+        const startOfYear = currentPeriod.getFullYear();
+        const startOfMonth = currentPeriod.getMonth();
+        const parts = t.due_date ? t.due_date.split('-') : [];
+        if (parts.length === 3) {
+          const txYear = parseInt(parts[0], 10);
+          const txMonth = parseInt(parts[1], 10) - 1;
+          if (txYear !== startOfYear || txMonth !== startOfMonth) return false;
+        }
+      }
 
       // 2. Search Term
-      const matchesSearch = t.description.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesSearch = !searchTerm || t.description.toLowerCase().includes(searchTerm.toLowerCase());
       if (!matchesSearch) return false;
 
       // 3. Type Filter (Todos / Receitas / Despesas)
@@ -860,24 +893,29 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
       // 5. Active KPI Card filter
       if (kpiFilter) {
-        if (kpiFilter === 'VENCIDOS') {
+        const normKpi = kpiFilter.toLowerCase();
+        if (normKpi === 'vencidos') {
           const isOverdue = t.status === TransactionStatus.PENDING && t.due_date < todayStr;
           if (!isOverdue) return false;
-        } else if (kpiFilter === 'VENCEM HOJE') {
+        } else if (normKpi === 'hoje' || normKpi === 'vencem hoje') {
           const isToday = t.status === TransactionStatus.PENDING && t.due_date === todayStr;
           if (!isToday) return false;
-        } else if (kpiFilter === 'A VENCER') {
-          const isFuturePending = t.status === TransactionStatus.PENDING && t.due_date > todayStr;
-          if (!isFuturePending) return false;
-        } else if (kpiFilter === 'PAGOS') {
-          const isPaid = t.status === TransactionStatus.PAID;
-          if (!isPaid) return false;
+        } else if (normKpi === 'proximos7') {
+          const diff = calcDaysDiff(t.due_date, todayStr);
+          const isNext7 = t.status === TransactionStatus.PENDING && diff > 0 && diff <= 7;
+          if (!isNext7) return false;
+        } else if (normKpi === 'avencer' || normKpi === 'avencer_receber' || normKpi === 'a vencer') {
+          const diff = calcDaysDiff(t.due_date, todayStr);
+          const isAvencer = t.status === TransactionStatus.PENDING && (diff >= 8 || t.type === TransactionType.INCOME || t.due_date > todayStr);
+          if (!isAvencer) return false;
+        } else if (normKpi === 'pagos') {
+          if (t.status !== TransactionStatus.PAID) return false;
         }
       }
 
       return true;
     });
-  }, [transactions, searchTerm, typeFilter, currentPeriod, kpiFilter, categoryFilter, accountFilter]);
+  }, [transactions, searchTerm, typeFilter, periodMode, currentPeriod, kpiFilter, categoryFilter, accountFilter]);
 
 
 
@@ -2569,21 +2607,24 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   // 1. View: Extrato (Statement)
   const renderExtrato = () => {
-    const handleKpiClick = (id: string) => {
-      if (kpiFilter === id) {
+    const handleKpiClick = (id: string | null) => {
+      if (!id || kpiFilter === id || kpiFilter?.toLowerCase() === id?.toLowerCase()) {
         setKpiFilter(null);
       } else {
         setKpiFilter(id);
       }
+      setVisibleCount(20);
     };
+
+    const displayedTransactions = filteredTransactions.slice(0, visibleCount);
 
     return (
       <div className="space-y-6">
         {/* KPI Cards section */}
         <FinancialKpiHeaderCards 
           transactions={transactions} 
-          onCardClick={(id) => handleKpiClick(id.toUpperCase())} 
-          activeFilter={kpiFilter ? kpiFilter.toLowerCase() : null} 
+          onCardClick={(id) => handleKpiClick(id)} 
+          activeFilter={kpiFilter} 
         />
 
         {/* Main Table Container */}
@@ -2614,17 +2655,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     <input 
                       type="checkbox" 
                       className="rounded text-blue-600 focus:ring-blue-400 cursor-pointer" 
-                      checked={filteredTransactions.length > 0 && filteredTransactions.every(tx => selectedTxIds.includes(tx.id))}
+                      checked={displayedTransactions.length > 0 && displayedTransactions.every(tx => selectedTxIds.includes(tx.id))}
                       onChange={() => {
-                        const isAllVisibleSelected = filteredTransactions.length > 0 && filteredTransactions.every(tx => selectedTxIds.includes(tx.id));
+                        const isAllVisibleSelected = displayedTransactions.length > 0 && displayedTransactions.every(tx => selectedTxIds.includes(tx.id));
                         if (isAllVisibleSelected) {
-                          setSelectedTxIds(prev => prev.filter(id => !filteredTransactions.some(tx => tx.id === id)));
+                          setSelectedTxIds(prev => prev.filter(id => !displayedTransactions.some(tx => tx.id === id)));
                         } else {
-                          const visibleIds = filteredTransactions.map(tx => tx.id);
-                          setSelectedTxIds(prev => {
-                            const otherIds = prev.filter(id => !visibleIds.includes(id));
-                            return [...otherIds, ...visibleIds];
-                          });
+                          const visibleIds = displayedTransactions.map(tx => tx.id);
+                          setSelectedTxIds(prev => Array.from(new Set([...prev, ...visibleIds])));
                         }
                       }}
                     />
@@ -2639,7 +2677,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filteredTransactions.map((tx) => {
+                {displayedTransactions.map((tx) => {
                   const category = categories.find(c => c.id === tx.category_id);
                   const account = accounts.find(a => a.id === tx.account_id);
                   const isPaid = tx.status === TransactionStatus.PAID;
@@ -2769,6 +2807,29 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               </tbody>
             </table>
           </div>
+
+          {/* Pagination: 20 por página com botão "Ver mais" */}
+          {filteredTransactions.length > visibleCount && (
+            <div className="p-4 bg-slate-50/50 border-t border-slate-100 flex items-center justify-between px-6">
+              <span className="text-xs font-medium text-slate-500">
+                Exibindo <span className="font-bold text-slate-800">{displayedTransactions.length}</span> de <span className="font-bold text-slate-800">{filteredTransactions.length}</span> lançamentos
+              </span>
+              <button
+                type="button"
+                onClick={() => setVisibleCount(prev => prev + 20)}
+                className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer hover:border-slate-300"
+              >
+                Ver mais
+              </button>
+            </div>
+          )}
+          {filteredTransactions.length > 0 && filteredTransactions.length <= visibleCount && (
+            <div className="p-3 bg-slate-50/50 border-t border-slate-100 text-center">
+              <span className="text-xs font-medium text-slate-400">
+                Exibindo todos os {filteredTransactions.length} lançamentos
+              </span>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -6226,54 +6287,75 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 ))}
               </div>
 
-              {/* Period Navigation */}
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl relative">
-                <button 
-                  onClick={() => {
-                    setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+              {/* Period Dropdown & Custom Navigation */}
+              <div className="flex items-center gap-2">
+                <select
+                  value={periodMode}
+                  onChange={(e) => {
+                    setPeriodMode(e.target.value as any);
+                    setVisibleCount(20);
                   }}
-                  className="p-1 px-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-                  title="Mês Anterior"
+                  className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none shadow-xs cursor-pointer hover:border-slate-300 transition-all"
                 >
-                  <ChevronLeft size={16} />
-                </button>
-                
-                <div 
-                  onClick={() => {
-                    monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
-                  }}
-                  className="text-xs font-black uppercase tracking-wider text-slate-800 px-1.5 min-w-[110px] text-center cursor-pointer hover:bg-slate-200 py-1 rounded-lg transition-colors relative flex items-center justify-center"
-                >
-                  {(() => {
-                    const monthNames = [
-                      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-                      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-                    ];
-                    return `${monthNames[currentPeriod.getMonth()]} de ${currentPeriod.getFullYear()}`;
-                  })()}
-                  <input 
-                    ref={monthInputRef}
-                    type="month" 
-                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    value={`${currentPeriod.getFullYear()}-${String(currentPeriod.getMonth() + 1).padStart(2, '0')}`}
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        const [y, m] = e.target.value.split('-').map(Number);
-                        setCurrentPeriod(new Date(y, m - 1, 1));
-                      }
-                    }}
-                  />
-                </div>
-                
-                <button 
-                  onClick={() => {
-                    setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-                  }}
-                  className="p-1 px-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-                  title="Próximo Mês"
-                >
-                  <ChevronRight size={16} />
-                </button>
+                  <option value="ALL">Período: Tudo</option>
+                  <option value="THIS_MONTH">Este mês</option>
+                  <option value="LAST_MONTH">Mês passado</option>
+                  <option value="CUSTOM">Personalizado</option>
+                </select>
+
+                {periodMode === 'CUSTOM' && (
+                  <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl relative animate-fadeIn">
+                    <button 
+                      onClick={() => {
+                        setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+                        setVisibleCount(20);
+                      }}
+                      className="p-1 px-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      title="Mês Anterior"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    
+                    <div 
+                      onClick={() => {
+                        monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
+                      }}
+                      className="text-xs font-black uppercase tracking-wider text-slate-800 px-1.5 min-w-[110px] text-center cursor-pointer hover:bg-slate-200 py-1 rounded-lg transition-colors relative flex items-center justify-center"
+                    >
+                      {(() => {
+                        const monthNames = [
+                          'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                          'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+                        ];
+                        return `${monthNames[currentPeriod.getMonth()]} de ${currentPeriod.getFullYear()}`;
+                      })()}
+                      <input 
+                        ref={monthInputRef}
+                        type="month" 
+                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                        value={`${currentPeriod.getFullYear()}-${String(currentPeriod.getMonth() + 1).padStart(2, '0')}`}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            const [y, m] = e.target.value.split('-').map(Number);
+                            setCurrentPeriod(new Date(y, m - 1, 1));
+                            setVisibleCount(20);
+                          }
+                        }}
+                      />
+                    </div>
+                    
+                    <button 
+                      onClick={() => {
+                        setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+                        setVisibleCount(20);
+                      }}
+                      className="p-1 px-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      title="Próximo Mês"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Additional Filter Trigger */}
@@ -6285,7 +6367,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <Filter size={14} />
                   <span>Filtrar</span>
                 </button>
-                {(categoryFilter !== 'ALL' || accountFilter !== 'ALL') && (
+                {(categoryFilter !== 'ALL' || accountFilter !== 'ALL' || periodMode !== 'ALL') && (
                   <span 
                     id="filter-active-dot"
                     className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border border-white shadow-sm animate-pulse" 
@@ -6297,10 +6379,30 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     <div className="fixed inset-0 z-10" onClick={() => setIsFilterDropdownOpen(false)} />
                     <div className="absolute left-0 mt-2 w-64 bg-white border border-slate-100 rounded-2xl shadow-xl p-4 z-20 space-y-4">
                       <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Período</label>
+                        <select 
+                          value={periodMode}
+                          onChange={(e) => {
+                            setPeriodMode(e.target.value as any);
+                            setVisibleCount(20);
+                          }}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                        >
+                          <option value="ALL">Período: Tudo</option>
+                          <option value="THIS_MONTH">Este mês</option>
+                          <option value="LAST_MONTH">Mês passado</option>
+                          <option value="CUSTOM">Personalizado</option>
+                        </select>
+                      </div>
+
+                      <div>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Categoria</label>
                         <select 
                           value={categoryFilter}
-                          onChange={(e) => setCategoryFilter(e.target.value)}
+                          onChange={(e) => {
+                            setCategoryFilter(e.target.value);
+                            setVisibleCount(20);
+                          }}
                           className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none cursor-pointer"
                         >
                           <option value="ALL">Todas as Categorias</option>
@@ -6314,7 +6416,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Conta</label>
                         <select 
                           value={accountFilter}
-                          onChange={(e) => setAccountFilter(e.target.value)}
+                          onChange={(e) => {
+                            setAccountFilter(e.target.value);
+                            setVisibleCount(20);
+                          }}
                           className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none cursor-pointer"
                         >
                           <option value="ALL">Todas as Contas</option>
