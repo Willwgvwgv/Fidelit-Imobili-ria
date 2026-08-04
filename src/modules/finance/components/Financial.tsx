@@ -69,7 +69,7 @@ import { parseBrlValue, parseBRL, formatBRL, formatCurrency } from '../utils/cur
 import { addPeriodToDate, getLocalTodayStr, formatDateBR, parseDateSafe } from '../utils/dates';
 import { getAccountLiveBalance as calcAccountLiveBalance } from '../domain/BalanceCalculator';
 import * as InvoiceDomain from '../domain/InvoiceCalculator';
-import { getPreference, setPreference } from '../../../utils/preferences';
+import { getPreference, setPreference } from '@/src/utils/preferences';
 
 function escapeHtml(input: unknown): string {
   if (input == null) return "";

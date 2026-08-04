@@ -12,7 +12,25 @@ export async function getPreference<T>(key: string, defaultValue: T): Promise<T>
     return defaultValue;
   }
 
-  return (data?.value as T) ?? defaultValue;
+  if (data?.value != null) {
+    return data.value as T;
+  }
+
+  // Fallback: check legacy localStorage and migrate
+  try {
+    const legacy = localStorage.getItem(key);
+    if (legacy) {
+      const parsed = JSON.parse(legacy);
+      console.log(`[migration] ${key} migrated to Supabase`);
+      await setPreference(key, parsed);
+      localStorage.removeItem(key);
+      return parsed as T;
+    }
+  } catch (e) {
+    console.error(`Error reading legacy localStorage for ${key}:`, e);
+  }
+
+  return defaultValue;
 }
 
 export async function setPreference<T>(key: string, value: T): Promise<void> {
