@@ -300,6 +300,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   // Extrato dynamic states
+  const monthInputRef = useRef<HTMLInputElement>(null);
   const [currentPeriod, setCurrentPeriod] = useState<Date>(new Date());
   const [periodMode, setPeriodMode] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH' | 'CUSTOM'>('ALL');
   const [visibleCount, setVisibleCount] = useState<number>(20);
@@ -327,7 +328,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   } = useRecurringTransactions(loadFinancialData);
   const [markAsPaid, setMarkAsPaid] = useState<boolean>(false);
   const [isSubmittingTransaction, setIsSubmittingTransaction] = useState<boolean>(false);
-  const monthInputRef = useRef<HTMLInputElement>(null);
 
   // Pay Credit Card Invoice States
   const {
@@ -838,38 +838,43 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   // Filters for current period, type, category, search term, and active KPI card click
   const filteredTransactions = useMemo(() => {
     const todayStr = getLocalTodayStr();
+    const selYear = currentPeriod.getFullYear();
+    const selMonthIdx = currentPeriod.getMonth();
+
+    const isInSelectedMonth = (dateStr: string) => {
+      if (!dateStr) return false;
+      const parts = dateStr.split('-');
+      if (parts.length !== 3) return false;
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      return y === selYear && m === selMonthIdx;
+    };
 
     return transactions.filter(t => {
-      // 1. Period Filter (default = 'ALL' -> no date restriction)
-      if (periodMode === 'THIS_MONTH') {
-        const now = new Date();
-        const curYear = now.getFullYear();
-        const curMonth = now.getMonth();
-        const parts = t.due_date ? t.due_date.split('-') : [];
-        if (parts.length === 3) {
-          const txYear = parseInt(parts[0], 10);
-          const txMonth = parseInt(parts[1], 10) - 1;
-          if (txYear !== curYear || txMonth !== curMonth) return false;
+      // 1. KPI Filter overrides month filter for global cards
+      if (kpiFilter) {
+        const normKpi = kpiFilter.toLowerCase();
+        if (normKpi === 'vencidos') {
+          const isOverdue = t.status === TransactionStatus.PENDING && t.due_date < todayStr;
+          if (!isOverdue) return false;
+        } else if (normKpi === 'hoje' || normKpi === 'vencem hoje') {
+          const isToday = t.status === TransactionStatus.PENDING && t.due_date === todayStr;
+          if (!isToday) return false;
+        } else if (normKpi === 'proximos7') {
+          const diff = calcDaysDiff(t.due_date, todayStr);
+          const isNext7 = t.status === TransactionStatus.PENDING && diff > 0 && diff <= 7;
+          if (!isNext7) return false;
+        } else if (normKpi === 'avencer' || normKpi === 'avencer_receber' || normKpi === 'a vencer') {
+          const diff = calcDaysDiff(t.due_date, todayStr);
+          const isAvencer = t.status === TransactionStatus.PENDING && isInSelectedMonth(t.due_date) && diff >= 8;
+          if (!isAvencer) return false;
+        } else if (normKpi === 'pagos') {
+          if (t.status !== TransactionStatus.PAID || !isInSelectedMonth(t.due_date)) return false;
         }
-      } else if (periodMode === 'LAST_MONTH') {
-        const now = new Date();
-        const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const lmYear = lastMonthDate.getFullYear();
-        const lmMonth = lastMonthDate.getMonth();
-        const parts = t.due_date ? t.due_date.split('-') : [];
-        if (parts.length === 3) {
-          const txYear = parseInt(parts[0], 10);
-          const txMonth = parseInt(parts[1], 10) - 1;
-          if (txYear !== lmYear || txMonth !== lmMonth) return false;
-        }
-      } else if (periodMode === 'CUSTOM') {
-        const startOfYear = currentPeriod.getFullYear();
-        const startOfMonth = currentPeriod.getMonth();
-        const parts = t.due_date ? t.due_date.split('-') : [];
-        if (parts.length === 3) {
-          const txYear = parseInt(parts[0], 10);
-          const txMonth = parseInt(parts[1], 10) - 1;
-          if (txYear !== startOfYear || txMonth !== startOfMonth) return false;
+      } else {
+        // Default: filter list strictly by selected month
+        if (!isInSelectedMonth(t.due_date)) {
+          return false;
         }
       }
 
@@ -891,31 +896,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         return false;
       }
 
-      // 5. Active KPI Card filter
-      if (kpiFilter) {
-        const normKpi = kpiFilter.toLowerCase();
-        if (normKpi === 'vencidos') {
-          const isOverdue = t.status === TransactionStatus.PENDING && t.due_date < todayStr;
-          if (!isOverdue) return false;
-        } else if (normKpi === 'hoje' || normKpi === 'vencem hoje') {
-          const isToday = t.status === TransactionStatus.PENDING && t.due_date === todayStr;
-          if (!isToday) return false;
-        } else if (normKpi === 'proximos7') {
-          const diff = calcDaysDiff(t.due_date, todayStr);
-          const isNext7 = t.status === TransactionStatus.PENDING && diff > 0 && diff <= 7;
-          if (!isNext7) return false;
-        } else if (normKpi === 'avencer' || normKpi === 'avencer_receber' || normKpi === 'a vencer') {
-          const diff = calcDaysDiff(t.due_date, todayStr);
-          const isAvencer = t.status === TransactionStatus.PENDING && (diff >= 8 || t.type === TransactionType.INCOME || t.due_date > todayStr);
-          if (!isAvencer) return false;
-        } else if (normKpi === 'pagos') {
-          if (t.status !== TransactionStatus.PAID) return false;
-        }
-      }
-
       return true;
     });
-  }, [transactions, searchTerm, typeFilter, periodMode, currentPeriod, kpiFilter, categoryFilter, accountFilter]);
+  }, [transactions, searchTerm, typeFilter, currentPeriod, kpiFilter, categoryFilter, accountFilter]);
 
 
 
@@ -2617,18 +2600,117 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     };
 
     const displayedTransactions = filteredTransactions.slice(0, visibleCount);
+    const monthFormatted = currentPeriod.toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
+    const capitalizedMonth = monthFormatted.charAt(0).toUpperCase() + monthFormatted.slice(1);
 
     return (
       <div className="space-y-6">
+        {/* Month Selector Bar at Top of Extrato */}
+        <div className="bg-white rounded-3xl border border-slate-100 p-3.5 px-5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            {/* Pill Navigation [◄] [Mês Ano] [►] */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/60">
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+                  setVisibleCount(20);
+                }}
+                className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
+                title="Mês Anterior"
+              >
+                <ChevronLeft size={18} />
+              </button>
+
+              <span className="px-3.5 py-1 font-black text-xs sm:text-sm text-slate-800 capitalize tracking-wide min-w-[130px] text-center">
+                {capitalizedMonth}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+                  setVisibleCount(20);
+                }}
+                className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
+                title="Próximo Mês"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+
+            {/* Datepicker Icon Button [📅] */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click()}
+                className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl transition-all cursor-pointer flex items-center justify-center border border-slate-200/60"
+                title="Escolher Mês"
+              >
+                <Calendar size={18} />
+              </button>
+              <input
+                ref={monthInputRef}
+                type="month"
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                value={`${currentPeriod.getFullYear()}-${String(currentPeriod.getMonth() + 1).padStart(2, '0')}`}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    const [y, m] = e.target.value.split('-').map(Number);
+                    setCurrentPeriod(new Date(y, m - 1, 1));
+                    setVisibleCount(20);
+                  }
+                }}
+              />
+            </div>
+
+            {/* Quick shortcut to current month */}
+            {(currentPeriod.getFullYear() !== new Date().getFullYear() || currentPeriod.getMonth() !== new Date().getMonth()) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentPeriod(new Date());
+                  setVisibleCount(20);
+                }}
+                className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-xl transition-all cursor-pointer border border-blue-100"
+              >
+                Mês Atual
+              </button>
+            )}
+          </div>
+
+          <div className="text-xs font-bold text-slate-500 flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Mês em Exibição: <strong className="text-slate-800 capitalize">{capitalizedMonth}</strong></span>
+          </div>
+        </div>
+
         {/* KPI Cards section */}
         <FinancialKpiHeaderCards 
           transactions={transactions} 
+          selectedMonth={currentPeriod}
           onCardClick={(id) => handleKpiClick(id)} 
           activeFilter={kpiFilter} 
         />
 
         {/* Main Table Container */}
         <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+          {/* List Period Header Indicator */}
+          <div className="p-4 px-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/50">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-600" />
+              <span className="text-xs font-bold text-slate-700">
+                {kpiFilter === 'vencidos' && 'Exibindo todos os lançamentos vencidos (Todos os meses)'}
+                {kpiFilter === 'hoje' && 'Exibindo lançamentos que vencem hoje'}
+                {kpiFilter === 'proximos7' && 'Exibindo lançamentos dos próximos 7 dias'}
+                {kpiFilter === 'avencer' && `Exibindo lançamentos a vencer de ${capitalizedMonth}`}
+                {!kpiFilter && `Exibindo lançamentos de ${capitalizedMonth}`}
+              </span>
+            </div>
+            <span className="text-xs font-extrabold text-slate-500 bg-slate-200/60 px-2.5 py-1 rounded-full w-fit">
+              {filteredTransactions.length} {filteredTransactions.length === 1 ? 'lançamento' : 'lançamentos'}
+            </span>
+          </div>
 
           {/* Mass Actions Bar */}
           {selectedTxIds.length > 0 && (

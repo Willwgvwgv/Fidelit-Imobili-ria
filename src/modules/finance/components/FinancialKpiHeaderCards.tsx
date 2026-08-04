@@ -1,10 +1,12 @@
 import React from 'react';
-import { FinancialTransaction, TransactionStatus, TransactionType } from '../../../../types';
+import { FinancialTransaction, TransactionStatus } from '../../../../types';
 import { formatCurrency } from '../utils/currency';
+import { getLocalTodayStr } from '../utils/dates';
 import { X } from 'lucide-react';
 
 interface FinancialKpiHeaderCardsProps {
   transactions?: FinancialTransaction[];
+  selectedMonth?: Date;
   onCardClick?: (filterId: string | null) => void;
   activeFilter?: string | null;
 }
@@ -19,27 +21,48 @@ const getDaysDiff = (dateStr1: string, dateStr2: string) => {
 
 export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = ({
   transactions = [],
+  selectedMonth = new Date(),
   onCardClick,
   activeFilter,
 }) => {
-  const hoje = new Date().toISOString().split('T')[0];
+  const hoje = getLocalTodayStr();
+  const selYear = selectedMonth.getFullYear();
+  const selMonthIdx = selectedMonth.getMonth();
+  const monthName = selectedMonth.toLocaleString('pt-BR', { month: 'long' });
 
+  const isInSelectedMonth = (dateStr: string) => {
+    if (!dateStr) return false;
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return false;
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    return y === selYear && m === selMonthIdx;
+  };
+
+  // 1. Vencidos (global)
   const txsVencidos = transactions.filter(
     (t) => t.status === TransactionStatus.PENDING && t.due_date < hoje
   );
+
+  // 2. Vence Hoje (global)
   const txsHoje = transactions.filter(
     (t) => t.status === TransactionStatus.PENDING && t.due_date === hoje
   );
+
+  // 3. Próximos 7 dias (global)
   const txsSeteDias = transactions.filter(
     (t) =>
       t.status === TransactionStatus.PENDING &&
       getDaysDiff(t.due_date, hoje) > 0 &&
       getDaysDiff(t.due_date, hoje) <= 7
   );
+
+  // 4. A Vencer / A Receber (mês selecionado, excluindo hoje e próximos 7 dias pra não duplicar)
   const txsAVencerReceber = transactions.filter(
     (t) =>
       t.status === TransactionStatus.PENDING &&
-      (getDaysDiff(t.due_date, hoje) >= 8 || t.type === TransactionType.INCOME || t.due_date > hoje)
+      isInSelectedMonth(t.due_date) &&
+      getDaysDiff(t.due_date, hoje) >= 8
   );
 
   const countVencidos = txsVencidos.length;
@@ -54,13 +77,15 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
   const countAVencerReceber = txsAVencerReceber.length;
   const sumAVencerReceber = txsAVencerReceber.reduce((a, b) => a + (Number(b.amount) || 0), 0);
 
+  const monthLabelUpper = monthName.toUpperCase();
+
   const cards = [
     {
       id: 'vencidos',
       title: 'Vencidos',
       count: countVencidos,
       amount: sumVencidos,
-      sub: 'Contas em atraso',
+      sub: 'TODOS EM ATRASO',
       bgColor: 'bg-rose-50/60',
       borderColor: 'border-rose-100',
       textColor: 'text-rose-800',
@@ -73,7 +98,7 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
       title: 'Vence Hoje',
       count: countHoje,
       amount: sumHoje,
-      sub: 'Vencimentos de hoje',
+      sub: 'VENCIMENTOS DE HOJE',
       bgColor: 'bg-orange-50/60',
       borderColor: 'border-orange-100',
       textColor: 'text-orange-800',
@@ -86,7 +111,7 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
       title: 'Próximos 7 dias',
       count: countSeteDias,
       amount: sumSeteDias,
-      sub: 'Vencimentos na semana',
+      sub: 'PRÓXIMOS 7 DIAS',
       bgColor: 'bg-amber-50/60',
       borderColor: 'border-amber-100',
       textColor: 'text-amber-800',
@@ -99,7 +124,7 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
       title: 'A Vencer / A Receber',
       count: countAVencerReceber,
       amount: sumAVencerReceber,
-      sub: 'Entradas e a vencer',
+      sub: `DE ${monthLabelUpper}`,
       bgColor: 'bg-emerald-50/60',
       borderColor: 'border-emerald-100',
       textColor: 'text-emerald-800',
