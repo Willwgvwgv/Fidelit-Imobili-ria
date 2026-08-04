@@ -14,10 +14,12 @@ import {
   Filter,
   DollarSign
 } from 'lucide-react';
-import { FinancialAccount, User } from '../../../../types';
+import { FinancialAccount, User, FinancialTransaction } from '../../../../types';
 import { useBankTransactions, BankTransaction } from '../../../hooks/useBankTransactions';
 import { supabase } from '../../../../supabase';
 import { TransferBadge } from '../../../components/TransferBadge';
+import { HeaderTooltip } from './HeaderTooltip';
+import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
 
 interface RentInstallmentItem {
   id: string;
@@ -42,6 +44,7 @@ interface BrokerSplitItem {
 interface ConciliacaoProps {
   currentUser: User;
   accounts: FinancialAccount[];
+  transactions?: FinancialTransaction[];
   showToast?: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
   onOpenNewExpenseModal?: (data: { description: string; amount: number; date: string }) => void;
 }
@@ -50,6 +53,7 @@ interface ConciliacaoProps {
 export const Conciliacao: React.FC<ConciliacaoProps> = ({
   currentUser,
   accounts,
+  transactions = [],
   showToast,
   onOpenNewExpenseModal,
 }) => {
@@ -237,12 +241,15 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
 
   return (
     <div className="space-y-6">
+      <FinancialKpiHeaderCards transactions={transactions} />
+
       {/* Top Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <RefreshCw className="text-indigo-600" size={22} />
             Conciliação Bancária
+            <HeaderTooltip text="Comparativo e cruzamento automático de extratos bancários importados (OFX/CSV) com lançamentos do sistema." />
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Vincule extratos importados do Sicoob aos recebimentos de aluguel e pagamentos de comissão.

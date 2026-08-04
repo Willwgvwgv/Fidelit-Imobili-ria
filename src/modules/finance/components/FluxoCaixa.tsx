@@ -26,7 +26,9 @@ import {
 } from 'recharts';
 import { useCashFlow } from '../../../hooks/useCashFlow';
 import { supabase } from '../../../../supabase';
-import { User } from '../../../../types';
+import { User, FinancialTransaction } from '../../../../types';
+import { HeaderTooltip } from './HeaderTooltip';
+import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
 
 interface RentInstallmentRow {
   id: string;
@@ -40,10 +42,11 @@ interface RentInstallmentRow {
 
 interface FluxoCaixaProps {
   currentUser: User;
+  transactions?: FinancialTransaction[];
   showToast?: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
-export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, showToast }) => {
+export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transactions = [], showToast }) => {
   const { realBalances, projectedBalances, dreMonthly, loading, fetchAllCashFlowData } = useCashFlow(
     currentUser.agencyId
   );
@@ -192,12 +195,15 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, showToast }
 
   return (
     <div className="space-y-6">
+      <FinancialKpiHeaderCards transactions={transactions} />
+
       {/* Header */}
       <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <TrendingUp className="text-indigo-600" size={22} />
-            Fluxo de Caixa Projetado (30 Dias)
+            Fluxo de Caixa
+            <HeaderTooltip text="Projeção financeira diária e mensal para análise de entradas, saídas e liquidez operacional." />
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Visão consolidada do saldo bancário real conciliado e estimativas de entradas e saídas.

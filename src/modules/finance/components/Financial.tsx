@@ -68,6 +68,8 @@ import { useInvoicePayment } from '../hooks/useInvoicePayment';
 import { parseBrlValue, parseBRL, formatBRL, formatCurrency } from '../utils/currency';
 import { addPeriodToDate, getLocalTodayStr, formatDateBR, parseDateSafe } from '../utils/dates';
 import { getAccountLiveBalance as calcAccountLiveBalance } from '../domain/BalanceCalculator';
+import { HeaderTooltip } from './HeaderTooltip';
+import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
 import * as InvoiceDomain from '../domain/InvoiceCalculator';
 import { getPreference, setPreference } from '@/src/utils/preferences';
 import { Conciliacao } from './Conciliacao';
@@ -399,7 +401,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
   
   // Accounts payable and receivable states
-  const [pagamentosTab, setPagamentosTab] = useState<'todas' | 'pagar' | 'receber' | 'vencidas'>('todas');
+  const [pagamentosTab, setPagamentosTab] = useState<'todas' | 'pagar' | 'receber' | 'vencidos'>('todas');
   const [localActiveView, setLocalActiveView] = useState<string>(activeView);
   const [centroCustoTab, setCentroCustoTab] = useState<'todos' | 'despesas' | 'receitas'>('todos');
 
@@ -2578,36 +2580,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return (
       <div className="space-y-6">
         {/* KPI Cards section */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          {[
-            { id: 'VENCIDOS', label: 'VENCIDOS', value: stats.overdue, color: 'text-rose-600', bg: 'bg-white' },
-            { id: 'VENCEM HOJE', label: 'VENCEM HOJE', value: stats.todays, color: 'text-amber-600', bg: 'bg-white' },
-            { id: 'A VENCER', label: 'A VENCER', value: stats.pending, color: 'text-blue-600', bg: 'bg-white' },
-            { id: 'PAGOS', label: 'PAGOS', value: stats.paid, color: 'text-emerald-600', bg: 'bg-white' },
-            { id: 'TOTAL', label: 'TOTAL DO PERÍODO', value: stats.totalPeriod, color: stats.totalPeriod >= 0 ? 'text-emerald-600' : 'text-rose-600', bg: 'bg-emerald-500/5', help: true, notFilterable: true },
-          ].map((kpi, idx) => {
-            const isSelected = kpiFilter === kpi.id;
-            return (
-              <div 
-                key={idx} 
-                onClick={() => !kpi.notFilterable && handleKpiClick(kpi.id)}
-                className={`${kpi.bg} p-6 rounded-2xl border transition-all ${
-                  isSelected 
-                    ? 'border-blue-400 ring-2 ring-blue-100 bg-blue-50/10' 
-                    : 'border-slate-100 shadow-sm hover:border-slate-300'
-                } flex flex-col items-center justify-center text-center ${kpi.notFilterable ? '' : 'cursor-pointer'}`}
-              >
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{kpi.label}</span>
-                  {kpi.help && <HelpCircle size={12} className="text-slate-300" />}
-                </div>
-                <h3 className={`text-xl font-black ${kpi.color}`}>
-                  {formatCurrency(kpi.value)}
-                </h3>
-              </div>
-            );
-          })}
-        </div>
+        <FinancialKpiHeaderCards 
+          transactions={transactions} 
+          onCardClick={(id) => handleKpiClick(id.toUpperCase())} 
+          activeFilter={kpiFilter ? kpiFilter.toLowerCase() : null} 
+        />
 
         {/* Main Table Container */}
         <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
@@ -3469,7 +3446,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       if (pagamentosTab === 'receber') {
         return t.type === TransactionType.INCOME && t.status === TransactionStatus.PENDING;
       }
-      if (pagamentosTab === 'vencidas') {
+      if (pagamentosTab === 'vencidos') {
         return t.status === TransactionStatus.PENDING && t.due_date < hoje;
       }
       
@@ -3489,7 +3466,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     // Grouping
     const groups: { [key: string]: { title: string; colorClass: string; transactions: FinancialTransaction[] } } = {
-      vencidas: { title: 'Contas Vencidas', colorClass: 'bg-rose-50 border-rose-200 text-rose-800', transactions: [] },
+      vencidos: { title: 'Vencidos', colorClass: 'bg-rose-50 border-rose-200 text-rose-800', transactions: [] },
       hoje: { title: 'Vence Hoje', colorClass: 'bg-orange-50 border-orange-200 text-orange-800', transactions: [] },
       proximos7: { title: 'Próximos 7 Dias', colorClass: 'bg-amber-50 border-amber-200 text-amber-800', transactions: [] },
       futuro: { title: 'Futuro', colorClass: 'bg-slate-50 border-slate-200 text-slate-800', transactions: [] },
@@ -3500,7 +3477,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       if (t.status === TransactionStatus.PAID) {
         groups.liquidadas.transactions.push(t);
       } else if (t.due_date < hoje) {
-        groups.vencidas.transactions.push(t);
+        groups.vencidos.transactions.push(t);
       } else if (t.due_date === hoje) {
         groups.hoje.transactions.push(t);
       } else if (getDaysDiff(t.due_date, hoje) > 0 && getDaysDiff(t.due_date, hoje) <= 7) {
@@ -3511,7 +3488,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     });
 
     // Sort within groups
-    groups.vencidas.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
+    groups.vencidos.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
     groups.hoje.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
     groups.proximos7.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
     groups.futuro.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
@@ -3522,56 +3499,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return (
       <div className="space-y-8">
         {/* KPI Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="bg-rose-50/60 border border-rose-100 p-6 rounded-3xl shadow-sm flex flex-col justify-between">
-            <div className="flex justify-between items-start">
-              <span className="text-[10px] font-black text-rose-800/60 uppercase tracking-widest">Vencidas</span>
-              <span className="bg-rose-100 text-rose-800 text-xs font-black px-2 py-0.5 rounded-full">{countVencidas}</span>
-            </div>
-            <div className="mt-4">
-              <h3 className="text-2xl font-black text-rose-950">{formatCurrency(sumVencidas)}</h3>
-              <p className="text-[10px] text-rose-700/80 font-bold uppercase tracking-wider mt-1">Contas em atraso</p>
-            </div>
-          </div>
-
-          <div className="bg-orange-50/60 border border-orange-100 p-6 rounded-3xl shadow-sm flex flex-col justify-between">
-            <div className="flex justify-between items-start">
-              <span className="text-[10px] font-black text-orange-800/60 uppercase tracking-widest">Vence Hoje</span>
-              <span className="bg-orange-100 text-orange-800 text-xs font-black px-2 py-0.5 rounded-full">{countHoje}</span>
-            </div>
-            <div className="mt-4">
-              <h3 className="text-2xl font-black text-orange-950">{formatCurrency(sumHoje)}</h3>
-              <p className="text-[10px] text-orange-700/80 font-bold uppercase tracking-wider mt-1">Vencimentos de hoje</p>
-            </div>
-          </div>
-
-          <div className="bg-amber-50/60 border border-amber-100 p-6 rounded-3xl shadow-sm flex flex-col justify-between">
-            <div className="flex justify-between items-start">
-              <span className="text-[10px] font-black text-amber-800/60 uppercase tracking-widest">Próximos 7 Dias</span>
-              <span className="bg-amber-100 text-amber-800 text-xs font-black px-2 py-0.5 rounded-full">{countSeteDias}</span>
-            </div>
-            <div className="mt-4">
-              <h3 className="text-2xl font-black text-amber-950">{formatCurrency(sumSeteDias)}</h3>
-              <p className="text-[10px] text-amber-700/80 font-bold uppercase tracking-wider mt-1">Vencimentos na semana</p>
-            </div>
-          </div>
-
-          <div className="bg-emerald-50/60 border border-emerald-100 p-6 rounded-3xl shadow-sm flex flex-col justify-between">
-            <div className="flex justify-between items-start">
-              <span className="text-[10px] font-black text-emerald-800/60 uppercase tracking-widest">A Receber</span>
-              <span className="bg-emerald-100 text-emerald-800 text-xs font-black px-2 py-0.5 rounded-full">{countAReceber}</span>
-            </div>
-            <div className="mt-4">
-              <h3 className="text-2xl font-black text-emerald-950">{formatCurrency(sumAReceber)}</h3>
-              <p className="text-[10px] text-emerald-700/80 font-bold uppercase tracking-wider mt-1">Entradas em aberto</p>
-            </div>
-          </div>
-        </div>
+        <FinancialKpiHeaderCards transactions={transactions} />
 
         {/* Tabs of Filter */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-2">
           <div className="flex gap-4">
-            {(['todas', 'pagar', 'receber', 'vencidas'] as const).map(tab => (
+            {(['todas', 'pagar', 'receber', 'vencidos'] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setPagamentosTab(tab)}
@@ -3579,7 +3512,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   pagamentosTab === tab ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'
                 }`}
               >
-                {tab === 'todas' ? 'Todas' : tab === 'pagar' ? 'A Pagar' : tab === 'receber' ? 'A Receber' : 'Vencidas'}
+                {tab === 'todas' ? 'Todas' : tab === 'pagar' ? 'A Pagar' : tab === 'receber' ? 'A Receber' : 'Vencidos'}
               </button>
             ))}
           </div>
@@ -3598,7 +3531,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               </div>
             </div>
           ) : (
-            ['vencidas', 'hoje', 'proximos7', 'futuro', 'liquidadas'].map(groupKey => {
+            ['vencidos', 'hoje', 'proximos7', 'futuro', 'liquidadas'].map(groupKey => {
               const grp = groups[groupKey];
               if (grp.transactions.length === 0) return null;
 
@@ -3697,7 +3630,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                     onClick={() => handleQuickPay(tx)}
                                     className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-lg transition-all shadow-sm flex items-center gap-1 cursor-pointer"
                                   >
-                                    <Check size={12} /> Pagar
+                                    <Check size={12} /> Liquidar
                                   </button>
                                   <button
                                     onClick={() => {
@@ -4969,6 +4902,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       <ContasBancarias
         currentUser={currentUser}
         accounts={accounts}
+        categories={categories}
         getAccountLiveBalance={getAccountLiveBalance}
         showToast={showToast}
         onRefreshData={loadFinancialData}

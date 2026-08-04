@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { CreditCard, Calendar, DollarSign, Loader2, RefreshCw, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { supabase } from '../../../../supabase';
-import { User, FinancialAccount } from '../../../../types';
+import { User, FinancialAccount, FinancialTransaction } from '../../../../types';
 import { useAccountTransfers } from '../../../hooks/useAccountTransfers';
+import { HeaderTooltip } from './HeaderTooltip';
+import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
 
 interface CartoesProps {
   currentUser: User;
   accounts: FinancialAccount[];
+  transactions?: FinancialTransaction[];
   showToast?: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
   onRefreshData?: () => void;
 }
@@ -14,6 +17,7 @@ interface CartoesProps {
 export const Cartoes: React.FC<CartoesProps> = ({
   currentUser,
   accounts,
+  transactions = [],
   showToast,
   onRefreshData,
 }) => {
@@ -169,15 +173,18 @@ export const Cartoes: React.FC<CartoesProps> = ({
 
   return (
     <div className="space-y-6">
+      <FinancialKpiHeaderCards transactions={transactions} />
+
       {/* Header */}
       <div className="flex items-center justify-between bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
             <CreditCard className="text-indigo-600" size={22} />
-            Gestão de Cartões de Crédito
+            Cartões Corporativos
+            <HeaderTooltip text="Controle de cartões de crédito corporativos, limites disponíveis, faturas abertas e liquidação de faturas." />
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Visualize faturas pendentes e realize pagamentos de fatura com transferência automática entre contas.
+            Visualize faturas pendentes e realize liquidação de faturas com transferência automática entre contas.
           </p>
         </div>
 
@@ -238,7 +245,7 @@ export const Cartoes: React.FC<CartoesProps> = ({
                     className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <DollarSign size={14} />
-                    <span>Pagar Fatura</span>
+                    <span>Liquidar Fatura</span>
                   </button>
                 </div>
               </div>
@@ -247,14 +254,14 @@ export const Cartoes: React.FC<CartoesProps> = ({
         </div>
       )}
 
-      {/* Modal Pagar Fatura */}
+      {/* Modal Liquidar Fatura */}
       {isModalOpen && selectedCard && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 relative">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
               <CreditCard className="text-indigo-600" size={20} />
               <h3 className="text-base font-bold text-slate-900">
-                Pagar Fatura - {selectedCard.name}
+                Liquidar Fatura - {selectedCard.name}
               </h3>
             </div>
 
