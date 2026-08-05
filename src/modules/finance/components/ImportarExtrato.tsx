@@ -20,6 +20,7 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
   const [selectedAccountId, setSelectedAccountId] = useState<string>(
     accounts.length > 0 ? accounts[0].id : ''
   );
+  const [selectedBank, setSelectedBank] = useState<string>('Sicoob');
   const [file, setFile] = useState<File | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
   const [parsedPreview, setParsedPreview] = useState<ParsedBankTransaction[]>([]);
@@ -51,6 +52,11 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
         } else {
           transactions = parseCSV(content, selectedAccountId);
         }
+        // Attach bank_name to raw_data of each transaction for tracking
+        transactions = transactions.map((t) => ({
+          ...t,
+          raw_data: { ...t.raw_data, bank_name: selectedBank },
+        }));
         setParsedPreview(transactions);
       } catch (err) {
         console.error('Error parsing file preview:', err);
@@ -114,19 +120,41 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
         <div>
           <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
             <Upload size={20} className="text-indigo-600" />
-            Importar Extrato Bancário (Sicoob / OFX / CSV)
+            Importar Extrato Bancário
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Selecione a conta bancária e faça upload do arquivo .OFX ou .CSV de extrato.
+            Selecione o banco, a conta de destino e faça upload do arquivo .OFX ou .CSV de extrato.
           </p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Seletor de Banco */}
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">
+            1. Banco
+          </label>
+          <select
+            value={selectedBank}
+            onChange={(e) => setSelectedBank(e.target.value)}
+            className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 bg-white font-medium"
+          >
+            <option value="Sicoob">Sicoob</option>
+            <option value="Cresol">Cresol</option>
+            <option value="Inter">Inter</option>
+            <option value="Outro">Outro</option>
+          </select>
+          <p className="text-[11px] text-slate-500 mt-1">
+            {selectedBank === 'Sicoob'
+              ? 'Sicoob: aceita arquivos .OFX direto do Internet Banking.'
+              : `${selectedBank}: aceita arquivos .OFX ou .CSV.`}
+          </p>
+        </div>
+
         {/* Seletor de Conta */}
         <div>
           <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">
-            1. Conta Bancária de Destino
+            2. Conta Bancária de Destino
           </label>
           <select
             value={selectedAccountId}
@@ -141,17 +169,15 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
             ))}
           </select>
         </div>
+      </div>
 
-        {/* Informação sobre os formatos suportados */}
-        <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl text-xs text-indigo-900 leading-relaxed flex items-start gap-2">
-          <CheckCircle2 size={16} className="text-indigo-600 shrink-0 mt-0.5" />
-          <div>
-            <strong className="font-bold">Sicoob / Outros Bancos:</strong>
-            <p className="mt-0.5 text-[11px] text-indigo-800">
-              O sistema detecta automaticamente o código de identificação de transação (FITID) do OFX para evitar registros duplicados.
-            </p>
-          </div>
+      {/* Dynamic Bank Label */}
+      <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl text-xs text-indigo-900 leading-relaxed flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <CheckCircle2 size={16} className="text-indigo-600 shrink-0" />
+          <span className="font-bold">Importando extrato do {selectedBank}</span>
         </div>
+        <span className="text-[11px] text-indigo-700">OFX / CSV suportados</span>
       </div>
 
       {/* Dropzone */}

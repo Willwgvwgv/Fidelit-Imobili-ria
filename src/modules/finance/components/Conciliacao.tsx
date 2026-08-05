@@ -20,7 +20,7 @@ import { supabase } from '../../../../supabase';
 import { TransferBadge } from '../../../components/TransferBadge';
 import { HeaderTooltip } from './HeaderTooltip';
 import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
-import { isCreditTransaction } from '../utils/currency';
+import { isCreditTransaction, getTransactionValueColor } from '../utils/currency';
 
 interface RentInstallmentItem {
   id: string;
@@ -354,11 +354,9 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
 
                       <div className="text-right shrink-0">
                         <span
-                          className={`text-base font-bold ${
-                            isCreditTransaction(tx) ? 'text-emerald-700' : 'text-red-700'
-                          }`}
+                          className={`text-base font-bold ${getTransactionValueColor(tx)}`}
                         >
-                          {isCreditTransaction(tx) ? '+' : '-'} R${' '}
+                          {tx.transfer_id ? '' : isCreditTransaction(tx) ? '+' : '-'} R${' '}
                           {tx.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
                       </div>

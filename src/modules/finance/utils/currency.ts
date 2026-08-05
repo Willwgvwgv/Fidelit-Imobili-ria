@@ -70,11 +70,27 @@ export const formatCurrency = (val: number): string => {
 };
 
 /**
+ * Determines transaction color class for UI displays:
+ * Transfers (transfer_id != null) -> slate gray ('text-slate-700')
+ * Credits / Income -> emerald green ('text-emerald-700')
+ * Debits / Expenses -> red ('text-red-700')
+ */
+export const getTransactionValueColor = (tx: any, category?: any): string => {
+  if (!tx) return 'text-slate-700';
+  if (tx.transfer_id) return 'text-slate-700';
+  if (isCreditTransaction(tx, category)) return 'text-emerald-700';
+  return 'text-red-700';
+};
+
+/**
  * Determines whether a transaction is a credit (receita/income) or debit (despesa/expense).
  * Handles type fields ('credit', 'debit', 'INCOME', 'EXPENSE'), description overrides, and category checks.
  */
 export const isCreditTransaction = (tx: any, category?: any): boolean => {
   if (!tx) return false;
+
+  // Transfers are neutral internal operations
+  if (tx.transfer_id) return false;
 
   // 1. Direct type string checks (case-insensitive)
   const typeStr = String(tx.type || '').toLowerCase();

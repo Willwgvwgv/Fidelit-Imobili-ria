@@ -65,7 +65,7 @@ import { useFinancialCategories } from '../hooks/useFinancialCategories';
 import { useFinancialTransactions } from '../hooks/useFinancialTransactions';
 import { useRecurringTransactions } from '../hooks/useRecurringTransactions';
 import { useInvoicePayment } from '../hooks/useInvoicePayment';
-import { parseBrlValue, parseBRL, formatBRL, formatCurrency, isCreditTransaction } from '../utils/currency';
+import { parseBrlValue, parseBRL, formatBRL, formatCurrency, isCreditTransaction, getTransactionValueColor } from '../utils/currency';
 import { addPeriodToDate, getLocalTodayStr, formatDateBR, parseDateSafe } from '../utils/dates';
 import { getAccountLiveBalance as calcAccountLiveBalance } from '../domain/BalanceCalculator';
 import { HeaderTooltip } from './HeaderTooltip';
@@ -2823,7 +2823,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         </div>
                       </td>
                       <td className="px-6 py-5 text-right">
-                        <span className={`text-sm font-bold whitespace-nowrap ${isCreditTransaction(tx, category) ? 'text-emerald-700' : 'text-red-700'}`}>
+                        <span className={`text-sm font-bold whitespace-nowrap ${getTransactionValueColor(tx, category)}`}>
                           {formatCurrency(tx.amount)}
                         </span>
                       </td>
@@ -4583,7 +4583,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             {categoryName}
                           </span>
                         </td>
-                        <td className={`py-3.5 px-4 text-right font-bold whitespace-nowrap ${isCreditTransaction(tx, catObj) ? 'text-emerald-700' : 'text-red-700'}`}>
+                        <td className={`py-3.5 px-4 text-right font-bold whitespace-nowrap ${getTransactionValueColor(tx, catObj)}`}>
                           {formatCurrency(tx.amount)}
                         </td>
                         <td className="py-3.5 px-4 text-right whitespace-nowrap">
