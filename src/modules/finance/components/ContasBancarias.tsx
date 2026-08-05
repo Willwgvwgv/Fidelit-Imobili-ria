@@ -296,80 +296,80 @@ export const ContasBancarias: React.FC<ContasBancariasProps> = ({
       {/* 4 Cards KPI de CONTA */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Saldo Total */}
-        <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs flex flex-col justify-between space-y-3">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
               CONTAS CORRENTES
             </span>
-            <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center font-bold">
+            <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
               <Landmark size={16} />
             </div>
           </div>
           <div>
-            <p className="text-2xl font-black text-slate-900 tracking-tight">
+            <p className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
               {formatCurrency(totalBankBalance)}
             </p>
-            <p className="text-xs font-bold text-slate-400 mt-0.5">
+            <p className="text-xs font-medium text-slate-400 mt-1.5">
               {bankAccounts.length} {bankAccounts.length === 1 ? 'conta cadastrada' : 'contas cadastradas'}
             </p>
           </div>
         </div>
 
         {/* Card 2: Saldo Cartões */}
-        <div className="bg-white rounded-2xl border border-purple-100/80 bg-purple-50/20 p-5 shadow-xs flex flex-col justify-between space-y-3">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-extrabold text-purple-700 uppercase tracking-wider">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
               SALDO CARTÕES
             </span>
-            <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+            <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center font-bold">
               <CreditCard size={16} />
             </div>
           </div>
           <div>
-            <p className="text-2xl font-black text-purple-900 tracking-tight">
+            <p className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
               {totalCardsBalance === 0 ? 'R$ 0,00' : `- ${formatCurrency(Math.abs(totalCardsBalance))}`}
             </p>
-            <p className="text-xs font-bold text-purple-600/70 mt-0.5">
+            <p className="text-xs font-medium text-slate-400 mt-1.5">
               {cardAccounts.length} {cardAccounts.length === 1 ? 'cartão de crédito' : 'cartões de crédito'}
             </p>
           </div>
         </div>
 
         {/* Card 3: Total a Receber 30d */}
-        <div className="bg-white rounded-2xl border border-emerald-100 bg-emerald-50/20 p-5 shadow-xs flex flex-col justify-between space-y-3">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-extrabold text-emerald-700 uppercase tracking-wider">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
               TOTAL A RECEBER (30D)
             </span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">
               <TrendingUp size={16} />
             </div>
           </div>
           <div>
-            <p className="text-2xl font-black text-emerald-600 tracking-tight">
+            <p className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
               {formatCurrency(receivable30d.amount)}
             </p>
-            <p className="text-xs font-bold text-emerald-700/70 mt-0.5">
+            <p className="text-xs font-medium text-slate-400 mt-1.5">
               {receivable30d.count} {receivable30d.count === 1 ? 'item pendente' : 'itens pendentes'}
             </p>
           </div>
         </div>
 
         {/* Card 4: Total a Pagar 30d */}
-        <div className="bg-white rounded-2xl border border-rose-100 bg-rose-50/20 p-5 shadow-xs flex flex-col justify-between space-y-3">
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs flex flex-col justify-between space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-extrabold text-rose-700 uppercase tracking-wider">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
               TOTAL A PAGAR (30D)
             </span>
-            <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+            <div className="w-8 h-8 rounded-xl bg-red-100 text-red-600 flex items-center justify-center font-bold">
               <TrendingDown size={16} />
             </div>
           </div>
           <div>
-            <p className="text-2xl font-black text-rose-600 tracking-tight">
+            <p className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
               {formatCurrency(payable30d.amount)}
             </p>
-            <p className="text-xs font-bold text-rose-700/70 mt-0.5">
+            <p className="text-xs font-medium text-slate-400 mt-1.5">
               {payable30d.count} {payable30d.count === 1 ? 'item pendente' : 'itens pendentes'}
             </p>
           </div>

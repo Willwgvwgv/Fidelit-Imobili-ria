@@ -2796,7 +2796,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         {((tx as any).ofx_fitid?.startsWith('MANUAL-') || (tx as any).transfer_id) && (
                           <div className="mt-1 flex items-center gap-1.5 flex-wrap">
                             {(tx as any).ofx_fitid?.startsWith('MANUAL-') && (
-                              <span className="inline-flex items-center gap-1 text-[9px] font-black text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-md uppercase tracking-wider select-none">
+                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-[#fef3c7] text-[#92400e] px-2 py-0.5 rounded-full select-none">
                                 ✎ Lançamento manual
                               </span>
                             )}
@@ -2833,12 +2833,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         </span>
                       </td>
                       <td className="px-6 py-5">
-                        <span className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest ${
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
                           isPaid 
-                            ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' 
+                            ? 'bg-[#d1fae5] text-[#065f46]' 
                             : (tx.status === TransactionStatus.PENDING && tx.due_date < getLocalTodayStr())
-                              ? 'bg-rose-50 text-rose-600 border border-rose-100'
-                              : 'bg-amber-50 text-amber-600 border border-amber-100'
+                              ? 'bg-[#fee2e2] text-[#991b1b]'
+                              : 'bg-[#fef3c7] text-[#92400e]'
                         }`}>
                           {isPaid 
                             ? 'Liquidado' 

@@ -2,7 +2,7 @@ import React from 'react';
 import { FinancialTransaction, TransactionStatus } from '../../../../types';
 import { formatCurrency } from '../utils/currency';
 import { getLocalTodayStr } from '../utils/dates';
-import { X } from 'lucide-react';
+import { X, AlertTriangle, Clock, Calendar, TrendingUp } from 'lucide-react';
 
 interface FinancialKpiHeaderCardsProps {
   transactions?: FinancialTransaction[];
@@ -86,12 +86,9 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
       count: countVencidos,
       amount: sumVencidos,
       sub: 'TODOS EM ATRASO',
-      bgColor: 'bg-rose-50/60',
-      borderColor: 'border-rose-100',
-      textColor: 'text-rose-800',
-      numColor: 'text-rose-950',
-      badgeBg: 'bg-rose-100 text-rose-800',
-      activeBorder: 'border-2 border-rose-500 ring-2 ring-rose-200',
+      icon: <AlertTriangle size={16} />,
+      iconBg: 'bg-red-100 text-red-600',
+      activeBorder: 'border-2 border-red-500 ring-2 ring-red-100',
     },
     {
       id: 'hoje',
@@ -99,12 +96,9 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
       count: countHoje,
       amount: sumHoje,
       sub: 'VENCIMENTOS DE HOJE',
-      bgColor: 'bg-orange-50/60',
-      borderColor: 'border-orange-100',
-      textColor: 'text-orange-800',
-      numColor: 'text-orange-950',
-      badgeBg: 'bg-orange-100 text-orange-800',
-      activeBorder: 'border-2 border-orange-500 ring-2 ring-orange-200',
+      icon: <Clock size={16} />,
+      iconBg: 'bg-amber-100 text-amber-600',
+      activeBorder: 'border-2 border-amber-500 ring-2 ring-amber-100',
     },
     {
       id: 'proximos7',
@@ -112,12 +106,9 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
       count: countSeteDias,
       amount: sumSeteDias,
       sub: 'PRÓXIMOS 7 DIAS',
-      bgColor: 'bg-amber-50/60',
-      borderColor: 'border-amber-100',
-      textColor: 'text-amber-800',
-      numColor: 'text-amber-950',
-      badgeBg: 'bg-amber-100 text-amber-800',
-      activeBorder: 'border-2 border-amber-500 ring-2 ring-amber-200',
+      icon: <Calendar size={16} />,
+      iconBg: 'bg-blue-100 text-blue-600',
+      activeBorder: 'border-2 border-blue-500 ring-2 ring-blue-100',
     },
     {
       id: 'avencer',
@@ -125,12 +116,9 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
       count: countAVencerReceber,
       amount: sumAVencerReceber,
       sub: `DE ${monthLabelUpper}`,
-      bgColor: 'bg-emerald-50/60',
-      borderColor: 'border-emerald-100',
-      textColor: 'text-emerald-800',
-      numColor: 'text-emerald-950',
-      badgeBg: 'bg-emerald-100 text-emerald-800',
-      activeBorder: 'border-2 border-emerald-500 ring-2 ring-emerald-200',
+      icon: <TrendingUp size={16} />,
+      iconBg: 'bg-emerald-100 text-emerald-600',
+      activeBorder: 'border-2 border-emerald-500 ring-2 ring-emerald-100',
     },
   ];
 
@@ -146,17 +134,17 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
   return (
     <div className="space-y-3">
       {activeFilter && (
-        <div className="flex items-center justify-between bg-indigo-50/80 border border-indigo-100 px-4 py-2 rounded-2xl animate-fadeIn">
+        <div className="flex items-center justify-between bg-blue-50 border border-blue-100 px-4 py-2 rounded-2xl animate-fadeIn">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse" />
-            <span className="text-xs font-bold text-slate-700">
-              Filtro ativo: <span className="font-black text-indigo-900">{activeCardObj?.title || activeFilter}</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse" />
+            <span className="text-xs font-semibold text-slate-700">
+              Filtro ativo: <span className="font-bold text-blue-900">{activeCardObj?.title || activeFilter}</span>
             </span>
           </div>
           <button
             type="button"
             onClick={() => onCardClick && onCardClick(null)}
-            className="flex items-center gap-1.5 text-xs font-black text-indigo-700 hover:text-indigo-900 bg-white hover:bg-indigo-100 px-3 py-1 rounded-xl border border-indigo-200 transition-all shadow-2xs cursor-pointer"
+            className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900 bg-white hover:bg-blue-50 px-3 py-1 rounded-xl border border-blue-200 transition-all cursor-pointer shadow-xs"
           >
             <X size={13} /> Limpar filtro
           </button>
@@ -181,25 +169,30 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
                   onCardClick(isSelected ? null : card.id);
                 }
               }}
-              className={`text-left w-full ${card.bgColor} p-5 rounded-3xl flex flex-col justify-between transition-all cursor-pointer ${
+              className={`text-left w-full bg-white p-5 rounded-2xl flex flex-col justify-between transition-all cursor-pointer ${
                 isSelected
-                  ? card.activeBorder + ' shadow-md scale-[1.02]'
-                  : 'border ' + card.borderColor + ' shadow-xs hover:border-slate-300 hover:shadow-md'
+                  ? card.activeBorder + ' shadow-md'
+                  : 'border border-slate-200 shadow-2xs hover:border-slate-300 hover:shadow-xs'
               }`}
             >
-              <div className="flex justify-between items-start w-full">
-                <span className={`text-[10px] font-black uppercase tracking-widest ${card.textColor}`}>
-                  {card.title}
-                </span>
-                <span className={`text-xs font-black px-2 py-0.5 rounded-full ${card.badgeBg}`}>
+              <div className="flex justify-between items-center w-full">
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-8 h-8 rounded-xl ${card.iconBg} flex items-center justify-center font-bold shrink-0`}>
+                    {card.icon}
+                  </div>
+                  <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                    {card.title}
+                  </span>
+                </div>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
                   {card.count}
                 </span>
               </div>
               <div className="mt-3 w-full">
-                <h3 className={`text-2xl font-black ${card.numColor}`}>
+                <h3 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
                   {formatCurrency(card.amount)}
                 </h3>
-                <p className={`text-[10px] font-bold uppercase tracking-wider mt-1 opacity-80 ${card.textColor}`}>
+                <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider mt-1.5">
                   {card.sub}
                 </p>
               </div>
@@ -210,3 +203,4 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
     </div>
   );
 };
+

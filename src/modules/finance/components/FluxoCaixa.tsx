@@ -225,65 +225,67 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
       {/* 4 Cards KPI no topo */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Saldo Real */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-1">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Saldo Real (Reconciliado)</span>
-            <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center font-bold">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Saldo Real (Reconciliado)</span>
+            <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
               <Wallet size={16} />
             </div>
           </div>
-          <p className="text-2xl font-black text-slate-900">
-            R$ {totalRealBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-          </p>
-          <p className="text-[11px] text-slate-400">Extratos bancários conciliados</p>
+          <div>
+            <p className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
+              R$ {totalRealBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </p>
+            <p className="text-xs font-medium text-slate-400 mt-1.5">Extratos bancários conciliados</p>
+          </div>
         </div>
 
         {/* Card 2: A Receber 30d */}
-        <div className="bg-white p-5 rounded-2xl border border-emerald-200/80 bg-emerald-50/20 shadow-xs space-y-1">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-emerald-700 uppercase tracking-wider">A Receber (30d)</span>
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">A Receber (30d)</span>
+            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">
               <TrendingUp size={16} />
             </div>
           </div>
-          <p className="text-2xl font-black text-emerald-600">
-            + R$ {totalReceivable30d.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-          </p>
-          <p className="text-[11px] text-emerald-700/70">Aluguéis e comissões pendentes</p>
+          <div>
+            <p className="text-[24px] font-bold text-emerald-600 tracking-tight leading-none">
+              + R$ {totalReceivable30d.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </p>
+            <p className="text-xs font-medium text-slate-400 mt-1.5">Aluguéis e comissões pendentes</p>
+          </div>
         </div>
 
         {/* Card 3: A Pagar 30d */}
-        <div className="bg-white p-5 rounded-2xl border border-rose-200/80 bg-rose-50/20 shadow-xs space-y-1">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-rose-700 uppercase tracking-wider">A Pagar (30d)</span>
-            <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">A Pagar (30d)</span>
+            <div className="w-8 h-8 rounded-xl bg-red-100 text-red-600 flex items-center justify-center font-bold">
               <TrendingDown size={16} />
             </div>
           </div>
-          <p className="text-2xl font-black text-rose-600">
-            - R$ {totalPayable30d.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-          </p>
-          <p className="text-[11px] text-rose-700/70">Repasses e despesas operacionais</p>
+          <div>
+            <p className="text-[24px] font-bold text-red-600 tracking-tight leading-none">
+              - R$ {totalPayable30d.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </p>
+            <p className="text-xs font-medium text-slate-400 mt-1.5">Repasses e despesas operacionais</p>
+          </div>
         </div>
 
         {/* Card 4: Saldo Projetado 30d */}
-        <div
-          className={`p-5 rounded-2xl border shadow-xs space-y-1 ${
-            totalProjected30d >= 0
-              ? 'bg-indigo-900 text-white border-indigo-950'
-              : 'bg-rose-900 text-white border-rose-950'
-          }`}
-        >
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider opacity-80">Saldo Projetado (30d)</span>
-            <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center font-bold">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Saldo Projetado (30d)</span>
+            <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
               <DollarSign size={16} />
             </div>
           </div>
-          <p className="text-2xl font-black">
-            R$ {totalProjected30d.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-          </p>
-          <p className="text-[11px] opacity-75">Estimativa em 30 dias</p>
+          <div>
+            <p className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
+              R$ {totalProjected30d.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            </p>
+            <p className="text-xs font-medium text-slate-400 mt-1.5">Estimativa em 30 dias</p>
+          </div>
         </div>
       </div>
 

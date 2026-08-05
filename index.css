@@ -1,9 +1,12 @@
+@import './src/styles/tokens.css';
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-  background-color: #F5F6FA !important;
-  color: #111827 !important;
+  background-color: var(--bg-subtle, #f8fafc) !important;
+  color: var(--text, #0f172a) !important;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 /* Scrollbar visually aligned with Imobilead style */
