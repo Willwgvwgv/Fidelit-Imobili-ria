@@ -198,14 +198,14 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
       <FinancialKpiHeaderCards transactions={transactions} />
 
       {/* Header */}
-      <div className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+      <div className="flex items-center justify-between bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <TrendingUp className="text-indigo-600" size={22} />
+            <TrendingUp className="text-blue-600" size={20} />
             Fluxo de Caixa
             <HeaderTooltip text="Projeção financeira diária e mensal para análise de entradas, saídas e liquidez operacional." />
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs font-normal text-slate-500 mt-0.5">
             Visão consolidada do saldo bancário real conciliado e estimativas de entradas e saídas.
           </p>
         </div>
@@ -215,7 +215,7 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
             fetchAllCashFlowData();
             loadMonthInstallments();
           }}
-          className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold cursor-pointer"
+          className="px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-xl transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer shadow-2xs"
         >
           <RefreshCw size={14} />
           <span>Atualizar Dados</span>
@@ -292,9 +292,9 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
       {/* Gráficos em Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Gráfico 1: Linha de Projeção */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
           <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-            <TrendingUp size={16} className="text-indigo-600" />
+            <TrendingUp size={16} className="text-blue-600" />
             Evolução Projetada do Saldo Acumulado (Próximos 30 dias)
           </h3>
           <div className="h-64 w-full">
@@ -302,8 +302,8 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
               <AreaChart data={trendData30d}>
                 <defs>
                   <linearGradient id="colorSaldo" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0.0} />
+                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -313,16 +313,16 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
                   formatter={(val: any) => [`R$ ${Number(val).toLocaleString('pt-BR')}`, 'Saldo']}
                   contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                 />
-                <Area type="monotone" dataKey="Saldo" stroke="#4f46e5" strokeWidth={3} fillOpacity={1} fill="url(#colorSaldo)" />
+                <Area type="monotone" dataKey="Saldo" stroke="#2563eb" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSaldo)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
         {/* Gráfico 2: Barras Receitas vs Despesas (12 meses) */}
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
           <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-            <BarChart3 size={16} className="text-indigo-600" />
+            <BarChart3 size={16} className="text-blue-600" />
             Receita vs Despesa (DRE Histórica)
           </h3>
           <div className="h-64 w-full">
@@ -345,16 +345,16 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
       </div>
 
       {/* Tabela: Parcelas de Aluguel do Mês Corrente */}
-      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
+      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div>
             <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-              <Building2 size={16} className="text-indigo-600" />
+              <Building2 size={16} className="text-blue-600" />
               Aluguéis do Mês Corrente (imobia.app)
             </h3>
             <p className="text-xs text-slate-400">Parcelas com vencimento este mês</p>
           </div>
-          <span className="text-xs font-bold text-slate-500">{currentMonthInstallments.length} parcelas</span>
+          <span className="text-xs font-semibold text-slate-500">{currentMonthInstallments.length} parcelas</span>
         </div>
 
         {loadingInstallments ? (
@@ -367,7 +367,7 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider">
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider">
                   <th className="p-3">Inquilino</th>
                   <th className="p-3">Imóvel</th>
                   <th className="p-3 font-mono">Vencimento</th>
@@ -383,7 +383,7 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
 
                   return (
                     <tr key={item.id} className="hover:bg-slate-50/80">
-                      <td className="p-3 font-bold text-slate-800">{item.tenant_name}</td>
+                      <td className="p-3 font-semibold text-slate-900">{item.tenant_name}</td>
                       <td className="p-3 text-slate-600 max-w-xs truncate">{item.property_address}</td>
                       <td className="p-3 font-mono text-slate-600">{item.due_date}</td>
                       <td className="p-3 font-bold text-right text-slate-900">
@@ -391,12 +391,12 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
                       </td>
                       <td className="p-3 text-center">
                         <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                          className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
                             isReceived
-                              ? 'bg-emerald-100 text-emerald-800'
+                              ? 'bg-[#d1fae5] text-[#065f46]'
                               : isOverdue
-                              ? 'bg-rose-100 text-rose-800'
-                              : 'bg-amber-100 text-amber-800'
+                              ? 'bg-[#fee2e2] text-[#991b1b]'
+                              : 'bg-[#fef3c7] text-[#92400e]'
                           }`}
                         >
                           {isReceived ? 'Recebido' : isOverdue ? 'Atrasado' : 'Pendente'}
@@ -406,7 +406,7 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
                         {!isReceived && (
                           <button
                             onClick={() => handleMarkAsReceived(item.id)}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-lg transition-all cursor-pointer"
+                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl transition-all shadow-2xs cursor-pointer"
                           >
                             Dar Baixa
                           </button>

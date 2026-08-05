@@ -176,21 +176,21 @@ export const Cartoes: React.FC<CartoesProps> = ({
       <FinancialKpiHeaderCards transactions={transactions} />
 
       {/* Header */}
-      <div className="flex items-center justify-between bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+      <div className="flex items-center justify-between bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
         <div>
           <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <CreditCard className="text-indigo-600" size={22} />
+            <CreditCard className="text-blue-600" size={20} />
             Cartões Corporativos
             <HeaderTooltip text="Controle de cartões de crédito corporativos, limites disponíveis, faturas abertas e liquidação de faturas." />
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
+          <p className="text-xs font-normal text-slate-500 mt-0.5">
             Visualize faturas pendentes e realize liquidação de faturas com transferência automática entre contas.
           </p>
         </div>
 
         <button
           onClick={() => loadCardPendingInvoices()}
-          className="p-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold cursor-pointer"
+          className="px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 rounded-xl transition-all flex items-center gap-1.5 text-xs font-semibold cursor-pointer shadow-2xs"
         >
           <RefreshCw size={14} className={loadingCards ? 'animate-spin' : ''} />
           <span>Atualizar</span>
@@ -203,7 +203,7 @@ export const Cartoes: React.FC<CartoesProps> = ({
           <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center mx-auto">
             <CreditCard size={24} />
           </div>
-          <h3 className="text-sm font-bold text-slate-700">Nenhum cartão de crédito cadastrado</h3>
+          <h3 className="text-sm font-semibold text-slate-700">Nenhum cartão de crédito cadastrado</h3>
           <p className="text-xs text-slate-400 max-w-sm mx-auto">
             Ao cadastrar uma conta bancária com o tipo "Cartão de Crédito", ela aparecerá nesta página.
           </p>
@@ -216,24 +216,24 @@ export const Cartoes: React.FC<CartoesProps> = ({
             return (
               <div
                 key={card.id}
-                className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between space-y-5"
+                className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs flex flex-col justify-between space-y-5"
               >
                 <div>
                   <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-                    <span className="font-bold text-slate-800 text-base">{card.name}</span>
-                    <span className="px-2.5 py-1 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-bold uppercase">
+                    <span className="font-bold text-slate-900 text-base">{card.name}</span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-[#f1f5f9] text-[#475569] text-[11px] font-semibold">
                       Cartão de Crédito
                     </span>
                   </div>
 
-                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-1.5">
+                    <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
                       Fatura Pendente Estimada
                     </span>
-                    <p className="text-2xl font-black text-slate-900">
+                    <p className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
                       R$ {invInfo.pendingAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                     </p>
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-xs font-normal text-slate-400 mt-1">
                       {invInfo.pendingCount} {invInfo.pendingCount === 1 ? 'lançamento pendente' : 'lançamentos pendentes'}
                     </p>
                   </div>
@@ -242,7 +242,7 @@ export const Cartoes: React.FC<CartoesProps> = ({
                 <div className="pt-2 border-t border-slate-100">
                   <button
                     onClick={() => handleOpenPayModal(card)}
-                    className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl transition-all shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <DollarSign size={14} />
                     <span>Liquidar Fatura</span>
@@ -256,10 +256,10 @@ export const Cartoes: React.FC<CartoesProps> = ({
 
       {/* Modal Liquidar Fatura */}
       {isModalOpen && selectedCard && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 relative border border-slate-200">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-              <CreditCard className="text-indigo-600" size={20} />
+              <CreditCard className="text-blue-600" size={20} />
               <h3 className="text-base font-bold text-slate-900">
                 Liquidar Fatura - {selectedCard.name}
               </h3>
@@ -267,11 +267,11 @@ export const Cartoes: React.FC<CartoesProps> = ({
 
             <div className="space-y-4 text-xs">
               <div>
-                <label className="font-bold text-slate-600 block mb-1">Conta Origem (Débito)*</label>
+                <label className="font-semibold text-slate-700 block mb-1">Conta Origem (Débito)*</label>
                 <select
                   value={sourceAccountId}
                   onChange={(e) => setSourceAccountId(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800 outline-none"
                 >
                   <option value="">Selecione a conta bancária...</option>
                   {sourceAccounts.map((acc) => (
@@ -283,7 +283,7 @@ export const Cartoes: React.FC<CartoesProps> = ({
               </div>
 
               <div>
-                <label className="font-bold text-slate-600 block mb-1">Valor do Pagamento (R$)*</label>
+                <label className="font-semibold text-slate-700 block mb-1">Valor do Pagamento (R$)*</label>
                 <input
                   type="text"
                   value={paymentAmount}
@@ -293,22 +293,22 @@ export const Cartoes: React.FC<CartoesProps> = ({
               </div>
 
               <div>
-                <label className="font-bold text-slate-600 block mb-1">Data do Pagamento*</label>
+                <label className="font-semibold text-slate-700 block mb-1">Data do Pagamento*</label>
                 <input
                   type="date"
                   value={paymentDate}
                   onChange={(e) => setPaymentDate(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800 outline-none"
                 />
               </div>
 
               <div>
-                <label className="font-bold text-slate-600 block mb-1">Descrição</label>
+                <label className="font-semibold text-slate-700 block mb-1">Descrição</label>
                 <input
                   type="text"
                   value={paymentDescription}
                   onChange={(e) => setPaymentDescription(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-semibold text-slate-800 outline-none"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-medium text-slate-800 outline-none"
                 />
               </div>
             </div>
@@ -318,7 +318,7 @@ export const Cartoes: React.FC<CartoesProps> = ({
                 type="button"
                 onClick={() => setIsModalOpen(false)}
                 disabled={submitting}
-                className="px-4 py-2 font-bold text-slate-500 hover:text-slate-700 text-xs cursor-pointer"
+                className="px-4 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl cursor-pointer"
               >
                 Cancelar
               </button>
@@ -327,7 +327,7 @@ export const Cartoes: React.FC<CartoesProps> = ({
                 type="button"
                 onClick={handleConfirmPayInvoice}
                 disabled={submitting || !sourceAccountId}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl transition-all shadow-2xs flex items-center gap-2 disabled:opacity-50 cursor-pointer"
               >
                 {submitting ? (
                   <>

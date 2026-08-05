@@ -3609,11 +3609,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     // Grouping
     const groups: { [key: string]: { title: string; colorClass: string; transactions: FinancialTransaction[] } } = {
-      vencidos: { title: 'Vencidos', colorClass: 'bg-rose-50 border-rose-200 text-rose-800', transactions: [] },
-      hoje: { title: 'Vence Hoje', colorClass: 'bg-orange-50 border-orange-200 text-orange-800', transactions: [] },
-      proximos7: { title: 'Próximos 7 Dias', colorClass: 'bg-amber-50 border-amber-200 text-amber-800', transactions: [] },
-      futuro: { title: 'Futuro', colorClass: 'bg-slate-50 border-slate-200 text-slate-800', transactions: [] },
-      liquidadas: { title: 'Liquidadas', colorClass: 'bg-emerald-50 border-emerald-200 text-emerald-800', transactions: [] },
+      vencidos: { title: 'Vencidos', colorClass: 'bg-[#fee2e2] border-[#fca5a5] text-[#991b1b]', transactions: [] },
+      hoje: { title: 'Vence Hoje', colorClass: 'bg-[#fef3c7] border-[#fde68a] text-[#92400e]', transactions: [] },
+      proximos7: { title: 'Próximos 7 Dias', colorClass: 'bg-[#fef3c7] border-[#fde68a] text-[#92400e]', transactions: [] },
+      futuro: { title: 'Futuro', colorClass: 'bg-[#f1f5f9] border-slate-200 text-[#475569]', transactions: [] },
+      liquidadas: { title: 'Liquidadas', colorClass: 'bg-[#d1fae5] border-[#a7f3d0] text-[#065f46]', transactions: [] },
     };
 
     filteredList.forEach(t => {
@@ -3651,8 +3651,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <button
                 key={tab}
                 onClick={() => setPagamentosTab(tab)}
-                className={`pb-3 text-sm font-black uppercase tracking-wider border-b-2 px-4 transition-all cursor-pointer ${
-                  pagamentosTab === tab ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-400 hover:text-slate-600'
+                className={`pb-3 text-xs font-semibold uppercase tracking-wide border-b-2 px-4 transition-all cursor-pointer ${
+                  pagamentosTab === tab ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
                 }`}
               >
                 {tab === 'todas' ? 'Todas' : tab === 'pagar' ? 'A Pagar' : tab === 'receber' ? 'A Receber' : 'Vencidos'}
@@ -3664,13 +3664,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         {/* List of Grouped transactions */}
         <div className="space-y-6">
           {totalVisibleTxs === 0 ? (
-            <div className="bg-white rounded-3xl border border-slate-100 p-12 shadow-sm text-center flex flex-col items-center justify-center space-y-4">
-              <div className="w-16 h-16 bg-slate-50 text-slate-400 rounded-full flex items-center justify-center shadow-inner">
-                <CheckSquare size={32} />
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 shadow-2xs text-center flex flex-col items-center justify-center space-y-4">
+              <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center">
+                <CheckSquare size={24} />
               </div>
               <div className="space-y-1">
-                <h3 className="text-lg font-black text-slate-800">Nenhum lançamento encontrado</h3>
-                <p className="text-sm text-slate-400 font-medium">Nenhum vencimento corresponde aos filtros selecionados.</p>
+                <h3 className="text-base font-bold text-slate-900">Nenhum lançamento encontrado</h3>
+                <p className="text-xs text-slate-500 font-normal">Nenhum vencimento corresponde aos filtros selecionados.</p>
               </div>
             </div>
           ) : (
@@ -3680,11 +3680,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
               return (
                 <div key={groupKey} className="space-y-3">
-                  <div className={`px-4 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-widest w-fit shadow-sm ${grp.colorClass}`}>
+                  <div className={`px-3 py-1 rounded-full border text-xs font-semibold w-fit shadow-2xs ${grp.colorClass}`}>
                     {grp.title} ({grp.transactions.length})
                   </div>
 
-                  <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden divide-y divide-slate-100/60">
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden divide-y divide-slate-100">
                     {grp.transactions.map(tx => {
                       const category = categories.find(c => c.id === tx.category_id);
                       const account = accounts.find(a => a.id === tx.account_id);
@@ -3695,42 +3695,42 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       const interestInfo = calculateInterest(tx.amount, tx.due_date, tx.status, tx.type);
 
                       return (
-                        <div key={tx.id} className="p-5 hover:bg-slate-50/30 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4">
-                          <div className="flex items-start gap-4 flex-1">
-                            <div className={`p-3 rounded-2xl ${isIncome ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'} flex-shrink-0`}>
+                        <div key={tx.id} className="p-4 hover:bg-slate-50/60 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          <div className="flex items-start gap-3.5 flex-1">
+                            <div className={`w-9 h-9 rounded-xl ${isIncome ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'} flex items-center justify-center font-bold flex-shrink-0`}>
                               {isIncome ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
                             </div>
                             <div className="space-y-1">
                               <div className="flex items-center flex-wrap gap-2">
-                                <span className="text-sm font-black text-slate-800 tracking-tight">{tx.description}</span>
+                                <span className="text-sm font-bold text-slate-900 tracking-tight">{tx.description}</span>
                                 {tx.installment_number && tx.total_installments && (
-                                  <span className="text-[10px] bg-blue-50 text-blue-600 border border-blue-100 font-bold px-1.5 py-0.5 rounded">
+                                  <span className="text-[11px] bg-slate-100 text-slate-600 border border-slate-200 font-medium px-2 py-0.5 rounded-full">
                                     Parcela {tx.installment_number}/{tx.total_installments}
                                   </span>
                                 )}
                                 {tx.recurrence_group_id && (
-                                  <span className="text-[9px] font-black text-blue-600 bg-blue-50/50 border border-blue-100/50 px-1.5 py-0.5 rounded-md uppercase tracking-wider select-none">
+                                  <span className="text-[11px] font-medium text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full select-none">
                                     🔁 Recorrente
                                   </span>
                                 )}
                               </div>
                               {tx.contact_name && (
-                                <p className="text-xs text-gray-400 font-semibold">{tx.contact_name}</p>
+                                <p className="text-xs text-slate-500 font-medium">{tx.contact_name}</p>
                               )}
-                              <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400 font-semibold">
+                              <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 font-medium">
                                 <div className="flex items-center gap-1.5">
-                                  <Tag size={12} style={{ color: category?.color || '#94a3b8' }} />
-                                  <span style={{ color: category?.color || '#64748b' }}>{category?.name || 'Sem Categoria'}</span>
+                                  <Tag size={12} className="text-slate-400" />
+                                  <span>{category?.name || 'Sem Categoria'}</span>
                                 </div>
                                 <div className="flex items-center gap-1.5">
-                                  <Wallet size={12} />
+                                  <Wallet size={12} className="text-slate-400" />
                                   <span>{account?.name || 'Sem Conta'}</span>
                                 </div>
                               </div>
 
                               {interestInfo && (
-                                <div className="mt-2 text-[10px] font-bold text-rose-600 flex items-center gap-1.5 bg-rose-50 px-2.5 py-1 rounded-xl border border-rose-100 w-fit">
-                                  <AlertCircle size={12} />
+                                <div className="mt-2 text-xs font-medium text-red-700 flex items-center gap-1.5 bg-[#fee2e2] px-3 py-1.5 rounded-xl border border-[#fca5a5] w-fit">
+                                  <AlertCircle size={14} />
                                   <span>Atraso de {interestInfo.diasAtraso} {interestInfo.diasAtraso === 1 ? 'dia' : 'dias'}: Multa: {formatCurrency(interestInfo.multaValor)} | Juros: {formatCurrency(interestInfo.jurosValor)} | Total: {formatCurrency(interestInfo.totalComJuros)}</span>
                                 </div>
                               )}
@@ -3739,22 +3739,20 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between md:justify-end gap-4 flex-shrink-0">
                             <div className="text-left sm:text-right">
-                              <p className="text-sm font-black text-slate-900">{formatCurrency(tx.amount)}</p>
-                              <div className="flex items-center gap-1.5 text-xs text-slate-400 font-bold mt-0.5">
+                              <p className="text-sm font-bold text-slate-900">{formatCurrency(tx.amount)}</p>
+                              <div className="flex items-center gap-1.5 text-xs text-slate-500 font-normal mt-0.5">
                                 <Calendar size={12} />
                                 <span>Vence em {formatDateStr(tx.due_date)}</span>
                               </div>
                             </div>
 
                             <div>
-                              <span className={`px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border ${
+                              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
                                 isPaid 
-                                  ? 'bg-emerald-50 text-emerald-600 border-emerald-100' 
+                                  ? 'bg-[#d1fae5] text-[#065f46]' 
                                   : isOverdue
-                                    ? 'bg-rose-50 text-rose-600 border-rose-100'
-                                    : isToday
-                                      ? 'bg-orange-50 text-orange-600 border-orange-100'
-                                      : 'bg-amber-50 text-amber-600 border-amber-100'
+                                    ? 'bg-[#fee2e2] text-[#991b1b]'
+                                    : 'bg-[#fef3c7] text-[#92400e]'
                               }`}>
                                 {isPaid 
                                   ? 'Liquidado' 
@@ -3771,7 +3769,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 <>
                                   <button
                                     onClick={() => handleQuickPay(tx)}
-                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-lg transition-all shadow-sm flex items-center gap-1 cursor-pointer"
+                                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
                                   >
                                     <Check size={12} /> Liquidar
                                   </button>
@@ -3786,7 +3784,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                       });
                                       setConfirmModalOpen(true);
                                     }}
-                                    className="px-3 py-1.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                                    className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
                                   >
                                     <Clock size={12} /> Adiar
                                   </button>
@@ -3794,7 +3792,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               )}
                               <button
                                 onClick={() => handleEditTransactionClick(tx)}
-                                className="px-3 py-1.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                                className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
                               >
                                 <Sliders size={12} /> Detalhes
                               </button>
@@ -6198,36 +6196,39 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       <div className="space-y-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-2">
           {/* Revenues block */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
-            <h3 className="text-base font-black text-emerald-600 border-b border-slate-100 pb-3 flex items-center gap-1.5 uppercase tracking-wider">
-              <ArrowUpRight size={18} /> Categorias de Receita
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-2xs space-y-6">
+            <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2 uppercase tracking-wide">
+              <span className="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">
+                <ArrowUpRight size={14} />
+              </span>
+              Categorias de Receita
             </h3>
             
             <div className="space-y-6">
               {sortedRevenueGroups.map(([groupName, cats]) => (
                 <div key={groupName} className="space-y-3">
-                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center justify-between">
+                  <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center justify-between">
                     <span>{groupName}</span>
-                    <span className="text-[9px] bg-slate-50 text-slate-400 border border-slate-100 rounded px-1.5 py-0.5 font-bold uppercase">{cats.length} {cats.length === 1 ? 'Categoria' : 'Categorias'}</span>
+                    <span className="text-[11px] bg-slate-100 text-slate-600 rounded-full px-2 py-0.5 font-medium">{cats.length} {cats.length === 1 ? 'Categoria' : 'Categorias'}</span>
                   </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {cats.map(cat => (
-                      <div key={cat.id} className="p-4 border border-slate-50 bg-slate-50/10 rounded-xl flex items-center justify-between gap-3 shadow-sm hover:border-slate-100 transition-all">
-                        <div className="flex items-center gap-3">
-                          <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color || '#10b981' }} />
-                          <p className="text-sm font-bold text-slate-800">{cat.name}</p>
+                      <div key={cat.id} className="p-3.5 border border-slate-200 bg-white rounded-xl flex items-center justify-between gap-3 shadow-2xs hover:border-slate-300 transition-all">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-slate-400" />
+                          <p className="text-xs font-semibold text-slate-900">{cat.name}</p>
                         </div>
-                        <div className="flex gap-1.5">
+                        <div className="flex gap-1">
                           <button 
                             onClick={() => handleEditCategoryClick(cat)}
-                            className="p-1 text-slate-400 hover:text-blue-600 transition-colors cursor-pointer"
+                            className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
                             title="Editar"
                           >
                             <Pencil size={12} />
                           </button>
                           <button 
                             onClick={() => handleDeleteCategory(cat.id)}
-                            className="p-1 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                            className="p-1 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
                             title="Excluir"
                           >
                             <Trash2 size={12} />
@@ -6239,42 +6240,45 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 </div>
               ))}
               {revenueCats.length === 0 && (
-                <div className="text-center py-10 text-slate-400 uppercase tracking-widest text-xs font-bold">Sem categorias cadastradas</div>
+                <div className="text-center py-10 text-slate-400 text-xs font-medium">Sem categorias cadastradas</div>
               )}
             </div>
           </div>
 
           {/* Expenses block */}
-          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm space-y-6">
-            <h3 className="text-base font-black text-rose-600 border-b border-slate-100 pb-3 flex items-center gap-1.5 uppercase tracking-wider">
-              <ArrowDownRight size={18} /> Categorias de Despesa
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-2xs space-y-6">
+            <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2 uppercase tracking-wide">
+              <span className="w-6 h-6 rounded-lg bg-red-100 text-red-600 flex items-center justify-center font-bold">
+                <ArrowDownRight size={14} />
+              </span>
+              Categorias de Despesa
             </h3>
             
             <div className="space-y-6">
               {sortedExpenseGroups.map(([groupName, cats]) => (
                 <div key={groupName} className="space-y-3">
-                  <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center justify-between">
+                  <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center justify-between">
                     <span>{groupName}</span>
-                    <span className="text-[9px] bg-slate-50 text-slate-400 border border-slate-100 rounded px-1.5 py-0.5 font-bold uppercase">{cats.length} {cats.length === 1 ? 'Categoria' : 'Categorias'}</span>
+                    <span className="text-[11px] bg-slate-100 text-slate-600 rounded-full px-2 py-0.5 font-medium">{cats.length} {cats.length === 1 ? 'Categoria' : 'Categorias'}</span>
                   </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {cats.map(cat => (
-                      <div key={cat.id} className="p-4 border border-slate-50 bg-slate-50/10 rounded-xl flex items-center justify-between gap-3 shadow-sm hover:border-slate-100 transition-all">
-                        <div className="flex items-center gap-3">
-                          <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color || '#f43f5e' }} />
-                          <p className="text-sm font-bold text-slate-800">{cat.name}</p>
+                      <div key={cat.id} className="p-3.5 border border-slate-200 bg-white rounded-xl flex items-center justify-between gap-3 shadow-2xs hover:border-slate-300 transition-all">
+                        <div className="flex items-center gap-2.5">
+                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-slate-400" />
+                          <p className="text-xs font-semibold text-slate-900">{cat.name}</p>
                         </div>
-                        <div className="flex gap-1.5">
+                        <div className="flex gap-1">
                           <button 
                             onClick={() => handleEditCategoryClick(cat)}
-                            className="p-1 text-slate-400 hover:text-blue-600 transition-colors cursor-pointer"
+                            className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
                             title="Editar"
                           >
                             <Pencil size={12} />
                           </button>
                           <button 
                             onClick={() => handleDeleteCategory(cat.id)}
-                            className="p-1 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                            className="p-1 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
                             title="Excluir"
                           >
                             <Trash2 size={12} />
@@ -6286,7 +6290,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 </div>
               ))}
               {expenseCats.length === 0 && (
-                <div className="text-center py-10 text-slate-400 uppercase tracking-widest text-xs font-bold">Sem categorias cadastradas</div>
+                <div className="text-center py-10 text-slate-400 text-xs font-medium">Sem categorias cadastradas</div>
               )}
             </div>
           </div>
