@@ -4438,85 +4438,85 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return (
       <div className="space-y-8">
         {/* KPI Cards (4 cards) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Card: Receitas Pagas */}
-          <div className="bg-emerald-50/60 border border-emerald-100 p-5 rounded-3xl shadow-sm flex flex-col justify-between">
-            <div className="flex justify-between items-start">
-              <span className="text-[10px] font-black text-emerald-800/60 uppercase tracking-widest">Receitas Recebidas</span>
-              <span className="p-1.5 bg-emerald-100/80 rounded-xl text-emerald-700">
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-2xs flex flex-col justify-between space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Receitas Recebidas</span>
+              <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">
                 <ArrowUpRight size={16} />
-              </span>
+              </div>
             </div>
-            <div className="mt-4">
-              <h3 className="text-xl font-black text-emerald-950">{formatCurrency(totalReceitasPagas)}</h3>
-              <p className="text-[9px] text-emerald-700/80 font-bold uppercase tracking-wider mt-1">Realizado (Pago) no período</p>
+            <div>
+              <p className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">{formatCurrency(totalReceitasPagas)}</p>
+              <p className="text-xs font-normal text-slate-500 mt-1.5">Realizado (Pago) no período</p>
             </div>
           </div>
 
           {/* Card: Despesas Pagas */}
-          <div className="bg-rose-50/60 border border-rose-100 p-5 rounded-3xl shadow-sm flex flex-col justify-between">
-            <div className="flex justify-between items-start">
-              <span className="text-[10px] font-black text-rose-800/60 uppercase tracking-widest">Despesas Pagas</span>
-              <span className="p-1.5 bg-rose-100/80 rounded-xl text-rose-700">
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-2xs flex flex-col justify-between space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Despesas Pagas</span>
+              <div className="w-8 h-8 rounded-xl bg-red-100 text-red-600 flex items-center justify-center font-bold">
                 <ArrowDownRight size={16} />
-              </span>
+              </div>
             </div>
-            <div className="mt-4">
-              <h3 className="text-xl font-black text-rose-950">{formatCurrency(totalDespesasPagas)}</h3>
-              <p className="text-[9px] text-rose-700/80 font-bold uppercase tracking-wider mt-1">Realizado (Pago) no período</p>
+            <div>
+              <p className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">{formatCurrency(totalDespesasPagas)}</p>
+              <p className="text-xs font-normal text-slate-500 mt-1.5">Realizado (Pago) no período</p>
             </div>
           </div>
 
           {/* Card: Saldo Realizado */}
-          <div className={`${saldoRealizado >= 0 ? 'bg-sky-50/60 border-sky-100' : 'bg-rose-50/60 border-rose-100'} p-5 rounded-3xl shadow-sm flex flex-col justify-between`}>
-            <div className="flex justify-between items-start">
-              <span className="text-[10px] font-black text-slate-800/60 uppercase tracking-widest">Saldo Realizado</span>
-              <span className={`p-1.5 rounded-xl ${saldoRealizado >= 0 ? 'bg-sky-100/80 text-sky-700' : 'bg-rose-100/80 text-rose-700'}`}>
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-2xs flex flex-col justify-between space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Saldo Realizado</span>
+              <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
                 <Activity size={16} />
-              </span>
+              </div>
             </div>
-            <div className="mt-4">
-              <h3 className={`text-xl font-black ${saldoRealizado >= 0 ? 'text-sky-950' : 'text-rose-950'}`}>{formatCurrency(saldoRealizado)}</h3>
-              <p className="text-[9px] text-slate-700/80 font-bold uppercase tracking-wider mt-1">Receitas pagas menos despesas pagas</p>
+            <div>
+              <p className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">{formatCurrency(saldoRealizado)}</p>
+              <p className="text-xs font-normal text-slate-500 mt-1.5">Receitas pagas menos despesas pagas</p>
             </div>
           </div>
 
           {/* Card: Total Pendente */}
-          <div className="bg-amber-50/60 border border-amber-100 p-5 rounded-3xl shadow-sm flex flex-col justify-between">
-            <div className="flex justify-between items-start">
-              <span className="text-[10px] font-black text-amber-800/60 uppercase tracking-widest">Total Pendente</span>
-              <span className="p-1.5 bg-amber-100/80 rounded-xl text-amber-700">
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl shadow-2xs flex flex-col justify-between space-y-3">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">Total Pendente</span>
+              <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center font-bold">
                 <Clock size={16} />
-              </span>
+              </div>
             </div>
-            <div className="mt-4">
-              <h3 className="text-xl font-black text-amber-950">{formatCurrency(totalPendente)}</h3>
-              <p className="text-[9px] text-amber-700/80 font-bold uppercase tracking-wider mt-1">Todos a pagar e receber pendentes</p>
+            <div>
+              <p className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">{formatCurrency(totalPendente)}</p>
+              <p className="text-xs font-normal text-slate-500 mt-1.5">Todos a pagar e receber pendentes</p>
             </div>
           </div>
         </div>
 
         {/* Export Buttons */}
-        <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm">
-          <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4">Exportações Disponíveis</h4>
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-2xs">
+          <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-4">Exportações Disponíveis</h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <button
               onClick={handleExportFinanceiroXLSX}
-              className="px-5 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2.5 cursor-pointer hover:shadow-md active:scale-[0.98]"
+              className="px-5 py-3.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-900 font-semibold text-xs uppercase tracking-wider rounded-xl shadow-2xs transition-all flex items-center justify-center gap-2.5 cursor-pointer"
             >
               <FileDown size={16} />
               Exportar Extrato Excel
             </button>
             <button
               onClick={handleExportFinanceiroPDF}
-              className="px-5 py-4 bg-slate-900 hover:bg-slate-800 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2.5 cursor-pointer hover:shadow-md active:scale-[0.98]"
+              className="px-5 py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs uppercase tracking-wider rounded-xl shadow-2xs transition-all flex items-center justify-center gap-2.5 cursor-pointer"
             >
               <FileText size={16} />
               Exportar PDF (Imprimir)
             </button>
             <button
               onClick={handleExportCentroCustoXLSX}
-              className="px-5 py-4 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-sm transition-all flex items-center justify-center gap-2.5 cursor-pointer hover:shadow-md active:scale-[0.98]"
+              className="px-5 py-3.5 bg-white hover:bg-slate-50 border border-slate-200 text-slate-900 font-semibold text-xs uppercase tracking-wider rounded-xl shadow-2xs transition-all flex items-center justify-center gap-2.5 cursor-pointer"
             >
               <Layers size={16} />
               Exportar Centro de Custo Excel
@@ -4525,17 +4525,17 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         </div>
 
         {/* Preview Table */}
-        <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-2xs space-y-4">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-black text-slate-900 uppercase tracking-wider">
-              Prévia do Extrato do Mês <span className="text-slate-400">({latestTransactions.length} lançamentos)</span>
+            <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+              Prévia do Extrato do Mês <span className="text-slate-400 font-normal">({latestTransactions.length} lançamentos)</span>
             </h4>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-400">
+                <tr className="border-b border-slate-100 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                   <th className="py-3 px-4">Data Venc.</th>
                   <th className="py-3 px-4">Descrição</th>
                   <th className="py-3 px-4">Categoria</th>
@@ -4556,13 +4556,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     const categoryName = catObj?.name || 'Sem Categoria';
                     const categoryColor = catObj?.color || '#cbd5e1';
                     
-                    let statusStyle = 'bg-amber-50 text-amber-700 border-amber-100';
+                    let statusStyle = 'bg-[#fef3c7] text-[#92400e] border border-[#fde68a]';
                     let statusLabel = 'Pendente';
                     if (tx.status === TransactionStatus.PAID) {
-                      statusStyle = 'bg-emerald-50 text-emerald-700 border-emerald-100';
+                      statusStyle = 'bg-[#d1fae5] text-[#065f46] border border-[#a7f3d0]';
                       statusLabel = 'Pago';
                     } else if (tx.status === TransactionStatus.PENDING && tx.due_date < todayStr) {
-                      statusStyle = 'bg-rose-50 text-rose-700 border-rose-100';
+                      statusStyle = 'bg-[#fee2e2] text-[#991b1b] border border-[#fca5a5]';
                       statusLabel = 'Vencido';
                     }
 
@@ -4575,7 +4575,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span>{tx.description}</span>
                             {tx.recurrence_group_id && (
-                              <span className="text-[9px] font-black text-blue-600 bg-blue-50/50 border border-blue-100/50 px-1 py-0.5 rounded uppercase tracking-wider select-none">
+                              <span className="text-[9px] font-semibold text-blue-600 bg-blue-50/50 border border-blue-100/50 px-1 py-0.5 rounded uppercase tracking-wider select-none">
                                 🔁 Recorrente
                               </span>
                             )}
@@ -4594,7 +4594,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           {formatCurrency(tx.amount)}
                         </td>
                         <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${statusStyle}`}>
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-semibold ${statusStyle}`}>
                             {statusLabel}
                           </span>
                         </td>
