@@ -65,7 +65,7 @@ import { useFinancialCategories } from '../hooks/useFinancialCategories';
 import { useFinancialTransactions } from '../hooks/useFinancialTransactions';
 import { useRecurringTransactions } from '../hooks/useRecurringTransactions';
 import { useInvoicePayment } from '../hooks/useInvoicePayment';
-import { parseBrlValue, parseBRL, formatBRL, formatCurrency } from '../utils/currency';
+import { parseBrlValue, parseBRL, formatBRL, formatCurrency, isCreditTransaction } from '../utils/currency';
 import { addPeriodToDate, getLocalTodayStr, formatDateBR, parseDateSafe } from '../utils/dates';
 import { getAccountLiveBalance as calcAccountLiveBalance } from '../domain/BalanceCalculator';
 import { HeaderTooltip } from './HeaderTooltip';
@@ -2807,12 +2807,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       <td className="px-6 py-5">
                         <div className="flex flex-col items-center justify-center text-center">
                           <span 
-                            className="px-2 py-0.5 rounded-md text-[9px] font-medium uppercase tracking-wider text-center border" 
-                            style={{ 
-                              backgroundColor: (category?.color || '#cbd5e1') + '26', 
-                              borderColor: (category?.color || '#cbd5e1') + '40',
-                              color: category?.color || '#475569' 
-                            }}
+                            className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200"
                           >
                             {category?.name || 'Geral'}
                           </span>
@@ -2828,7 +2823,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         </div>
                       </td>
                       <td className="px-6 py-5 text-right">
-                        <span className={`text-sm font-black whitespace-nowrap ${tx.type === TransactionType.EXPENSE ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        <span className={`text-sm font-bold whitespace-nowrap ${isCreditTransaction(tx, category) ? 'text-emerald-700' : 'text-red-700'}`}>
                           {formatCurrency(tx.amount)}
                         </span>
                       </td>
@@ -3688,7 +3683,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     {grp.transactions.map(tx => {
                       const category = categories.find(c => c.id === tx.category_id);
                       const account = accounts.find(a => a.id === tx.account_id);
-                      const isIncome = tx.type === TransactionType.INCOME;
+                      const isIncome = isCreditTransaction(tx, category);
                       const isPaid = tx.status === TransactionStatus.PAID;
                       const isOverdue = tx.status === TransactionStatus.PENDING && tx.due_date < hoje;
                       const isToday = tx.status === TransactionStatus.PENDING && tx.due_date === hoje;
@@ -3719,8 +3714,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               )}
                               <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 font-medium">
                                 <div className="flex items-center gap-1.5">
-                                  <Tag size={12} className="text-slate-400" />
-                                  <span>{category?.name || 'Sem Categoria'}</span>
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                                    {category?.name || 'Sem Categoria'}
+                                  </span>
                                 </div>
                                 <div className="flex items-center gap-1.5">
                                   <Wallet size={12} className="text-slate-400" />
@@ -3739,7 +3735,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between md:justify-end gap-4 flex-shrink-0">
                             <div className="text-left sm:text-right">
-                              <p className="text-sm font-bold text-slate-900">{formatCurrency(tx.amount)}</p>
+                              <p className={`text-sm font-bold whitespace-nowrap ${isIncome ? 'text-emerald-700' : 'text-red-700'}`}>{formatCurrency(tx.amount)}</p>
                               <div className="flex items-center gap-1.5 text-xs text-slate-500 font-normal mt-0.5">
                                 <Calendar size={12} />
                                 <span>Vence em {formatDateStr(tx.due_date)}</span>
@@ -4583,12 +4579,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           )}
                         </td>
                         <td className="py-3.5 px-4 whitespace-nowrap">
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: categoryColor }} />
-                            <span className="text-slate-600 font-medium">{categoryName}</span>
-                          </div>
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                            {categoryName}
+                          </span>
                         </td>
-                        <td className={`py-3.5 px-4 text-right font-bold whitespace-nowrap ${tx.type === TransactionType.INCOME ? 'text-emerald-700' : 'text-slate-800'}`}>
+                        <td className={`py-3.5 px-4 text-right font-bold whitespace-nowrap ${isCreditTransaction(tx, catObj) ? 'text-emerald-700' : 'text-red-700'}`}>
                           {formatCurrency(tx.amount)}
                         </td>
                         <td className="py-3.5 px-4 text-right whitespace-nowrap">

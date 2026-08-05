@@ -919,7 +919,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
               {/* Rateio de Corretores */}
               {detailSale.splits && detailSale.splits.length > 0 && (() => {
                 // Agrupar splits por brokerId, somando valores
-                const grouped = detailSale.splits.reduce((acc, split) => {
+                const grouped = detailSale.splits.reduce((acc: Record<string, { brokerName: string; role: string; percentage: number; totalValue: number }>, split) => {
                   const key = split.brokerId || split.brokerName || 'unknown';
                   if (!acc[key]) {
                     acc[key] = {
@@ -933,7 +933,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                   return acc;
                 }, {} as Record<string, { brokerName: string; role: string; percentage: number; totalValue: number }>);
 
-                const groupedSplits = Object.values(grouped);
+                const groupedSplits: Array<{ brokerName?: string; role?: string; percentage?: number; totalValue: number }> = Object.values(grouped);
 
                 return (
                   <div>

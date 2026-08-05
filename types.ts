@@ -56,7 +56,7 @@ export interface Sale {
   propertyCity: string;
   propertyCep: string;
   propertyUf: string;
-  propertyType: 'urbano' | 'rural';
+  propertyType: string;
   buyerName: string; // Map to buyer_name
   sellerName: string; // Map to seller_name
   vgv: number;
@@ -81,8 +81,12 @@ export enum TransactionType {
 }
 
 export enum TransactionStatus {
+  PENDING = 'PENDING',
+  PLANNED = 'PLANNED',
   PAID = 'PAID',
-  PENDING = 'PENDING'
+  RECEIVED = 'RECEIVED',
+  OVERDUE = 'OVERDUE',
+  CANCELLED = 'CANCELLED'
 }
 
 export interface FinancialAccount {

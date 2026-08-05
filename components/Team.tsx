@@ -56,7 +56,7 @@ const Team: React.FC<TeamProps> = ({ team, setTeam, currentUser }) => {
     if (confirm('Tem certeza que deseja remover este membro?')) setTeam(prev => prev.filter(u => u.id !== id));
   };
 
-  const UserCard = ({ user }: { user: User }) => {
+  const UserCard = ({ user }: { user: User; key?: React.Key }) => {
     const avatar = getAvatarColor(user.name);
     const isAdmin = user.role === UserRole.ADMIN;
     const isMe = user.id === currentUser.id;

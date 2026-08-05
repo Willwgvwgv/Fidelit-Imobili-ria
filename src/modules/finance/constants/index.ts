@@ -1,6 +1,10 @@
 export enum TransactionStatus {
+  PENDING = 'PENDING',
+  PLANNED = 'PLANNED',
   PAID = 'PAID',
-  PENDING = 'PENDING'
+  RECEIVED = 'RECEIVED',
+  OVERDUE = 'OVERDUE',
+  CANCELLED = 'CANCELLED'
 }
 
 export enum TransactionType {

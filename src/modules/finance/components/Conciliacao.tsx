@@ -20,6 +20,7 @@ import { supabase } from '../../../../supabase';
 import { TransferBadge } from '../../../components/TransferBadge';
 import { HeaderTooltip } from './HeaderTooltip';
 import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
+import { isCreditTransaction } from '../utils/currency';
 
 interface RentInstallmentItem {
   id: string;
@@ -333,13 +334,13 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                         <div className="flex items-center gap-2">
                           <span className="text-[11px] font-mono text-slate-500 font-semibold">{tx.date}</span>
                           <span
-                            className={`px-2 py-0.5 text-[10px] font-bold rounded-md uppercase ${
-                              tx.type === 'credit'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-rose-100 text-rose-800'
+                            className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full border ${
+                              isCreditTransaction(tx)
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-slate-100 text-slate-700 border-slate-200'
                             }`}
                           >
-                            {tx.type === 'credit' ? 'Crédito' : 'Débito'}
+                            {isCreditTransaction(tx) ? 'Crédito' : 'Débito'}
                           </span>
                           <TransferBadge transferId={tx.transfer_id} />
                           {tx.ofx_fitid?.startsWith('MANUAL-') && (
@@ -354,10 +355,10 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                       <div className="text-right shrink-0">
                         <span
                           className={`text-base font-bold ${
-                            tx.type === 'credit' ? 'text-emerald-600' : 'text-rose-600'
+                            isCreditTransaction(tx) ? 'text-emerald-700' : 'text-red-700'
                           }`}
                         >
-                          {tx.type === 'credit' ? '+' : '-'} R${' '}
+                          {isCreditTransaction(tx) ? '+' : '-'} R${' '}
                           {tx.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </span>
                       </div>
