@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ArrowRightLeft, Wallet, Check, Pencil, Trash2, X, DollarSign, Calendar, FileText } from 'lucide-react';
-import { FinancialAccount, User, FinancialCategory, FinancialTransaction } from '../../../../types';
+import { Plus, ArrowRightLeft, Wallet, Check, Pencil, Trash2, X, DollarSign, Calendar, FileText, CreditCard, TrendingUp, TrendingDown, Landmark } from 'lucide-react';
+import { FinancialAccount, User, FinancialCategory, FinancialTransaction, TransactionStatus, TransactionType } from '../../../../types';
 import { formatCurrency } from '../utils/currency';
+import { getLocalTodayStr } from '../utils/dates';
 import { supabase } from '../../../../supabase';
 import { HeaderTooltip } from './HeaderTooltip';
-import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
 
 export const BANKS = [
   { code: '001', name: 'Banco do Brasil', initials: 'BB', color: '#fcf800' },
@@ -77,6 +77,107 @@ export const ContasBancarias: React.FC<ContasBancariasProps> = ({
       }
     }
   }, [categories]);
+
+  const isCardAccount = (a: FinancialAccount) => {
+    const t = (a.type || (a as any).account_type || '').toLowerCase();
+    return t === 'credit_card' || t === 'credit' || t === 'cartão';
+  };
+
+  const bankAccounts = accounts.filter(a => !isCardAccount(a));
+  const totalBankBalance = bankAccounts.reduce((acc, a) => acc + getAccountLiveBalance(a), 0);
+
+  const cardAccounts = accounts.filter(a => isCardAccount(a));
+  const totalCardsBalance = cardAccounts.reduce((acc, a) => acc + getAccountLiveBalance(a), 0);
+
+  const [receivable30d, setReceivable30d] = useState<{ amount: number; count: number }>({ amount: 0, count: 0 });
+  const [payable30d, setPayable30d] = useState<{ amount: number; count: number }>({ amount: 0, count: 0 });
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetch30dMetrics = async () => {
+      const todayStr = getLocalTodayStr();
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 30);
+      const futureDateStr = futureDate.toISOString().split('T')[0];
+
+      let recSum = 0;
+      let recCount = 0;
+
+      if (supabase) {
+        try {
+          const { data: rentData } = await supabase
+            .from('rent_installments')
+            .select('expected_amount, status, due_date')
+            .or('status.eq.pending,status.eq.overdue')
+            .gte('due_date', todayStr)
+            .lte('due_date', futureDateStr);
+
+          if (rentData && rentData.length > 0) {
+            rentData.forEach((item: any) => {
+              recSum += Number(item.expected_amount || 0);
+              recCount += 1;
+            });
+          }
+        } catch (e) {
+          console.warn('Error querying rent_installments:', e);
+        }
+      }
+
+      if (recCount === 0 && transactions && transactions.length > 0) {
+        const pendingIncomes = transactions.filter(t => 
+          t.type === TransactionType.INCOME && 
+          t.status === TransactionStatus.PENDING &&
+          t.due_date >= todayStr &&
+          t.due_date <= futureDateStr
+        );
+        recSum = pendingIncomes.reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
+        recCount = pendingIncomes.length;
+      }
+
+      if (isMounted) {
+        setReceivable30d({ amount: recSum, count: recCount });
+      }
+
+      let paySum = 0;
+      let payCount = 0;
+
+      if (supabase) {
+        try {
+          const { data: splitData } = await supabase
+            .from('broker_splits')
+            .select('calculated_value, status, forecast_date')
+            .eq('status', 'PENDING')
+            .lte('forecast_date', futureDateStr);
+
+          if (splitData && splitData.length > 0) {
+            splitData.forEach((item: any) => {
+              paySum += Number(item.calculated_value || 0);
+              payCount += 1;
+            });
+          }
+        } catch (e) {
+          console.warn('Error querying broker_splits:', e);
+        }
+      }
+
+      if (payCount === 0 && transactions && transactions.length > 0) {
+        const pendingExpenses = transactions.filter(t => 
+          t.type === TransactionType.EXPENSE && 
+          t.status === TransactionStatus.PENDING &&
+          t.due_date <= futureDateStr
+        );
+        paySum = pendingExpenses.reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
+        payCount = pendingExpenses.length;
+      }
+
+      if (isMounted) {
+        setPayable30d({ amount: paySum, count: payCount });
+      }
+    };
+
+    fetch30dMetrics();
+    return () => { isMounted = false; };
+  }, [transactions]);
 
   const formatAccountTypeLabel = (typeStr?: string) => {
     if (!typeStr) return 'Conta Corrente';
@@ -192,7 +293,88 @@ export const ContasBancarias: React.FC<ContasBancariasProps> = ({
 
   return (
     <div className="space-y-6">
-      <FinancialKpiHeaderCards transactions={transactions} />
+      {/* 4 Cards KPI de CONTA */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1: Saldo Total */}
+        <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+              CONTAS CORRENTES
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center font-bold">
+              <Landmark size={16} />
+            </div>
+          </div>
+          <div>
+            <p className="text-2xl font-black text-slate-900 tracking-tight">
+              {formatCurrency(totalBankBalance)}
+            </p>
+            <p className="text-xs font-bold text-slate-400 mt-0.5">
+              {bankAccounts.length} {bankAccounts.length === 1 ? 'conta cadastrada' : 'contas cadastradas'}
+            </p>
+          </div>
+        </div>
+
+        {/* Card 2: Saldo Cartões */}
+        <div className="bg-white rounded-2xl border border-purple-100/80 bg-purple-50/20 p-5 shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-extrabold text-purple-700 uppercase tracking-wider">
+              SALDO CARTÕES
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+              <CreditCard size={16} />
+            </div>
+          </div>
+          <div>
+            <p className="text-2xl font-black text-purple-900 tracking-tight">
+              {totalCardsBalance === 0 ? 'R$ 0,00' : `- ${formatCurrency(Math.abs(totalCardsBalance))}`}
+            </p>
+            <p className="text-xs font-bold text-purple-600/70 mt-0.5">
+              {cardAccounts.length} {cardAccounts.length === 1 ? 'cartão de crédito' : 'cartões de crédito'}
+            </p>
+          </div>
+        </div>
+
+        {/* Card 3: Total a Receber 30d */}
+        <div className="bg-white rounded-2xl border border-emerald-100 bg-emerald-50/20 p-5 shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-extrabold text-emerald-700 uppercase tracking-wider">
+              TOTAL A RECEBER (30D)
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+              <TrendingUp size={16} />
+            </div>
+          </div>
+          <div>
+            <p className="text-2xl font-black text-emerald-600 tracking-tight">
+              {formatCurrency(receivable30d.amount)}
+            </p>
+            <p className="text-xs font-bold text-emerald-700/70 mt-0.5">
+              {receivable30d.count} {receivable30d.count === 1 ? 'item pendente' : 'itens pendentes'}
+            </p>
+          </div>
+        </div>
+
+        {/* Card 4: Total a Pagar 30d */}
+        <div className="bg-white rounded-2xl border border-rose-100 bg-rose-50/20 p-5 shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-extrabold text-rose-700 uppercase tracking-wider">
+              TOTAL A PAGAR (30D)
+            </span>
+            <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+              <TrendingDown size={16} />
+            </div>
+          </div>
+          <div>
+            <p className="text-2xl font-black text-rose-600 tracking-tight">
+              {formatCurrency(payable30d.amount)}
+            </p>
+            <p className="text-xs font-bold text-rose-700/70 mt-0.5">
+              {payable30d.count} {payable30d.count === 1 ? 'item pendente' : 'itens pendentes'}
+            </p>
+          </div>
+        </div>
+      </div>
 
       {/* Action Header */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
