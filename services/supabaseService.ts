@@ -76,6 +76,41 @@ export const supabaseService = {
     }));
   },
 
+  async createUser(userData: { name: string; email: string; role: 'ADMIN' | 'BROKER'; agencyId: string; phone?: string; avatarUrl?: string }): Promise<User | null> {
+    if (!supabase) return null;
+
+    const dbInsert = {
+      name: userData.name,
+      email: userData.email,
+      role: userData.role,
+      agency_id: userData.agencyId,
+      phone: userData.phone || null,
+      avatar_url: userData.avatarUrl || null,
+    };
+
+    const { data, error } = await supabase
+      .from('users')
+      .insert([dbInsert])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error creating user in Supabase:', error);
+      return null;
+    }
+
+    return {
+      id: data.id,
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      agencyId: data.agency_id,
+      phone: data.phone,
+      avatarUrl: data.avatar_url || data.avatarUrl,
+      created_at: data.created_at
+    };
+  },
+
   async updateUserProfile(userId: string, updates: { name?: string; phone?: string; avatarUrl?: string }): Promise<boolean> {
     if (!supabase) return false;
     const dbUpdates: any = {};

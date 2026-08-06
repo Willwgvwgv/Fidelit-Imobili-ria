@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Edit, Trash2, UserPlus, X, Mail, Shield, User as UserIcon, Phone, Users, Crown, Briefcase } from 'lucide-react';
 import { User, UserRole } from '../types';
+import { supabaseService } from '../services/supabaseService';
 
 interface TeamProps {
   team: User[];
@@ -40,13 +41,28 @@ const Team: React.FC<TeamProps> = ({ team, setTeam, currentUser }) => {
 
   const closeModal = () => { setIsModalOpen(false); setEditingUser(null); };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name || !formData.email) { alert('Por favor, preencha nome e e-mail.'); return; }
     if (editingUser) {
+      if (formData.name || formData.phone) {
+        await supabaseService.updateUserProfile(editingUser.id, { name: formData.name, phone: formData.phone });
+      }
       setTeam(prev => prev.map(u => u.id === editingUser.id ? { ...u, ...formData as User } : u));
     } else {
-      const newUser: User = { id: `u-${Date.now()}`, name: formData.name!, email: formData.email!, phone: formData.phone, role: formData.role as UserRole, agencyId: currentUser.agencyId };
-      setTeam(prev => [...prev, newUser]);
+      const created = await supabaseService.createUser({
+        name: formData.name!,
+        email: formData.email!,
+        phone: formData.phone,
+        role: (formData.role as 'ADMIN' | 'BROKER') || 'BROKER',
+        agencyId: currentUser.agencyId,
+      });
+
+      if (created) {
+        setTeam(prev => [...prev, created]);
+      } else {
+        const newUser: User = { id: `u-${Date.now()}`, name: formData.name!, email: formData.email!, phone: formData.phone, role: formData.role as UserRole, agencyId: currentUser.agencyId };
+        setTeam(prev => [...prev, newUser]);
+      }
     }
     closeModal();
   };
