@@ -71,12 +71,11 @@ export const supabaseService = {
       role: u.role,
       agencyId: u.agency_id,
       phone: u.phone,
-      avatarUrl: u.avatar_url || u.avatarUrl,
       created_at: u.created_at
     }));
   },
 
-  async createUser(userData: { name: string; email: string; role: 'ADMIN' | 'BROKER'; agencyId: string; phone?: string; avatarUrl?: string }): Promise<User | null> {
+  async createUser(userData: { name: string; email: string; role: 'ADMIN' | 'BROKER'; agencyId: string; phone?: string }): Promise<User | null> {
     if (!supabase) return null;
 
     const dbInsert = {
@@ -85,7 +84,6 @@ export const supabaseService = {
       role: userData.role,
       agency_id: userData.agencyId,
       phone: userData.phone || null,
-      avatar_url: userData.avatarUrl || null,
     };
 
     const { data, error } = await supabase
@@ -106,17 +104,15 @@ export const supabaseService = {
       role: data.role,
       agencyId: data.agency_id,
       phone: data.phone,
-      avatarUrl: data.avatar_url || data.avatarUrl,
       created_at: data.created_at
     };
   },
 
-  async updateUserProfile(userId: string, updates: { name?: string; phone?: string; avatarUrl?: string }): Promise<boolean> {
+  async updateUserProfile(userId: string, updates: { name?: string; phone?: string }): Promise<boolean> {
     if (!supabase) return false;
     const dbUpdates: any = {};
     if (updates.name !== undefined) dbUpdates.name = updates.name;
     if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
-    if (updates.avatarUrl !== undefined) dbUpdates.avatar_url = updates.avatarUrl;
 
     const { error } = await supabase
       .from('users')
