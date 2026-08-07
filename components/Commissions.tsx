@@ -16,10 +16,12 @@ import {
   Upload,
   Eye,
   Check,
-  TrendingUp
+  TrendingUp,
+  Trash2
 } from 'lucide-react';
 import { Sale, User, UserRole, CommissionStatus } from '../types';
 import BrokerStatement from './BrokerStatement';
+import { supabaseService } from '../services/supabaseService';
 
 interface CommissionsProps {
   sales: Sale[];
@@ -27,9 +29,11 @@ interface CommissionsProps {
   currentUser: User;
   onUpdateStatus: (saleId: string, brokerId: string, newStatus: CommissionStatus, receiptData?: string) => void;
   onUpdateForecast?: (saleId: string, brokerId: string, newForecastDate: string) => void;
+  onDeleteSplit?: (splitId: string) => Promise<boolean | void> | void;
+  onRefresh?: () => void;
 }
 
-const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onUpdateStatus, onUpdateForecast }) => {
+const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onUpdateStatus, onUpdateForecast, onDeleteSplit, onRefresh }) => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [brokerFilter, setBrokerFilter] = useState<string>('ALL');
@@ -86,6 +90,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
           }
 
           list.push({
+            id: split.id,
             saleId: sale.id,
             brokerId: split.brokerId,
             brokerName: split.brokerName,
@@ -447,6 +452,32 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
     }
   };
 
+  const handleDeleteSplit = async (comm: any) => {
+    if (comm.status === CommissionStatus.PAID || comm.paymentDate) {
+      alert("Rateio com pagamento registrado não pode ser excluído. Estorne o pagamento primeiro.");
+      return;
+    }
+
+    if (!comm.id) {
+      alert("ID do rateio não encontrado.");
+      return;
+    }
+
+    const confirmed = window.confirm("Tem certeza que deseja excluir este rateio?");
+    if (!confirmed) return;
+
+    const success = await supabaseService.deleteSplit(comm.id);
+    if (success) {
+      if (onRefresh) {
+        onRefresh();
+      } else if (onDeleteSplit) {
+        await onDeleteSplit(comm.id);
+      }
+    } else {
+      alert("Erro ao excluir o rateio.");
+    }
+  };
+
   const handleExportCSV = () => {
     const headers = ["Data", "Imóvel", "Corretor", "Valor", "Status", "Previsão"];
     const rows = filteredCommissions.map(c => [
@@ -709,6 +740,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
                 return (
                   <React.Fragment key={group.key}>
                     <tr
+                      data-split-id={group.installments[0]?.id}
                       className={`hover:bg-gray-50/50 transition-colors ${isMulti ? 'cursor-pointer select-none' : ''}`}
                       onClick={() => isMulti && toggleExpand(group.key)}
                     >
@@ -785,6 +817,9 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
                               {comm.receiptData && (
                                 <button onClick={e => { e.stopPropagation(); setViewingReceipt(comm.receiptData); }} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Ver Comprovante"><Eye size={15} /></button>
                               )}
+                              {isAdmin && (
+                                <button onClick={e => { e.stopPropagation(); handleDeleteSplit(comm); }} className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all" title="Excluir Rateio"><Trash2 size={15} /></button>
+                              )}
                             </div>
                           );
                         })()}
@@ -792,7 +827,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
                     </tr>
 
                     {isMulti && isExpanded && group.installments.map((comm, i) => (
-                      <tr key={`${group.key}-${i}`} className="bg-indigo-50/30 border-l-4 border-indigo-200 hover:bg-indigo-50/60 transition-colors">
+                      <tr key={`${group.key}-${i}`} data-split-id={comm.id} className="bg-indigo-50/30 border-l-4 border-indigo-200 hover:bg-indigo-50/60 transition-colors">
                         <td className="px-5 py-3 pl-10">{renderStatusBadge(comm)}</td>
                         <td className="px-5 py-3 pl-10">
                           <span className="text-xs text-indigo-600 font-bold">
@@ -824,6 +859,9 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
                             )}
                             {comm.receiptData && (
                               <button onClick={e => { e.stopPropagation(); setViewingReceipt(comm.receiptData); }} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Ver Comprovante"><Eye size={15} /></button>
+                            )}
+                            {isAdmin && (
+                              <button onClick={e => { e.stopPropagation(); handleDeleteSplit(comm); }} className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all" title="Excluir Rateio"><Trash2 size={15} /></button>
                             )}
                           </div>
                         </td>

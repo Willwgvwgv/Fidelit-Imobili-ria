@@ -162,6 +162,14 @@ const App: React.FC = () => {
     }
   };
 
+  const handleDeleteSplit = async (splitId: string) => {
+    const success = await supabaseService.deleteSplit(splitId);
+    if (success) {
+      loadData();
+    }
+    return success;
+  };
+
   const renderContent = () => {
     if (isLoading) {
       return (
@@ -189,6 +197,8 @@ const App: React.FC = () => {
             currentUser={currentUser} 
             onUpdateStatus={handleUpdateCommissionStatus}
             onUpdateForecast={handleUpdateForecast}
+            onDeleteSplit={handleDeleteSplit}
+            onRefresh={loadData}
           />
         );
       case 'reports':

@@ -423,6 +423,35 @@ export const supabaseService = {
     return { error };
   },
 
+  // Método de exclusão DIRETA de um rateio (broker_splits WHERE id = splitId)
+  async deleteSplit(splitId: string): Promise<boolean> {
+    if (!supabase) return false;
+
+    const rateLimit = rateLimiter.consume('deleteSplit', RATE_LIMIT_PROFILES.MUTATION);
+    if (!rateLimit.allowed) {
+      console.warn('Rate limit exceeded for deleteSplit');
+      return false;
+    }
+
+    try {
+      // Deleção direta sem passar por updateSale
+      const { error } = await supabase
+        .from('broker_splits')
+        .delete()
+        .eq('id', splitId);
+
+      if (error) {
+        console.error('Error executing DELETE FROM broker_splits:', error);
+        return false;
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Unexpected error in deleteSplit:', err);
+      return false;
+    }
+  },
+
   // Update commission status
   async updateSplitStatus(
     splitId: string, 
