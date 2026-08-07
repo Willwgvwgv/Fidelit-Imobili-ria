@@ -211,7 +211,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
     setCurrentSplit({ brokerId: '', percentage: 100, role: SplitRole.BROKER });
   };
 
-  const handleSaveSale = async (saleData: Omit<Sale, 'id' | 'splits'>, splitsData: Omit<BrokerSplit, 'id' | 'sale_id'>[]) => {
+  const handleSaveSale = async (saleData: Omit<Sale, 'id' | 'splits'>, splitsData: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[]) => {
     setIsSaving(true);
     try {
       await supabaseService.createSale(saleData as any, splitsData as any);
@@ -225,7 +225,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
     }
   };
 
-  const handleUpdateSale = async (saleId: string, saleData: Partial<Sale>, splitsData: Omit<BrokerSplit, 'id' | 'sale_id'>[]) => {
+  const handleUpdateSale = async (saleId: string, saleData: Partial<Sale>, splitsData: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[]) => {
     setIsSaving(true);
     try {
       const success = await supabaseService.updateSale(saleId, saleData, splitsData as any);

@@ -20,13 +20,14 @@ import { Sale, BrokerSplit, CommissionStatus, SplitRole, User, UserRole } from '
 interface SaleFormProps {
   agencyId: string;
   team: User[];
-  onSave: (saleData: Omit<Sale, 'id' | 'splits'>, splitsData: Omit<BrokerSplit, 'id' | 'sale_id'>[]) => void;
+  onSave: (saleData: Omit<Sale, 'id' | 'splits'>, splitsData: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[]) => void;
   onCancel: () => void;
   editingSale?: Sale | null;
-  onUpdate?: (saleId: string, saleData: Partial<Sale>, splitsData: Omit<BrokerSplit, 'id' | 'sale_id'>[]) => void;
+  onUpdate?: (saleId: string, saleData: Partial<Sale>, splitsData: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[]) => void;
 }
 
 interface TempSplit {
+  id?: string;
   brokerId: string;
   brokerName: string;
   percentage: number;
@@ -181,6 +182,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
             return true;
           })
           .map(split => ({
+            id: split.id,
             brokerId: split.brokerId,
             brokerName: split.brokerName,
             percentage: split.percentage,
@@ -529,7 +531,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       return;
     }
     if (!isDraft && !isSplitsValid) {
-      alert('Os splits de comissão devem somar exatamente 100%.');
+      alert('Total precisa ser exatamente 100%');
       return;
     }
 
@@ -576,14 +578,15 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       status: isDraft ? 'DRAFT' : (editingSale?.status || 'ACTIVE')
     };
 
-    // Construct final splits with calculated values
-    let finalSplits: Omit<BrokerSplit, 'id' | 'sale_id'>[] = [];
+    // Construct final splits with calculated values and preserved IDs
+    let finalSplits: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[] = [];
 
     if (isInstallment && installmentsList.length > 0) {
       installmentsList.forEach(parcela => {
         tempSplits.forEach(s => {
           const calculatedValue = Math.round(((parcela.value * s.percentage) / 100 + Number.EPSILON) * 100) / 100;
           finalSplits.push({
+            id: s.id,
             brokerId: s.brokerId,
             brokerName: s.brokerName,
             percentage: s.percentage,
@@ -600,6 +603,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       finalSplits = tempSplits.map(s => {
         const calculatedValue = Math.round(((totalCommission * s.percentage) / 100 + Number.EPSILON) * 100) / 100;
         return {
+          id: s.id,
           brokerId: s.brokerId,
           brokerName: s.brokerName,
           percentage: s.percentage,

@@ -270,8 +270,12 @@ export const supabaseService = {
     return { ...sale, id: saleId, splits: splits as BrokerSplit[] };
   },
 
-  // Update sale and its splits
-  async updateSale(saleId: string, sale: Partial<Sale>, splits: Omit<BrokerSplit, 'id' | 'sale_id'>[]): Promise<boolean> {
+  // Update sale and its splits using UPSERT strategy for splits
+  async updateSale(
+    saleId: string, 
+    sale: Partial<Sale>, 
+    splits: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[]
+  ): Promise<boolean> {
     if (!supabase) return false;
 
     const rateLimit = rateLimiter.consume('updateSale', RATE_LIMIT_PROFILES.MUTATION);
@@ -311,7 +315,7 @@ export const supabaseService = {
       return false;
     }
 
-    // Fetch currently existing splits for this sale
+    // Fetch currently existing splits for this sale from DB
     const { data: existingSplitsData, error: fetchError } = await supabase
       .from('broker_splits')
       .select('*')
@@ -323,56 +327,79 @@ export const supabaseService = {
     }
 
     const existingSplits = existingSplitsData || [];
+    const existingIds = new Set(existingSplits.map((s: any) => s.id));
 
-    // Helper to identify if a split is paid or has any payment history
-    const isPaidOrHasPayment = (s: any) => {
-      return s.status === 'PAID' || 
-             (s.payment_date !== null && s.payment_date !== undefined && s.payment_date !== '') ||
-             (s.payment_method !== null && s.payment_method !== undefined && s.payment_method !== '') ||
-             (s.receipt_data !== null && s.receipt_data !== undefined && s.receipt_data !== '');
-    };
+    // Track split IDs from DB that are retained/updated or newly inserted
+    const retainedSplitIds = new Set<string>();
 
-    // Deletar todos os splits não pagos desta venda
-    const unpaidIds = existingSplits
-      .filter(s => !isPaidOrHasPayment(s))
-      .map(s => s.id);
+    for (const s of splits as any[]) {
+      const dbData: any = {
+        sale_id: saleId,
+        broker_id: (s.brokerId === 'AGENCY' || !s.brokerId) ? null : s.brokerId,
+        broker_name: s.brokerName,
+        percentage: s.percentage,
+        calculated_value: s.calculatedValue,
+        status: s.status || 'PENDING',
+        role: mapUiRoleToDbRole(s.role || ''),
+        forecast_date: s.forecastDate || null,
+        installment_number: s.installment_number ?? 1,
+        total_installments: s.total_installments ?? 1,
+        payment_date: s.paymentDate || null,
+        payment_method: s.paymentMethod || null,
+        receipt_data: s.receiptData || null
+      };
 
-    if (unpaidIds.length > 0) {
-      const { error: deleteError } = await supabase
-        .from('broker_splits')
-        .delete()
-        .in('id', unpaidIds);
+      if (s.id && existingIds.has(s.id)) {
+        // Se tem ID válido e existe no banco com mesmo ID -> UPDATE
+        retainedSplitIds.add(s.id);
+        const { error: updateError } = await supabase
+          .from('broker_splits')
+          .update(dbData)
+          .eq('id', s.id);
 
-      if (deleteError) {
-        console.error('Error deleting unpaid splits:', deleteError);
-        return false;
+        if (updateError) {
+          console.error('Error updating split:', updateError);
+          return false;
+        }
+      } else {
+        // Se NÃO tem ID (novo) ou ID não existe no banco -> INSERT
+        const { data: insertedSplit, error: insertError } = await supabase
+          .from('broker_splits')
+          .insert(dbData)
+          .select('id')
+          .single();
+
+        if (insertError) {
+          console.error('Error inserting new split:', insertError);
+          return false;
+        }
+        if (insertedSplit?.id) {
+          retainedSplitIds.add(insertedSplit.id);
+        }
       }
     }
 
-    // Inserir todos os novos splits
-    const splitsToInsert = splits.map(s => ({
-      sale_id: saleId,
-      broker_id: (s.brokerId === 'AGENCY' || !s.brokerId) ? null : s.brokerId,
-      broker_name: s.brokerName,
-      percentage: s.percentage,
-      calculated_value: s.calculatedValue,
-      status: s.status || 'PENDING',
-      role: mapUiRoleToDbRole(s.role || ''),
-      forecast_date: s.forecastDate || null,
-      installment_number: s.installment_number ?? 1,
-      total_installments: s.total_installments ?? 1,
-      payment_date: s.paymentDate || null,
-      payment_method: s.paymentMethod || null,
-      receipt_data: s.receiptData || null
-    }));
+    // Helper: verificar se o rateio foi pago ou possui histórico de pagamento
+    const isPaidOrHasPayment = (s: any) => {
+      return s.status === 'PAID' || 
+             (s.payment_date !== null && s.payment_date !== undefined && s.payment_date !== '');
+    };
 
-    if (splitsToInsert.length > 0) {
-      const { error: insertError } = await supabase
+    // Deleções reais da UI: deletar APENAS splits que existem no banco MAS NÃO estão no array splits
+    // e que NÃO possuem payment_date preenchido E status != 'PAID'
+    const splitsToDelete = existingSplits.filter((s: any) => 
+      !retainedSplitIds.has(s.id) && !isPaidOrHasPayment(s)
+    );
+
+    if (splitsToDelete.length > 0) {
+      const deleteIds = splitsToDelete.map((s: any) => s.id);
+      const { error: deleteError } = await supabase
         .from('broker_splits')
-        .insert(splitsToInsert);
+        .delete()
+        .in('id', deleteIds);
 
-      if (insertError) {
-        console.error('Error inserting new splits:', insertError);
+      if (deleteError) {
+        console.error('Error deleting removed splits:', deleteError);
         return false;
       }
     }
