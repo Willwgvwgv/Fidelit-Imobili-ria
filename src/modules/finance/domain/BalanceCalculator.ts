@@ -9,6 +9,9 @@ export const getAccountLiveBalance = (
   account: FinancialAccount,
   transactions: FinancialTransaction[]
 ): number => {
+  if (account.current_balance !== undefined && account.current_balance !== null) {
+    return Number(account.current_balance);
+  }
   const sumTransactions = transactions
     .filter(t => t.account_id === account.id && t.status === TransactionStatus.PAID)
     .reduce((acc, curr) => {

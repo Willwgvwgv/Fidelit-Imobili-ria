@@ -481,8 +481,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     setNewAccount({
       name: account.name,
-      initial_balance: account.initial_balance !== undefined && account.initial_balance !== null ? String(account.initial_balance) : '',
-      current_balance: String(currentBal),
+      initial_balance: account.initial_balance !== undefined && account.initial_balance !== null ? formatBRL(account.initial_balance) : '',
+      current_balance: formatBRL(currentBal),
       type: account.type || 'Corrente',
       color: account.color || '#2563eb',
       is_default: account.is_default || false,
@@ -7434,13 +7434,15 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           <div className="relative flex items-center">
                             <span className="absolute left-3 text-sm font-bold text-slate-400 select-none">R$</span>
                             <input 
-                              type="number"
-                              step="0.01"
-                              placeholder="0.00" 
+                              type="text"
+                              inputMode="decimal"
+                              lang="pt-BR"
+                              placeholder="0,00" 
                               required
                               className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 pr-3 outline-none text-slate-800 font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                              value={newAccount.current_balance} 
+                              value={formatBRL(newAccount.current_balance)} 
                               onChange={(e) => setNewAccount({...newAccount, current_balance: e.target.value})}
+                              onBlur={(e) => setNewAccount({...newAccount, current_balance: formatBRL(e.target.value)})}
                             />
                           </div>
                           <p className="text-xs text-slate-500 mt-1">
@@ -7456,13 +7458,15 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             <div className="relative flex items-center">
                               <span className="absolute left-3 text-sm font-bold text-slate-400 select-none">R$</span>
                               <input 
-                                type="number"
-                                step="0.01"
-                                placeholder="0.00" 
+                                type="text"
+                                inputMode="decimal"
+                                lang="pt-BR"
+                                placeholder="0,00" 
                                 required
                                 className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 pr-3 outline-none text-slate-800 font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                                value={newAccount.initial_balance} 
+                                value={formatBRL(newAccount.initial_balance)} 
                                 onChange={(e) => setNewAccount({...newAccount, initial_balance: e.target.value, current_balance: e.target.value})}
+                                onBlur={(e) => { const f = formatBRL(e.target.value); setNewAccount({...newAccount, initial_balance: f, current_balance: f}); }}
                               />
                             </div>
                           </div>
