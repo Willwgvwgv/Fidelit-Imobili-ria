@@ -332,8 +332,8 @@ const Reports: React.FC<ReportsProps> = ({ sales, team, currentUser }) => {
             </h3>
             <span className="text-[10px] bg-slate-100 text-slate-500 px-3 py-1 rounded-full font-black uppercase tracking-widest no-print">Top 5</span>
           </div>
-          <div className="h-[350px]">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-[350px] w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <BarChart data={brokerPerformance.slice(0, 5)} layout="vertical" margin={{ left: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                 <XAxis type="number" hide />
@@ -367,8 +367,8 @@ const Reports: React.FC<ReportsProps> = ({ sales, team, currentUser }) => {
               <TrendingUp className="text-indigo-600" size={20} /> Evolução de Comissões
             </h3>
           </div>
-          <div className="h-[350px]">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-[350px] w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <LineChart data={monthlyTrend}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 700 }} dy={10} />

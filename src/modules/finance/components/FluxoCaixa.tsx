@@ -297,8 +297,8 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
             <TrendingUp size={16} className="text-blue-600" />
             Evolução Projetada do Saldo Acumulado (Próximos 30 dias)
           </h3>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-64 w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <AreaChart data={trendData30d}>
                 <defs>
                   <linearGradient id="colorSaldo" x1="0" y1="0" x2="0" y2="1">
@@ -325,8 +325,8 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
             <BarChart3 size={16} className="text-blue-600" />
             Receita vs Despesa (DRE Histórica)
           </h3>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-64 w-full min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <BarChart data={monthlyData12m}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="mes" stroke="#94a3b8" fontSize={11} tickLine={false} />
