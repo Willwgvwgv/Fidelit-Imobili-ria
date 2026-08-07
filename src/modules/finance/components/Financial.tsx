@@ -1012,10 +1012,24 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         if (supabase) {
           if (copiesToCreate.length > 0) {
             // Batch insertion returning created rows to prevent manual reload
-            const { data, error } = await supabase
+            let { data, error } = await supabase
               .from('financial_transactions')
               .insert([payload, ...copiesToCreate])
               .select();
+
+            if (error && error.message?.includes('bank_transaction_id')) {
+              const { bank_transaction_id, ...cleanPayload } = payload;
+              const cleanCopies = copiesToCreate.map(c => {
+                const { bank_transaction_id: _, ...rest } = c;
+                return rest;
+              });
+              const retry = await supabase
+                .from('financial_transactions')
+                .insert([cleanPayload, ...cleanCopies])
+                .select();
+              data = retry.data;
+              error = retry.error;
+            }
 
             if (error) {
               console.error('Error creating recurring transactions:', error);
@@ -1029,10 +1043,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             }
           } else {
             // Single insertion
-            const { data, error } = await supabase
+            const targetBankTxId = payload.bank_transaction_id;
+            let { data, error } = await supabase
               .from('financial_transactions')
               .insert([payload])
               .select();
+
+            if (error && error.message?.includes('bank_transaction_id')) {
+              const { bank_transaction_id, ...cleanPayload } = payload;
+              const retry = await supabase
+                .from('financial_transactions')
+                .insert([cleanPayload])
+                .select();
+              data = retry.data;
+              error = retry.error;
+            }
 
             if (error) {
               console.error('Error creating transaction:', error);
@@ -1041,14 +1066,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               if (data && data.length > 0) {
                 setTransactions(prev => [data[0], ...prev]);
               }
-              if (payload.bank_transaction_id) {
+              if (targetBankTxId) {
                 const createdTxId = data && data[0] ? data[0].id : null;
                 await supabase.from('bank_transactions').update({
                   status: 'matched',
                   matched_type: payload.type === TransactionType.EXPENSE ? 'expense' : 'income',
                   matched_id: createdTxId,
                   matched_at: new Date().toISOString()
-                }).eq('id', payload.bank_transaction_id);
+                }).eq('id', targetBankTxId);
               }
               setIsAutoFilledFromBank(false);
               setIsModalOpen(false);
