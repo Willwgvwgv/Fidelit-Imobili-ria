@@ -38,13 +38,16 @@ export const parseBrlValue = (valueStr: string): number => {
  */
 export const parseBRL = (value: string): number => {
   if (!value) return 0;
+  const isNegative = String(value).trim().startsWith('-');
   const clean = value.replace(/[R$\s]/gi, '').trim();
   if (!clean) return 0;
-  return Number(
+  const parsed = Number(
     clean
       .replace(/\./g, '')
       .replace(',', '.')
   );
+  if (isNaN(parsed)) return 0;
+  return isNegative ? -Math.abs(parsed) : parsed;
 };
 
 /**
@@ -52,10 +55,11 @@ export const parseBRL = (value: string): number => {
  */
 export const formatBRL = (value: string | number | undefined | null): string => {
   if (value === undefined || value === null || value === '') return '';
-  const valueStr = typeof value === 'number' ? value.toFixed(2).replace('.', '') : String(value);
+  const isNegative = typeof value === 'number' ? value < 0 : String(value).trim().startsWith('-');
+  const valueStr = typeof value === 'number' ? Math.abs(value).toFixed(2).replace('.', '') : String(value);
   const digits = valueStr.replace(/\D/g, '');
   if (!digits) return '';
-  const numberValue = parseFloat(digits) / 100;
+  const numberValue = (isNegative ? -1 : 1) * (parseFloat(digits) / 100);
   return numberValue.toLocaleString('pt-BR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
