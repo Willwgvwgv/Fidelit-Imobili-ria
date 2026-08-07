@@ -847,6 +847,9 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                           <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Aluguéis a Receber:</p>
                           {filteredRentInstallments.map((inst) => {
                             const isSelected = selectedMatchTarget?.type === 'rent' && selectedMatchTarget?.id === inst.id;
+                            const st = (inst.status || 'PENDING').toUpperCase();
+                            const isPaid = st === 'PAID';
+                            const isOverdue = st === 'OVERDUE';
                             return (
                               <div
                                 key={inst.id}
@@ -857,8 +860,23 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                                     : 'bg-white border-slate-200 hover:border-slate-300'
                                 }`}
                               >
-                                <div className="flex justify-between font-bold text-slate-800">
-                                  <span>{inst.tenant_name}</span>
+                                <div className="flex justify-between items-center font-bold text-slate-800">
+                                  <div className="flex items-center gap-1.5">
+                                    <span>{inst.tenant_name}</span>
+                                    {isPaid ? (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-600 border border-slate-200">
+                                        PAGO
+                                      </span>
+                                    ) : isOverdue ? (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-100 text-rose-700 border border-rose-200">
+                                        ATRASADO
+                                      </span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-100 text-amber-700 border border-amber-200">
+                                        PENDENTE
+                                      </span>
+                                    )}
+                                  </div>
                                   <span>R$ {inst.expected_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                 </div>
                                 <div className="text-[11px] text-slate-500 mt-0.5">{inst.property_address} (Venc: {inst.due_date})</div>
@@ -922,7 +940,9 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                           <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Comissões a Pagar:</p>
                           {filteredBrokerSplits.map((split) => {
                             const isSelected = selectedMatchTarget?.type === 'broker_split' && selectedMatchTarget?.id === split.id;
-                            const isPaid = split.status === 'PAID' || split.status === 'paid';
+                            const st = (split.status || 'PENDING').toUpperCase();
+                            const isPaid = st === 'PAID';
+                            const isOverdue = st === 'OVERDUE';
                             return (
                               <div
                                 key={split.id}
@@ -936,9 +956,17 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                                 <div className="flex justify-between items-center font-bold text-slate-800">
                                   <div className="flex items-center gap-1.5">
                                     <span>{split.broker_name}</span>
-                                    {isPaid && (
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-500 border border-slate-200">
+                                    {isPaid ? (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-600 border border-slate-200">
                                         PAGO
+                                      </span>
+                                    ) : isOverdue ? (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-100 text-rose-700 border border-rose-200">
+                                        ATRASADO
+                                      </span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-100 text-amber-700 border border-amber-200">
+                                        PENDENTE
                                       </span>
                                     )}
                                   </div>
