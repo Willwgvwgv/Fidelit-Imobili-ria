@@ -28,7 +28,7 @@ interface CommissionsProps {
   sales: Sale[];
   team: User[];
   currentUser: User;
-  onUpdateStatus: (saleId: string, brokerId: string, newStatus: CommissionStatus, receiptData?: string) => void;
+  onUpdateStatus: (saleId: string, brokerId: string, newStatus: CommissionStatus, receiptData?: string, paymentDate?: string) => void;
   onUpdateForecast?: (saleId: string, brokerId: string, newForecastDate: string) => void;
   onDeleteSplit?: (splitId: string) => Promise<boolean | void> | void;
   onRefresh?: () => void;
@@ -52,6 +52,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<any | null>(null);
   const [paymentReceipt, setPaymentReceipt] = useState<string | null>(null);
+  const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
   // Estados para visualização de comprovante
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
@@ -435,6 +436,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   const handleOpenPaymentModal = (comm: any) => {
     setSelectedPayment(comm);
     setPaymentReceipt(null);
+    setPaymentDate(comm.paymentDate || new Date().toISOString().split('T')[0]);
     setIsPaymentModalOpen(true);
   };
 
@@ -450,8 +452,12 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   };
 
   const handleConfirmPayment = () => {
+    if (!paymentDate) {
+      alert("Por favor, selecione a data do pagamento.");
+      return;
+    }
     if (selectedPayment) {
-      onUpdateStatus(selectedPayment.saleId, selectedPayment.brokerId, CommissionStatus.PAID, paymentReceipt || undefined);
+      onUpdateStatus(selectedPayment.saleId, selectedPayment.brokerId, CommissionStatus.PAID, paymentReceipt || undefined, paymentDate);
       setIsPaymentModalOpen(false);
       setSelectedPayment(null);
       setPaymentReceipt(null);
@@ -983,6 +989,19 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
                  </div>
                  <p className="text-2xl font-bold text-gray-900">{formatCurrency(selectedPayment?.value)}</p>
                  <p className="text-xs text-slate-500 mt-1 font-medium">Beneficiário: <span className="text-slate-700 font-bold">{selectedPayment?.brokerName}</span></p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1 flex items-center gap-1">
+                  <CalendarDays size={12} /> Data do Pagamento
+                </label>
+                <input 
+                  type="date"
+                  required
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  className="w-full px-4 h-[38px] bg-white border border-gray-200 rounded-lg outline-none text-sm font-semibold text-gray-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
+                />
               </div>
 
               <div className="space-y-1.5">

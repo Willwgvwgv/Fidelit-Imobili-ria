@@ -151,6 +151,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [newAccount, setNewAccount] = useState({
     name: '',
     initial_balance: '' as string | number,
+    current_balance: '' as string | number,
     type: 'Corrente',
     color: '#2563eb',
     is_default: false,
@@ -428,6 +429,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setNewAccount({
       name: '',
       initial_balance: '',
+      current_balance: '',
       type: 'Corrente',
       color: '#2563eb',
       is_default: false,
@@ -473,9 +475,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const handleEditAccountClick = (account: FinancialAccount) => {
     setEditingAccount(account);
     const existingBankCode = (account as any).bank_code || '';
+    const currentBal = account.current_balance !== undefined && account.current_balance !== null
+      ? account.current_balance
+      : (account.initial_balance || 0);
+
     setNewAccount({
       name: account.name,
-      initial_balance: formatBRL(account.initial_balance),
+      initial_balance: account.initial_balance !== undefined && account.initial_balance !== null ? String(account.initial_balance) : '',
+      current_balance: String(currentBal),
       type: account.type || 'Corrente',
       color: account.color || '#2563eb',
       is_default: account.is_default || false,
@@ -1500,6 +1507,16 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
 
     if (editingAccount) {
+      if (newAccount.current_balance === undefined || newAccount.current_balance === null || String(newAccount.current_balance).trim() === '') {
+        alert('Favor preencher o saldo atual.');
+        return;
+      }
+      const newBalVal = parseBrlValue(String(newAccount.current_balance));
+      if (isNaN(newBalVal)) {
+        alert('Favor informar um saldo atual válido.');
+        return;
+      }
+
       const updates = {
         name: newAccount.name,
         color: newAccount.color,
@@ -1508,9 +1525,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         credit_limit: creditLimitVal || undefined,
         bank_code: newAccount.bank_code || null,
         closing_day: closingDayVal,
-        due_day: dueDayVal
+        due_day: dueDayVal,
+        current_balance: newBalVal
       };
       const success = await supabaseService.updateFinancialAccount(editingAccount.id, updates);
+      await supabaseService.updateAccountBalance(editingAccount.id, newBalVal);
+
       if (success) {
         showToast('Conta bancária atualizada com sucesso!', 'success');
         handleCloseModal();
@@ -7406,21 +7426,50 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         />
                       </div>
                       
-                      {!editingAccount && (
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Saldo Inicial (R$)*</label>
+                      {editingAccount ? (
+                        <div>
+                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase block mb-1">
+                            Saldo Atual*
+                          </label>
+                          <div className="relative flex items-center">
+                            <span className="absolute left-3 text-sm font-bold text-slate-400 select-none">R$</span>
                             <input 
-                              type="text" placeholder="0,00" 
-                              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800 font-bold"
-                              value={newAccount.initial_balance} 
-                              onChange={(e) => setNewAccount({...newAccount, initial_balance: formatBRL(e.target.value)})}
+                              type="number"
+                              step="0.01"
+                              placeholder="0.00" 
+                              required
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 pr-3 outline-none text-slate-800 font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
+                              value={newAccount.current_balance} 
+                              onChange={(e) => setNewAccount({...newAccount, current_balance: e.target.value})}
                             />
                           </div>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Saldo Anterior: {formatCurrency(editingAccount.current_balance !== undefined && editingAccount.current_balance !== null ? editingAccount.current_balance : (editingAccount.initial_balance || 0))}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-4">
                           <div>
-                            <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Tipo de Conta*</label>
+                            <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase block mb-1">
+                              Saldo Inicial (R$)*
+                            </label>
+                            <div className="relative flex items-center">
+                              <span className="absolute left-3 text-sm font-bold text-slate-400 select-none">R$</span>
+                              <input 
+                                type="number"
+                                step="0.01"
+                                placeholder="0.00" 
+                                required
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 pr-3 outline-none text-slate-800 font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
+                                value={newAccount.initial_balance} 
+                                onChange={(e) => setNewAccount({...newAccount, initial_balance: e.target.value, current_balance: e.target.value})}
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase block mb-1">Tipo de Conta*</label>
                             <select 
-                              className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none text-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
                               value={newAccount.type}
                               onChange={(e) => setNewAccount({...newAccount, type: e.target.value})}
                             >

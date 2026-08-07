@@ -130,14 +130,14 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const handleUpdateCommissionStatus = async (saleId: string, brokerId: string, newStatus: CommissionStatus, receiptData?: string) => {
+  const handleUpdateCommissionStatus = async (saleId: string, brokerId: string, newStatus: CommissionStatus, receiptData?: string, paymentDate?: string) => {
     // Find the split in state to get its actual DB id
     const sale = sales.find(s => s.id === saleId);
     const split = sale?.splits.find(sp => sp.brokerId === brokerId);
 
     if (split?.id) {
       const paymentData = newStatus === CommissionStatus.PAID ? {
-        date: new Date().toISOString().split('T')[0],
+        date: paymentDate || new Date().toISOString().split('T')[0],
         method: 'PIX',
         receipt: receiptData
       } : undefined;
