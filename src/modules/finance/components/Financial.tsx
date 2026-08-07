@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { 
-  Wallet, 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  Plus, 
-  Search, 
-  Filter, 
-  MoreHorizontal, 
-  Calendar, 
-  CheckCircle2, 
+import {
+  Wallet,
+  ArrowUpRight,
+  ArrowDownRight,
+  Plus,
+  Search,
+  Filter,
+  MoreHorizontal,
+  Calendar,
+  CheckCircle2,
   Clock,
   TrendingUp,
   Download,
@@ -48,11 +48,11 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  User, 
-  FinancialAccount, 
-  FinancialCategory, 
-  FinancialTransaction, 
+import {
+  User,
+  FinancialAccount,
+  FinancialCategory,
+  FinancialTransaction,
 } from '../../../../types';
 import { TransactionType, TransactionStatus } from '../constants';
 import { supabaseService, FinancialAccountInsert } from '../../../../services/supabaseService';
@@ -125,7 +125,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const { categories, setCategories, loadCategories } = useFinancialCategories();
   const { transactions, setTransactions, loadTransactions } = useFinancialTransactions();
   const [loading, setLoading] = useState(true);
-  
+
   const getAccountBank = (account: FinancialAccount) => {
     const bankCode = (account as any).bank_code;
     if (!bankCode) return null;
@@ -329,6 +329,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   } = useRecurringTransactions(loadFinancialData);
   const [markAsPaid, setMarkAsPaid] = useState<boolean>(false);
   const [isSubmittingTransaction, setIsSubmittingTransaction] = useState<boolean>(false);
+  const [isAutoFilledFromBank, setIsAutoFilledFromBank] = useState<boolean>(false);
 
   // Pay Credit Card Invoice States
   const {
@@ -390,7 +391,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [fluxoTab, setFluxoTab] = useState<'fluxo' | 'dre'>('fluxo');
   const [fluxoGroupMode, setFluxoGroupMode] = useState<'DAILY' | 'WEEKLY' | 'MONTHLY'>('WEEKLY');
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
-  
+
   // States for custom ConfirmModal
   const [confirmModalOpen, setConfirmModalOpen] = useState(false);
   const [confirmModalTitle, setConfirmModalTitle] = useState('');
@@ -402,7 +403,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const getAccountLiveBalance = (account: FinancialAccount) => {
     return calcAccountLiveBalance(account, transactions);
   };
-  
+
   // Accounts payable and receivable states
   const [pagamentosTab, setPagamentosTab] = useState<'todas' | 'pagar' | 'receber' | 'vencidos'>('todas');
   const [localActiveView, setLocalActiveView] = useState<string>(activeView);
@@ -414,6 +415,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
+    setIsAutoFilledFromBank(false);
     setEditingAccount(null);
     setEditingCategory(null);
     setEditingTransaction(null);
@@ -529,14 +531,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
   const handleDeleteAccount = (accountId: string) => {
     const hasTransactions = transactions.some(t => t.account_id === accountId);
-    
+
     setConfirmModalTitle('Excluir Conta Bancária');
     if (hasTransactions) {
       setConfirmModalMessage('Esta conta possui lançamentos vinculados e será apenas desativada do sistema para preservar os dados históricos. Tem certeza que deseja prosseguir com a desativação?');
     } else {
       setConfirmModalMessage('Tem certeza que deseja excluir esta conta?');
     }
-    
+
     setConfirmModalConfirmText(hasTransactions ? 'Desativar' : 'Excluir');
     setConfirmModalConfirmColor('bg-rose-600 hover:bg-rose-700 text-white');
     setOnConfirmAction(() => async () => {
@@ -573,12 +575,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         const success = await supabaseService.deletePendingReconciliationItems(pendingExternalIds);
         if (success) {
           showToast('Lançamentos pendentes do extrato limpos com sucesso!', 'success');
-          
+
           const remainingItems = reconciliationItems.filter(item => item.matched);
           const remainingIds = remainingItems.map(item => item.external_id || item.id).filter(Boolean);
           setCurrentFileExternalIds(remainingIds);
           setReconciliationItems(remainingItems);
-          
+
           if (remainingItems.length > 0) {
             setImportedFile('Extrato Salvo');
           } else {
@@ -588,12 +590,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             setOfxAccount(null);
             setOfxPeriod(null);
           }
-          
+
           setSelectedImportedIndex(null);
           setSelectedSystemTxId(null);
           setSelectedMatches([]);
           setReconciliationSearch('');
-          
+
           await loadFinancialData();
         } else {
           showToast('Erro ao limpar os lançamentos pendentes do extrato.', 'error');
@@ -774,7 +776,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             setReconciliationItems(items);
             setImportedFile('Extrato Salvo');
             setSelectedImportedIndex(null);
-            
+
             const isConcluded = items.every(item => item.status === 'CONCLUDED');
             setIsReconciliationConcluded(isConcluded);
           }
@@ -812,11 +814,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
       return true;
     });
-    
+
     const overdue = periodTxs
       .filter(t => t.status === TransactionStatus.PENDING && t.due_date < todayStr)
       .reduce((acc, curr) => acc + curr.amount, 0);
-    
+
     const todays = periodTxs
       .filter(t => t.status === TransactionStatus.PENDING && t.due_date === todayStr)
       .reduce((acc, curr) => acc + curr.amount, 0);
@@ -828,10 +830,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const paid = periodTxs
       .filter(t => t.status === TransactionStatus.PAID)
       .reduce((acc, curr) => acc + curr.amount, 0);
-    
+
     const totalPeriod = periodTxs
       .reduce((acc, curr) => acc + (curr.type === TransactionType.INCOME ? curr.amount : -curr.amount), 0);
-    
+
     return { overdue, todays, pending, paid, totalPeriod };
   }, [transactions, currentPeriod, categoryFilter, accountFilter]);
 
@@ -927,7 +929,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     // 1. Centralized BRL currency parser and validation
     const parsedAmount = parseBrlValue(amountInputStr);
-    
+
     if (parsedAmount <= 0) {
       alert('Por favor, insira um valor válido maior que zero (ex: 100,50 ou 1.500,00).');
       return;
@@ -993,7 +995,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             setIsRecurrenceEditModalOpen(true);
           } else {
             const success = await supabaseService.updateFinancialTransaction(editingTransaction.id, payload);
-            
+
             if (!success) {
               alert('Erro ao atualizar lançamento.');
             } else {
@@ -1014,7 +1016,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               .from('financial_transactions')
               .insert([payload, ...copiesToCreate])
               .select();
-            
+
             if (error) {
               console.error('Error creating recurring transactions:', error);
               alert('Erro ao criar lançamentos recorrentes: ' + error.message);
@@ -1031,7 +1033,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               .from('financial_transactions')
               .insert([payload])
               .select();
-            
+
             if (error) {
               console.error('Error creating transaction:', error);
               alert('Erro ao criar lançamento: ' + error.message);
@@ -1039,6 +1041,16 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               if (data && data.length > 0) {
                 setTransactions(prev => [data[0], ...prev]);
               }
+              if (payload.bank_transaction_id) {
+                const createdTxId = data && data[0] ? data[0].id : null;
+                await supabase.from('bank_transactions').update({
+                  status: 'matched',
+                  matched_type: payload.type === TransactionType.EXPENSE ? 'expense' : 'income',
+                  matched_id: createdTxId,
+                  matched_at: new Date().toISOString()
+                }).eq('id', payload.bank_transaction_id);
+              }
+              setIsAutoFilledFromBank(false);
               setIsModalOpen(false);
               loadFinancialData(); // Background refresh to update accounts/balances
             }
@@ -1159,7 +1171,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       }
 
       const mapped = parsed.map(item => {
-        const isDuplicate = transactions.some(t => 
+        const isDuplicate = transactions.some(t =>
           t.account_id === importingCard.id &&
           t.due_date === item.date &&
           Math.abs(t.amount - item.amount) < 0.01
@@ -1167,7 +1179,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
         const descLower = (item.description || '').toLowerCase();
         const obsLower = (item.observation || '').toLowerCase();
-        
+
         let isBalanceAdjustment = false;
         if (obsLower) {
           if (obsLower.includes('fatura anterior') || obsLower.includes('saldo anterior')) {
@@ -1228,7 +1240,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       if (supabase) {
         const promises = transactionsToInsert.map(tx => supabaseService.createFinancialTransaction(tx));
         const results = await Promise.all(promises);
-        
+
         const total = transactionsToInsert.length;
         const successes = results.filter(r => r !== null).length;
         const failures = total - successes;
@@ -1336,10 +1348,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setSelectedCardForPayment(card);
     setPayInvoiceAmountStr(totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
     setPayInvoiceDate(getLocalTodayStr());
-    
+
     const firstBankAcc = accounts.find(a => a.type !== 'credit_card' && a.account_type !== 'credit_card');
     setPayInvoiceSourceAccountId(firstBankAcc ? firstBankAcc.id : '');
-    
+
     setShowMismatchConfirm(false);
     setPayInvoiceModalOpen(true);
   };
@@ -1467,10 +1479,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       }
 
       showToast(
-        `Fatura paga! ${pendingTxs.length} lançamentos marcados como pagos. Total: ${formatCurrency(paymentAmount)}`, 
+        `Fatura paga! ${pendingTxs.length} lançamentos marcados como pagos. Total: ${formatCurrency(paymentAmount)}`,
         'success'
       );
-      
+
       setPayInvoiceModalOpen(false);
       setShowMismatchConfirm(false);
 
@@ -1660,7 +1672,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const normalizeDescription = (desc: string): string => {
     if (!desc) return '';
     let str = desc;
-    
+
     // Replace typical UTF-8 read as Latin1 / CP1252 glitches
     const replacements: { [key: string]: string } = {
       '▲▲': 'ÇÃ',
@@ -1691,21 +1703,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       'â€œ': '"',
       'â€': '"',
     };
-    
+
     for (const [key, val] of Object.entries(replacements)) {
       str = str.replace(new RegExp(key, 'g'), val);
     }
-    
+
     // Replace multiple spaces
     str = str.replace(/\s+/g, ' ');
-    
+
     return str.trim();
   };
 
   const parseCsvExtrato = (text: string) => {
     const parseCSVValue = (raw: string): number => {
       let cleaned = raw.replace(/[R$\s]/gi, '').trim();
-      
+
       // Se contém vírgula como separador decimal com separador de milhar (ex: "1.015,99" ou "-1.015,99")
       if (/\d+\.\d+,\d+/.test(cleaned)) {
         cleaned = cleaned.replace(/\./g, '').replace(',', '.');
@@ -1726,14 +1738,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     const lines = text.split(/\r?\n/);
     if (lines.length === 0) return [];
-    
+
     const parsed: any[] = [];
     let dateIdx = -1;
     let descIdx = -1;
     let valIdx = -1;
     let anoIdx = -1;
     let obsIdx = -1;
-    
+
     let delimiter = ';';
     const headerLine = lines[0] || '';
     const semiColons = (headerLine.match(/;/g) || []).length;
@@ -1752,24 +1764,24 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       else if (h.includes('ano') || h.includes('year')) anoIdx = idx;
       else if (h.includes('observacao') || h.includes('observação') || h.includes('obs')) obsIdx = idx;
     }
-    
+
     if (dateIdx === -1) dateIdx = 0;
     if (descIdx === -1) descIdx = 1;
     if (valIdx === -1) valIdx = 2;
-    
+
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
-      
+
       const columns = line.split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
       if (columns.length <= Math.max(dateIdx, descIdx, valIdx)) continue;
-      
+
       const rawDate = columns[dateIdx];
       const desc = normalizeDescription(columns[descIdx]);
       const rawVal = columns[valIdx];
-      
+
       if (!rawDate || !desc || !rawVal) continue;
-      
+
       let dateStr = rawDate;
       if (rawDate.includes('/')) {
         const parts = rawDate.split('/');
@@ -1788,13 +1800,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           dateStr = `${year}-${month}-${day}`;
         }
       }
-      
+
       const valNum = parseCSVValue(rawVal);
       const amount = Math.abs(valNum);
       if (isNaN(amount)) continue;
-      
+
       const isExpense = valNum < 0 || desc.toUpperCase().includes('DEB') || desc.toUpperCase().includes('PAG') || desc.toUpperCase().includes('TARIFA') || desc.toUpperCase().includes('DEBITO') || desc.toUpperCase().includes('TRANSF. PAGO') || desc.toUpperCase().includes('PIX OUT');
-      
+
       const extId = generateExternalId(dateStr, amount, desc, null);
       parsed.push({
         id: extId,
@@ -1813,28 +1825,28 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const parsed: any[] = [];
     const stmttrnRegex = /<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi;
     let match;
-    
+
     while ((match = stmttrnRegex.exec(text)) !== null) {
       const block = match[1];
-      
+
       const dtpostedMatch = /<DTPOSTED>(\d{8})/i.exec(block);
       const memoMatch = /<MEMO>([^<\r\n]+)/i.exec(block);
       const trnamtMatch = /<TRNAMT>([^<\r\n]+)/i.exec(block);
       const fitidMatch = /<FITID>([^<\r\n]+)/i.exec(block);
-      
+
       if (dtpostedMatch && trnamtMatch) {
         const rawDate = dtpostedMatch[1];
         const year = rawDate.substring(0, 4);
         const month = rawDate.substring(4, 6);
         const day = rawDate.substring(6, 8);
         const dateStr = `${year}-${month}-${day}`;
-        
+
         const desc = normalizeDescription(memoMatch ? memoMatch[1].trim() : 'Transação Bancária');
         const rawAmt = parseFloat(trnamtMatch[1].trim());
         const amount = Math.abs(rawAmt);
         const type = rawAmt < 0 ? TransactionType.EXPENSE : TransactionType.INCOME;
         const fitid = fitidMatch ? fitidMatch[1].trim() : null;
-        
+
         const extId = generateExternalId(dateStr, amount, desc, fitid);
         parsed.push({
           id: extId,
@@ -1865,7 +1877,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           const amount = Math.abs(rawAmt);
           const type = rawAmt < 0 ? TransactionType.EXPENSE : TransactionType.INCOME;
           const fitid = fitidMatch ? fitidMatch[1].trim() : null;
-          
+
           const extId = generateExternalId(dateStr, amount, desc, fitid);
           parsed.push({
             id: extId,
@@ -1878,13 +1890,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         }
       }
     }
-    
+
     if (parsed.length === 0) {
       const dtMatches = [...text.matchAll(/<DTPOSTED>(\d{8})/gi)];
       const memoMatches = [...text.matchAll(/<MEMO>([^<\r\n]+)/gi)];
       const amtMatches = [...text.matchAll(/<TRNAMT>([^<\r\n]+)/gi)];
       const fitidMatches = [...text.matchAll(/<FITID>([^<\r\n]+)/gi)];
-      
+
       const count = Math.min(dtMatches.length, memoMatches.length, amtMatches.length);
       for (let i = 0; i < count; i++) {
         const rawDate = dtMatches[i][1];
@@ -1892,13 +1904,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         const month = rawDate.substring(4, 6);
         const day = rawDate.substring(6, 8);
         const dateStr = `${year}-${month}-${day}`;
-        
+
         const desc = normalizeDescription(memoMatches[i][1].trim());
         const rawAmt = parseFloat(amtMatches[i][1].trim());
         const amount = Math.abs(rawAmt);
         const type = rawAmt < 0 ? TransactionType.EXPENSE : TransactionType.INCOME;
         const fitid = fitidMatches[i] ? fitidMatches[i][1].trim() : null;
-        
+
         const extId = generateExternalId(dateStr, amount, desc, fitid);
         parsed.push({
           id: extId,
@@ -1910,7 +1922,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         });
       }
     }
-    
+
     return parsed;
   };
 
@@ -1919,7 +1931,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     reader.onload = (e) => {
       const text = e.target?.result as string;
       if (!text) return;
-      
+
       let parsed: any[] = [];
       if (file.name.toLowerCase().endsWith('.ofx')) {
         parsed = parseOfxExtrato(text);
@@ -1994,7 +2006,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           if (parsedAcctId && nameLower.includes(parsedAcctId.toLowerCase())) {
             score += 30;
           }
-          
+
           // Match branch/agency
           if (parsedBranchId && nameLower.includes(parsedBranchId.toLowerCase())) {
             score += 20;
@@ -2020,17 +2032,17 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         setOfxPeriod(null);
         setQuickAccountId('');
       }
-      
+
       if (parsed.length > 0) {
         setImportedFile(file.name);
         setReconciliationItems(parsed);
         const externalIds = parsed.map((item: any) => item.id).filter(Boolean);
         setCurrentFileExternalIds(externalIds);
-        
+
         // Generate a new import group id
         const newGroupId = 'group-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
         setCurrentImportGroupId(newGroupId);
-        
+
         supabaseService.saveReconciliationItems(
           parsed.map((item: any) => ({
             statement_date: item.date,
@@ -2120,10 +2132,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       showToast('Nenhum item ou lançamento selecionado para vincular.', 'error');
       return;
     }
-    
+
     const imported = reconciliationItems[selectedImportedIndex];
     const systemTx = transactions.find(t => t.id === selectedSystemTxId);
-    
+
     if (imported && systemTx) {
       if (systemTx.id.startsWith('tx-local-')) {
         showToast('Não é possível conciliar com um lançamento temporário em memória.', 'error');
@@ -2131,7 +2143,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       }
       const recId = imported.id || imported.external_id || `temp-${selectedImportedIndex}`;
       const score = calculateMatchScore(imported, systemTx);
-      
+
       setSelectedMatches(prev => {
         const filtered = prev.filter(m => m.reconciliation_id !== recId);
         return [...filtered, {
@@ -2141,9 +2153,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           status: 'prepared'
         }];
       });
-      
+
       showToast('Vínculo preparado com sucesso! Prossiga para o próximo ou concilie em lote.', 'success');
-      
+
       // Avança automaticamente para o próximo item pendente do extrato
       const nextIndex = findNextPendingIndex(selectedImportedIndex);
       if (nextIndex !== -1) {
@@ -2194,7 +2206,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       setSelectedMatches([]);
       return;
     }
-    
+
     setLoading(true);
     const succeededMatches: typeof selectedMatches = [];
     const failedMatches: Array<{ match: typeof selectedMatches[0]; errorMsg: string }> = [];
@@ -2268,7 +2280,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           const recItem = reconciliationItems.find(item => (item.id || item.external_id) === f.match.reconciliation_id);
           return `• ${recItem?.description || f.match.reconciliation_id}`;
         }).join('\n');
-        
+
         if (succeededMatches.length > 0) {
           showToast(`Lote parcial: ${succeededMatches.length} conciliados. Erro nos seguintes itens:\n${failedDescriptions}`, 'error');
         } else {
@@ -2292,7 +2304,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const handleIgnoreReconciliation = async () => {
     if (selectedImportedIndex === null) return;
     const item = reconciliationItems[selectedImportedIndex];
-    
+
     setLoading(true);
     try {
       if (item?.id) {
@@ -2335,21 +2347,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const handleQuickCreateAndReconcile = async () => {
     if (selectedImportedIndex === null) return;
     const importedItem = reconciliationItems[selectedImportedIndex];
-    
+
     if (!quickCategoryId || !quickAccountId) {
       showToast('Selecione uma categoria e uma conta para o lançamento.', 'error');
       return;
     }
-    
+
     const accountExists = accounts.some(acc => acc.id === quickAccountId);
     if (!accountExists) {
       showToast('Conta bancária inválida', 'error');
       return;
     }
-    
+
     setLoading(true);
     const desc = quickDescription.trim() || importedItem.description;
-    
+
     let recurrenceGroupId: string | null = null;
     if (recurrenceType !== 'NONE' && recurrencePeriods > 0) {
       recurrenceGroupId = crypto.randomUUID();
@@ -2367,7 +2379,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       payment_date: importedItem.date,
       recurrence_group_id: recurrenceGroupId
     };
-    
+
     try {
       // 1. Criar transação financeira
       const result = await supabaseService.createFinancialTransaction(payload);
@@ -2400,7 +2412,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             .from('financial_transactions')
             .insert(copiesToCreate)
             .select();
-          
+
           if (error) {
             console.error('Error creating recurring transactions in bank reconciliation:', error);
             showToast('Erro ao criar lançamentos recorrentes futuros: ' + error.message, 'error');
@@ -2426,13 +2438,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           return;
         }
       }
-      
+
       // 3. Sucesso completo em ambas as etapas: atualizar UI e limpar estado de seleção
       setMatchedPairs(prev => [...prev, { importedIdx: selectedImportedIndex, systemId: result.id }]);
       setReconciliationItems(prev => prev.map((item, idx) => idx === selectedImportedIndex ? { ...item, matched: true, matchedTxId: result.id } : item));
       setTransactions(prev => [result, ...prev]);
       showToast('Lançamento criado e conciliado com sucesso!', 'success');
-      
+
       setSelectedImportedIndex(null);
       setSelectedSystemTxId(null);
       setQuickDescription('');
@@ -2496,7 +2508,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       // Ignorar apenas se já conciliada
       const jasConciliada = (tx as any).reconciled === true || (tx as any).matched === true;
       if (jasConciliada) return;
-      
+
       const score = calculateMatchScore(importedItem, tx);
 
       if (score > bestScore && score >= 50) {
@@ -2560,32 +2572,32 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const handleAutoConciliation = () => {
     let matchCount = 0;
     const updatedItems = [...reconciliationItems];
-    
+
     updatedItems.forEach((item, impIdx) => {
       if (item.matched) return;
-      
+
       const possibleMatches = transactions
         .filter(t => t.status === TransactionStatus.PENDING && !matchedPairs.some(p => p.systemId === t.id))
         .map(t => {
           if (t.type !== item.type) return { t, score: 0 };
-          
+
           let score = 0;
           const diffVal = Math.abs(t.amount - item.amount);
           if (diffVal < 0.01) score += 60;
           else if (diffVal / item.amount <= 0.05) score += (1 - (diffVal / (item.amount * 0.05))) * 60;
-          
+
           const tDate = new Date(t.due_date);
           const iDate = new Date(item.date);
           const diffTime = Math.abs(tDate.getTime() - iDate.getTime());
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
           if (diffDays === 0) score += 40;
           else if (diffDays <= 7) score += (1 - diffDays / 7) * 40;
-          
+
           return { t, score: Math.round(score) };
         })
         .filter(match => match.score >= 80)
         .sort((a, b) => b.score - a.score);
-        
+
       if (possibleMatches.length > 0) {
         const bestMatch = possibleMatches[0].t;
         if (item.id) {
@@ -2599,7 +2611,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         matchCount++;
       }
     });
-    
+
     setReconciliationItems(updatedItems);
     if (matchCount > 0) {
       showToast(`${matchCount} conciliações realizadas automaticamente!`, 'success');
@@ -2706,11 +2718,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         </div>
 
         {/* KPI Cards section */}
-        <FinancialKpiHeaderCards 
-          transactions={transactions} 
+        <FinancialKpiHeaderCards
+          transactions={transactions}
           selectedMonth={currentPeriod}
-          onCardClick={(id) => handleKpiClick(id)} 
-          activeFilter={kpiFilter} 
+          onCardClick={(id) => handleKpiClick(id)}
+          activeFilter={kpiFilter}
         />
 
         {/* Main Table Container */}
@@ -2739,7 +2751,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 <CheckSquare className="text-rose-600" size={18} />
                 <span className="text-xs font-bold text-rose-900">{selectedTxIds.length} lançamentos selecionados</span>
               </div>
-              <button 
+              <button
                 onClick={handleDeleteSelected}
                 className="flex items-center gap-2 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs px-4 py-2 rounded-xl transition-all shadow-sm cursor-pointer"
               >
@@ -2754,9 +2766,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <thead>
                 <tr className="bg-slate-50/50">
                   <th className="px-6 py-4 text-center w-12">
-                    <input 
-                      type="checkbox" 
-                      className="rounded text-blue-600 focus:ring-blue-400 cursor-pointer" 
+                    <input
+                      type="checkbox"
+                      className="rounded text-blue-600 focus:ring-blue-400 cursor-pointer"
                       checked={displayedTransactions.length > 0 && displayedTransactions.every(tx => selectedTxIds.includes(tx.id))}
                       onChange={() => {
                         const isAllVisibleSelected = displayedTransactions.length > 0 && displayedTransactions.every(tx => selectedTxIds.includes(tx.id));
@@ -2787,12 +2799,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   return (
                     <tr key={tx.id} className="hover:bg-slate-50/50 transition-all group">
                       <td className="px-6 py-5 text-center">
-                        <input 
-                          type="checkbox" 
-                          className="rounded text-blue-600 focus:ring-blue-400 cursor-pointer" 
+                        <input
+                          type="checkbox"
+                          className="rounded text-blue-600 focus:ring-blue-400 cursor-pointer"
                           checked={selectedTxIds.includes(tx.id)}
                           onChange={() => {
-                            setSelectedTxIds(prev => 
+                            setSelectedTxIds(prev =>
                               prev.includes(tx.id) ? prev.filter(id => id !== tx.id) : [...prev, tx.id]
                             );
                           }}
@@ -2826,7 +2838,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       </td>
                       <td className="px-6 py-5">
                         <div className="flex flex-col items-center justify-center text-center">
-                          <span 
+                          <span
                             className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200"
                           >
                             {category?.name || 'Geral'}
@@ -2849,14 +2861,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       </td>
                       <td className="px-6 py-5">
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
-                          isPaid 
-                            ? 'bg-[#d1fae5] text-[#065f46]' 
+                          isPaid
+                            ? 'bg-[#d1fae5] text-[#065f46]'
                             : (tx.status === TransactionStatus.PENDING && tx.due_date < getLocalTodayStr())
                               ? 'bg-[#fee2e2] text-[#991b1b]'
                               : 'bg-[#fef3c7] text-[#92400e]'
                         }`}>
-                          {isPaid 
-                            ? 'Liquidado' 
+                          {isPaid
+                            ? 'Liquidado'
                             : (tx.status === TransactionStatus.PENDING && tx.due_date < getLocalTodayStr())
                               ? 'Vencido'
                               : 'Pendente'}
@@ -2864,11 +2876,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       </td>
                       <td className="px-6 py-5">
                         <div className="flex items-center justify-center gap-2">
-                          <button 
+                          <button
                             onClick={() => handleToggleStatus(tx)}
                             className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-                              isPaid 
-                                ? 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100' 
+                              isPaid
+                                ? 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100'
                                 : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
                             }`}
                             title={isPaid ? 'Marcar como Pendente' : 'Liquidar Lançamento'}
@@ -2876,7 +2888,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             <RefreshCw size={14} className="hover:rotate-180 transition-transform duration-300" />
                           </button>
 
-                          <button 
+                          <button
                             onClick={() => handleEditTransactionClick(tx)}
                             className="p-1.5 rounded-lg border bg-blue-50 border-blue-200 text-blue-600 hover:bg-blue-100 transition-all cursor-pointer"
                             title="Editar Lançamento"
@@ -2884,7 +2896,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             <Pencil size={14} />
                           </button>
 
-                          <button 
+                          <button
                             onClick={() => handleDeleteTransaction(tx.id)}
                             className="p-1.5 rounded-lg border bg-rose-50 border-rose-200 text-rose-600 hover:bg-rose-100 transition-all cursor-pointer"
                             title="Excluir Lançamento"
@@ -2938,7 +2950,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const isConsolidatedView = selectedAccountIds.length === 0;
     const activeAccountIds = selectedAccountIds.length > 0 ? selectedAccountIds : accounts.map(a => a.id);
     const selectedAccountsList = accounts.filter(a => activeAccountIds.includes(a.id));
-    
+
     // Total consolidated initial balance of selected accounts (Fórmula do item 1)
     const totalInitialBalance = selectedAccountsList.reduce((acc, curr) => acc + (curr.initial_balance || 0), 0);
 
@@ -2976,8 +2988,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     // 2 - Projeção futura (Considerar: transactions PENDING com due_date futura)
     const hoje = getLocalTodayStr();
-    const futurePendingTxs = txsForSelectedAccounts.filter(t => 
-      t.status === TransactionStatus.PENDING && 
+    const futurePendingTxs = txsForSelectedAccounts.filter(t =>
+      t.status === TransactionStatus.PENDING &&
       t.due_date > hoje
     );
 
@@ -3068,7 +3080,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const cat = categories.find(c => c.id === catId);
       const catName = cat?.name || 'Categoria Removida';
       const catColor = cat?.color || '#cbd5e1';
-      
+
       if (!revenueGroupMap[catId]) {
         revenueGroupMap[catId] = { name: catName, total: 0, color: catColor };
       }
@@ -3085,7 +3097,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const cat = categories.find(c => c.id === catId);
       const catName = cat?.name || 'Categoria Removida';
       const catColor = cat?.color || '#cbd5e1';
-      
+
       if (!custosGroupMap[catId]) {
         custosGroupMap[catId] = { name: catName, total: 0, color: catColor };
       }
@@ -3102,7 +3114,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const cat = categories.find(c => c.id === catId);
       const catName = cat?.name || 'Categoria Removida';
       const catColor = cat?.color || '#cbd5e1';
-      
+
       if (!despesasGroupMap[catId]) {
         despesasGroupMap[catId] = { name: catName, total: 0, color: catColor };
       }
@@ -3117,7 +3129,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const getGroupKeyAndLabel = (dateStr: string, mode: 'DAILY' | 'WEEKLY' | 'MONTHLY') => {
       if (!dateStr) return { key: 'Sem Data', label: 'Sem Data' };
       const [year, month, day] = dateStr.split('-');
-      
+
       if (mode === 'DAILY') {
         return {
           key: dateStr,
@@ -3147,20 +3159,20 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       }
     };
 
-    const groupedDataMap: { 
-      [key: string]: { 
-        label: string; 
-        income: number; 
-        expense: number; 
-        expectedIncome: number; 
-        expectedExpense: number; 
-      } 
+    const groupedDataMap: {
+      [key: string]: {
+        label: string;
+        income: number;
+        expense: number;
+        expectedIncome: number;
+        expectedExpense: number;
+      }
     } = {};
 
     periodTxs.forEach(tx => {
       const dateStr = tx.payment_date && tx.status === TransactionStatus.PAID ? tx.payment_date : tx.due_date;
       const { key, label } = getGroupKeyAndLabel(dateStr, fluxoGroupMode);
-      
+
       if (!groupedDataMap[key]) {
         groupedDataMap[key] = {
           label,
@@ -3170,7 +3182,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           expectedExpense: 0
         };
       }
-      
+
       const amt = Math.abs(tx.amount || 0);
       if (tx.type === TransactionType.INCOME) {
         if (tx.status === TransactionStatus.PAID) {
@@ -3216,8 +3228,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       }
                     }}
                     className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer ${
-                      isSelected 
-                        ? 'bg-slate-900 border-slate-900 text-white shadow-sm' 
+                      isSelected
+                        ? 'bg-slate-900 border-slate-900 text-white shadow-sm'
                         : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
                     }`}
                   >
@@ -3233,7 +3245,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
         {/* 2 MAIN INTERNAL AREAS: SIDE-BY-SIDE OR STACKED */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
-          
+
           {/* AREA 1: FLUXO DE CAIXA */}
           <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm space-y-6">
             <div className="border-b border-slate-100 pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -3244,7 +3256,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 </h3>
                 <p className="text-xs text-slate-400 font-medium mt-1">Saldos reais e projeções com base na liquidação e vencimentos.</p>
               </div>
-              
+
               {/* Group Mode Selector */}
               <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl self-start md:self-center">
                 {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map(mode => (
@@ -3321,7 +3333,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       const totalPeriodIn = item.income + item.expectedIncome;
                       const totalPeriodOut = item.expense + item.expectedExpense;
                       const maxVal = Math.max(...groupedList.map(g => Math.max(g.income + g.expectedIncome, g.expense + g.expectedExpense)), 1);
-                      
+
                       const heightIn = `${Math.max((totalPeriodIn / maxVal) * 110, 4)}px`;
                       const heightOut = `${Math.max((totalPeriodOut / maxVal) * 110, 4)}px`;
 
@@ -3474,8 +3486,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                 {/* Resultado Líquido DRE final */}
                 <div className={`flex justify-between items-center text-xs font-black uppercase p-3 rounded-xl border mt-6 ${
-                  dreResultado >= 0 
-                    ? 'bg-emerald-50 border-emerald-100 text-emerald-800 shadow-sm' 
+                  dreResultado >= 0
+                    ? 'bg-emerald-50 border-emerald-100 text-emerald-800 shadow-sm'
                     : 'bg-rose-50 border-rose-100 text-rose-800 shadow-sm'
                 }`}>
                   <span>(=) RESULTADO LÍQUIDO DO EXERCÍCIO</span>
@@ -3546,13 +3558,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const currentDueDate = new Date(tx.due_date + 'T12:00:00');
       currentDueDate.setDate(currentDueDate.getDate() + 7);
       const newDueDateStr = currentDueDate.toISOString().split('T')[0];
-      
+
       if (supabase) {
         const { error } = await supabase
           .from('financial_transactions')
           .update({ due_date: newDueDateStr })
           .eq('id', tx.id);
-        
+
         if (error) {
           console.error('Error postponing transaction:', error);
           showToast('Erro ao adiar lançamento.', 'error');
@@ -3607,7 +3619,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       if (pagamentosTab === 'vencidos') {
         return t.status === TransactionStatus.PENDING && t.due_date < hoje;
       }
-      
+
       // If 'todas' tab, show all pending, plus paid transactions that are in the current month/year
       if (t.status === TransactionStatus.PENDING) {
         return true;
@@ -3764,14 +3776,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                             <div>
                               <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                isPaid 
-                                  ? 'bg-[#d1fae5] text-[#065f46]' 
+                                isPaid
+                                  ? 'bg-[#d1fae5] text-[#065f46]'
                                   : isOverdue
                                     ? 'bg-[#fee2e2] text-[#991b1b]'
                                     : 'bg-[#fef3c7] text-[#92400e]'
                               }`}>
-                                {isPaid 
-                                  ? 'Liquidado' 
+                                {isPaid
+                                  ? 'Liquidado'
                                   : isOverdue
                                     ? 'Vencido'
                                     : isToday
@@ -4071,9 +4083,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         <span>{roundedPercent}%</span>
                       </div>
                       <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
-                        <div 
-                          className={`h-full rounded-full transition-all duration-500 ${centroCustoTab === 'receitas' ? 'bg-emerald-500' : 'bg-rose-500'}`} 
-                          style={{ width: `${Math.min(100, roundedPercent)}%` }} 
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${centroCustoTab === 'receitas' ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                          style={{ width: `${Math.min(100, roundedPercent)}%` }}
                         />
                       </div>
                     </div>
@@ -4125,7 +4137,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const categoryName = catObj?.name || 'Sem Categoria';
       const groupName = (tx.category_id && categoryGroups[tx.category_id]) ? categoryGroups[tx.category_id].trim() : 'Sem Centro de Custo';
       const accountName = accounts.find(a => a.id === tx.account_id)?.name || 'Sem Conta';
-      
+
       let statusLabel = 'Pendente';
       if (tx.status === TransactionStatus.PAID) {
         statusLabel = 'Pago';
@@ -4159,7 +4171,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Extrato');
-    
+
     const formattedMonth = String(currentPeriod.getMonth() + 1).padStart(2, '0');
     const formattedYear = currentPeriod.getFullYear();
     XLSX.writeFile(wb, `extrato_financeiro_${formattedMonth}_${formattedYear}.xlsx`);
@@ -4236,7 +4248,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     // Seção 1 — Resumo por Centro de Custo
     rows.push(['SEÇÃO 1 - RESUMO POR CENTRO DE CUSTO']);
     rows.push(['Centro de Custo', 'Total Receitas', 'Total Despesas', 'Resultado']);
-    
+
     Object.values(grouped).forEach(g => {
       rows.push([
         g.groupName,
@@ -4277,7 +4289,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const handleExportFinanceiroPDF = () => {
     const printDiv = document.createElement('div');
     printDiv.className = 'print-container p-8 text-slate-800 font-sans';
-    
+
     const style = document.createElement('style');
     style.textContent = `
       @media print {
@@ -4314,7 +4326,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const categoryName = catObj?.name || 'Sem Categoria';
       const groupName = (tx.category_id && categoryGroups[tx.category_id]) ? categoryGroups[tx.category_id].trim() : 'Sem Centro de Custo';
       const accountName = accounts.find(a => a.id === tx.account_id)?.name || 'Sem Conta';
-      
+
       let statusLabel = 'Pendente';
       if (tx.status === TransactionStatus.PAID) {
         statusLabel = 'Pago';
@@ -4569,7 +4581,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     const catObj = categories.find(c => c.id === tx.category_id);
                     const categoryName = catObj?.name || 'Sem Categoria';
                     const categoryColor = catObj?.color || '#cbd5e1';
-                    
+
                     let statusStyle = 'bg-[#fef3c7] text-[#92400e] border border-[#fde68a]';
                     let statusLabel = 'Pendente';
                     if (tx.status === TransactionStatus.PAID) {
@@ -4667,7 +4679,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return (
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <button 
+          <button
             onClick={() => setSelectedCardForHistory(null)}
             className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200/80 px-4 py-2.5 rounded-xl transition-all cursor-pointer w-fit"
           >
@@ -4836,15 +4848,15 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
             // Latest transaction for last update tracking
             const cardTxs = transactions.filter(t => t.account_id === card.id);
-            const latestTx = cardTxs.length > 0 
+            const latestTx = cardTxs.length > 0
               ? cardTxs.reduce((latest, current) => {
                   const latDate = latest.due_date || latest.payment_date || '';
                   const curDate = current.due_date || current.payment_date || '';
                   return curDate > latDate ? current : latest;
-                }) 
+                })
               : null;
 
-            const lastUpdateStr = latestTx 
+            const lastUpdateStr = latestTx
               ? `${formatDateBR(latestTx.due_date || latestTx.payment_date)}`
               : 'N/A';
 
@@ -4973,7 +4985,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           const displayMonthYear = `${capMonth.charAt(0).toUpperCase() + capMonth.slice(1)} ${period.getFullYear()}`;
 
                           return (
-                            <div 
+                            <div
                               key={pIdx}
                               onClick={() => {
                                 setDetailPeriod(period);
@@ -5011,7 +5023,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     )}
                   </div>
 
-                  <button 
+                  <button
                     onClick={() => setSelectedCardForHistory(card)}
                     className="w-full mt-4 py-2.5 text-center text-[10px] font-black uppercase tracking-wider text-blue-600 hover:text-blue-700 bg-blue-50/40 hover:bg-blue-50 rounded-xl transition-all border border-blue-100/50 cursor-pointer flex items-center justify-center gap-1 shadow-sm"
                   >
@@ -5026,7 +5038,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             <div className="col-span-full border border-dashed border-slate-200 py-16 rounded-3xl flex flex-col items-center justify-center text-center">
               <CreditCard size={40} className="text-slate-300 mb-2" />
               <p className="text-slate-400 font-bold uppercase tracking-wider text-xs">Nenhum cartão corporativo cadastrado.</p>
-              <button 
+              <button
                 onClick={() => {
                   setModalType('card');
                   setIsModalOpen(true);
@@ -5161,19 +5173,19 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <p className="text-lg font-black text-slate-800">{formatCurrency(totalImportedAmt || 0)}</p>
               <p className="text-[10px] text-slate-400 font-medium mt-0.5">Soma absoluta das transações</p>
             </div>
-            
+
             <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[110px]">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Conciliados</p>
               <p className="text-lg font-black text-emerald-600">{formatCurrency(conciliatedAmt || 0)}</p>
               <p className="text-[10px] text-slate-400 font-medium mt-0.5">{(countConciliated || 0)} lançamentos vinculados</p>
             </div>
-            
+
             <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-center min-h-[110px]">
               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Pendentes</p>
               <p className="text-lg font-black text-amber-600">{formatCurrency(pendingAmt || 0)}</p>
               <p className="text-[10px] text-slate-400 font-medium mt-0.5">{(countPending || 0)} itens pendentes</p>
             </div>
-            
+
             <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm text-center flex flex-col justify-between min-h-[110px]">
               {totalImportedCount > 0 && progressPercent === 100 ? (
                 <div className="flex flex-col h-full justify-between">
@@ -5183,7 +5195,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       <Check size={14} /> 100% Pronto
                     </p>
                   </div>
-                  
+
                   {isReconciliationConcluded ? (
                     <div className="text-[10px] text-emerald-600 font-black bg-emerald-50 py-1.5 px-3 rounded-lg border border-emerald-100 flex items-center justify-center gap-1 uppercase tracking-wider">
                       <CheckCircle2 size={12} /> Concluída
@@ -5210,7 +5222,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     </p>
                   </div>
                   <div className="w-full bg-slate-100 h-1.5 rounded-full mt-1.5 overflow-hidden">
-                    <div 
+                    <div
                       className={`h-full rounded-full transition-all duration-500 ${
                         (progressPercent || 0) >= 80 ? 'bg-emerald-500' : (progressPercent || 0) >= 50 ? 'bg-amber-500' : 'bg-rose-500'
                       }`}
@@ -5227,7 +5239,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4 mb-6">
             <div />
-            
+
             <div className="flex items-center gap-2 flex-wrap">
               {importedFile && selectedMatches.length > 0 && (
                 <button
@@ -5241,7 +5253,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 </button>
               )}
               {importedFile && (
-                <button 
+                <button
                   onClick={handleAutoConciliation}
                   className="flex items-center gap-1.5 bg-emerald-600 text-white rounded-lg px-3 py-1.5 text-xs font-black hover:bg-emerald-700 transition-all shadow-sm cursor-pointer"
                 >
@@ -5249,7 +5261,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 </button>
               )}
               {importedFile && (
-                <button 
+                <button
                   onClick={() => {
                     setImportedFile(null);
                     setReconciliationItems([]);
@@ -5286,11 +5298,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               onDrop={handleDrop}
             >
               <label htmlFor="bank-file-upload" className="absolute inset-0 cursor-pointer z-10" />
-              <input 
+              <input
                 id="bank-file-upload"
-                type="file" 
-                accept=".ofx,.csv" 
-                className="hidden" 
+                type="file"
+                accept=".ofx,.csv"
+                className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) handleBankFileUpload(file);
@@ -5325,7 +5337,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 <div className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Filtrar Lançamentos</span>
-                    <select 
+                    <select
                       value={reconciliationPeriodFilter}
                       onChange={(e) => setReconciliationPeriodFilter(e.target.value as any)}
                       className="text-xs bg-slate-50 border border-slate-100 rounded-lg p-1 outline-none text-slate-700 font-medium"
@@ -5343,8 +5355,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     <div className="grid grid-cols-2 gap-2 pt-1">
                       <div>
                         <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Início</label>
-                        <input 
-                          type="date" 
+                        <input
+                          type="date"
                           value={reconciliationStartDate}
                           onChange={(e) => setReconciliationStartDate(e.target.value)}
                           className="w-full bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-[10px] outline-none text-slate-700"
@@ -5352,8 +5364,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       </div>
                       <div>
                         <label className="text-[9px] font-black text-slate-400 uppercase block mb-1">Fim</label>
-                        <input 
-                          type="date" 
+                        <input
+                          type="date"
                           value={reconciliationEndDate}
                           onChange={(e) => setReconciliationEndDate(e.target.value)}
                           className="w-full bg-slate-50 border border-slate-100 rounded-lg p-1.5 text-[10px] outline-none text-slate-700"
@@ -5372,7 +5384,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       if (!itemDateStr) return true;
 
                       const itemDate = new Date(itemDateStr + 'T00:00:00');
-                      
+
                       const today = new Date();
                       today.setHours(0,0,0,0);
                       const itemDateClean = new Date(itemDateStr + 'T00:00:00');
@@ -5420,8 +5432,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       const isPrepared = selectedMatches.some(m => m.reconciliation_id === itemKey);
 
                       return (
-                        <div 
-                          key={item.id || item.originalIndex} 
+                        <div
+                          key={item.id || item.originalIndex}
                           onClick={() => {
                             setSelectedImportedIndex(item.originalIndex);
                             setSelectedSystemTxId(null);
@@ -5429,7 +5441,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             setShowQuickCreateForm(false);
                             setRecurrenceType('NONE');
                             setRecurrencePeriods(1);
-                            
+
                             // Check if this item is prepared in selectedMatches
                             const prep = selectedMatches.find(m => m.reconciliation_id === itemKey);
                             if (prep) {
@@ -5449,12 +5461,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             }
                           }}
                           className={`p-4 flex flex-col justify-between cursor-pointer transition-all ${
-                            item.matched 
-                              ? 'bg-emerald-50/20 opacity-65 border-l-4 border-emerald-500' 
+                            item.matched
+                              ? 'bg-emerald-50/20 opacity-65 border-l-4 border-emerald-500'
                               : isPrepared
                                 ? 'bg-amber-50/40 border-l-4 border-amber-400 opacity-95 shadow-sm'
-                                : isSelected 
-                                  ? 'bg-blue-50/80 border-l-4 border-blue-500 shadow-inner' 
+                                : isSelected
+                                  ? 'bg-blue-50/80 border-l-4 border-blue-500 shadow-inner'
                                   : 'hover:bg-slate-50/50 bg-white'
                           }`}
                         >
@@ -5469,8 +5481,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 </span>
                               )}
                               <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                                item.type === TransactionType.INCOME 
-                                  ? 'text-emerald-600 bg-emerald-50 border border-emerald-100/50' 
+                                item.type === TransactionType.INCOME
+                                  ? 'text-emerald-600 bg-emerald-50 border border-emerald-100/50'
                                   : 'text-rose-600 bg-rose-50 border border-rose-100/50'
                               }`}>
                                 {item.type === TransactionType.INCOME ? 'Entrada' : 'Saída'}
@@ -5513,7 +5525,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             Item do Histórico (Conciliado)
                           </span>
                         </div>
-                        
+
                         <h4 className="text-sm font-black text-slate-800 leading-tight font-sans">
                           {normalizeDescription(activeImportedItem.description)}
                         </h4>
@@ -5573,7 +5585,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           </button>
                         )}
                       </div>
-                      
+
                       <h4 className="text-sm font-black text-slate-800 leading-tight font-sans">
                         {normalizeDescription(activeImportedItem.description)}
                       </h4>
@@ -5632,7 +5644,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     {(() => {
                       const itemKey = activeImportedItem.id || activeImportedItem.external_id || `temp-${selectedImportedIndex}`;
                       const preparedMatch = selectedMatches.find(m => m.reconciliation_id === itemKey);
-                      
+
                       if (activeImportedItem.matched) {
                         return (
                           <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 text-center space-y-2">
@@ -5657,7 +5669,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 Cancelar Preparação
                               </button>
                             </div>
-                            
+
                             {pairedTx ? (
                               <div className="bg-white rounded-xl p-3 border border-amber-200/50 space-y-1.5">
                                 <p className="text-xs font-bold text-slate-800 leading-snug">{normalizeDescription(pairedTx.description)}</p>
@@ -5692,11 +5704,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 Cancelar
                               </button>
                             </div>
-                            
+
                             <div className="space-y-3.5">
                               <div>
                                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Descrição do Lançamento</label>
-                                <input 
+                                <input
                                   type="text"
                                   placeholder={normalizeDescription(activeImportedItem.description)}
                                   value={quickDescription}
@@ -5704,11 +5716,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                   className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800 focus:border-indigo-300 focus:ring-1 focus:ring-indigo-100"
                                 />
                               </div>
-                              
+
                               <div className="grid grid-cols-2 gap-3">
                                 <div>
                                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Categoria</label>
-                                  <select 
+                                  <select
                                     value={quickCategoryId}
                                     onChange={(e) => setQuickCategoryId(e.target.value)}
                                     className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800 focus:border-indigo-300 focus:ring-1 focus:ring-indigo-100"
@@ -5721,7 +5733,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 </div>
                                 <div>
                                   <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Conta Bancária</label>
-                                  <select 
+                                  <select
                                     value={quickAccountId}
                                     onChange={(e) => setQuickAccountId(e.target.value)}
                                     className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2.5 text-xs outline-none text-slate-800 focus:border-indigo-300 focus:ring-1 focus:ring-indigo-100"
@@ -5737,8 +5749,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               {/* Lançamento Recorrente Toggle & Options */}
                               <div className="space-y-2 pt-1 border-t border-slate-50">
                                 <div className="flex items-center gap-2">
-                                  <input 
-                                    type="checkbox" 
+                                  <input
+                                    type="checkbox"
                                     id="quickRecurrent"
                                     className="rounded text-indigo-600 focus:ring-indigo-400 cursor-pointer w-4 h-4"
                                     checked={recurrenceType !== 'NONE'}
@@ -5761,7 +5773,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                   <div className="grid grid-cols-2 gap-3 pl-6">
                                     <div>
                                       <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Frequência</label>
-                                      <select 
+                                      <select
                                         value={recurrenceType}
                                         onChange={(e) => setRecurrenceType(e.target.value as any)}
                                         className="w-full bg-slate-50 border border-slate-100 rounded-xl p-2 text-xs outline-none text-slate-800 focus:border-indigo-300 focus:ring-1 focus:ring-indigo-100 font-medium"
@@ -5773,8 +5785,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                     </div>
                                     <div>
                                       <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Repetições futuras</label>
-                                      <input 
-                                        type="number" 
+                                      <input
+                                        type="number"
                                         min={1}
                                         max={60}
                                         value={recurrencePeriods}
@@ -5786,7 +5798,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 )}
                               </div>
 
-                              <button 
+                              <button
                                 onClick={handleQuickCreateAndReconcile}
                                 disabled={loading}
                                 className="w-full bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-black text-xs py-3 rounded-xl shadow-sm cursor-pointer text-center uppercase tracking-wider font-sans mt-2"
@@ -5814,7 +5826,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 {manualCompatibilityScore}% CONFIANÇA
                               </span>
                             </div>
-                            
+
                             <div className="space-y-2">
                               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Lançamento ERP</p>
                               <p className="text-xs font-bold text-slate-800 leading-snug whitespace-normal">
@@ -5837,13 +5849,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             </div>
 
                             <div className="grid grid-cols-1 gap-2 pt-2 border-t border-slate-100/60">
-                              <button 
+                              <button
                                 onClick={handleQueueMatch}
                                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-3 rounded-xl shadow-md transition-all cursor-pointer text-center font-sans uppercase tracking-wider"
                               >
                                 CONFIRMAR VÍNCULO
                               </button>
-                              <button 
+                              <button
                                 onClick={() => {
                                   setSelectedSystemTxId(null);
                                   setAutoMatchScore(null);
@@ -5927,7 +5939,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   {displayedSystemTxs.map(({ tx, score }) => {
                     const isSelected = selectedSystemTxId === tx.id;
                     const cat = categories.find(c => c.id === tx.category_id);
-                    
+
                     let badgeBg = 'bg-rose-50 text-rose-700 border border-rose-100';
                     if (score >= 85) {
                       badgeBg = 'bg-emerald-50 text-emerald-700 border border-emerald-100';
@@ -5936,8 +5948,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     }
 
                     return (
-                      <div 
-                        key={tx.id} 
+                      <div
+                        key={tx.id}
                         onClick={() => {
                           setSelectedSystemTxId(tx.id);
                           setAutoMatchScore(score);
@@ -5946,8 +5958,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           setRecurrencePeriods(1);
                         }}
                         className={`p-4 rounded-2xl border transition-all flex flex-col justify-between cursor-pointer space-y-3 ${
-                          isSelected 
-                            ? 'bg-indigo-50/50 border-indigo-200 ring-1 ring-indigo-100' 
+                          isSelected
+                            ? 'bg-indigo-50/50 border-indigo-200 ring-1 ring-indigo-100'
                             : 'bg-white border-slate-100 hover:border-slate-200 hover:shadow-sm'
                         }`}
                       >
@@ -5967,11 +5979,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           {tx.contact_name && (
                             <p className="text-[10px] text-gray-400 mt-1 font-semibold">{tx.contact_name}</p>
                           )}
-                          
+
                           {cat && (
                             <div className="flex items-center gap-1.5 mt-2">
-                              <span 
-                                className="w-2 h-2 rounded-full inline-block shrink-0" 
+                              <span
+                                className="w-2 h-2 rounded-full inline-block shrink-0"
                                 style={{ backgroundColor: cat.color || '#cbd5e1' }}
                               />
                               <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">
@@ -6002,8 +6014,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               showToast('Selecione e confirme o vínculo no painel central.', 'info');
                             }}
                             className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                              isSelected 
-                                ? 'bg-indigo-600 text-white shadow-sm' 
+                              isSelected
+                                ? 'bg-indigo-600 text-white shadow-sm'
                                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                             }`}
                           >
@@ -6033,7 +6045,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         >
                           <Search size={12} /> Buscar Manualmente
                         </button>
-                        
+
                         {activeImportedItem && (
                           <button
                             onClick={() => {
@@ -6066,15 +6078,15 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     reader.onload = async (e) => {
       const text = e.target?.result as string;
       if (!text) return;
-      
+
       const lines = text.split(/\r?\n/);
       const parsedCategories: Array<{ name: string; type: TransactionType; color: string; group_name: string }> = [];
-      
+
       let nameIdx = 0;
       let typeIdx = 1;
       let colorIdx = 2;
       let groupIdx = -1;
-      
+
       if (lines.length > 0) {
         const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
         nameIdx = headers.indexOf('nome');
@@ -6087,29 +6099,29 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         if (groupIdx === -1) groupIdx = headers.indexOf('group_name');
         if (groupIdx === -1) groupIdx = headers.indexOf('group');
       }
-      
+
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
-        
+
         const columns = line.split(',').map(c => c.trim().replace(/^["']|["']$/g, ''));
         if (columns.length < 2) continue;
-        
+
         const name = columns[nameIdx !== -1 ? nameIdx : 0] || '';
         const typeRaw = columns[typeIdx !== -1 ? typeIdx : 1] || 'EXPENSE';
         const color = columns[colorIdx !== -1 ? colorIdx : 2] || '#f43f5e';
         const group_name = groupIdx !== -1 ? (columns[groupIdx] || '') : '';
-        
+
         if (!name) continue;
-        
+
         let type = TransactionType.EXPENSE;
         if (typeRaw.toUpperCase() === 'INCOME' || typeRaw.toUpperCase() === 'RECEITA') {
           type = TransactionType.INCOME;
         }
-        
+
         parsedCategories.push({ name, type, color, group_name });
       }
-      
+
       setCsvPreview(parsedCategories);
       setIsCsvModalOpen(true);
     };
@@ -6120,11 +6132,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     if (csvPreview.length === 0) return;
     setLoading(true);
     let successCount = 0;
-    
+
     try {
       const newGroups: Record<string, string> = {};
       const newCatsToState: FinancialCategory[] = [];
-      
+
       for (const cat of csvPreview) {
         const payload: Omit<FinancialCategory, 'id'> = {
           agency_id: currentUser.agencyId,
@@ -6132,7 +6144,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           type: cat.type,
           color: cat.color
         };
-        
+
         const result = await supabaseService.createFinancialCategory(payload);
         if (result) {
           successCount++;
@@ -6151,7 +6163,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           }
         }
       }
-      
+
       if (Object.keys(newGroups).length > 0) {
         setCategoryGroups(prev => {
           const updated = { ...prev, ...newGroups };
@@ -6159,11 +6171,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           return updated;
         });
       }
-      
+
       if (newCatsToState.length > 0) {
         setCategories(prev => [...prev, ...newCatsToState]);
       }
-      
+
       await loadFinancialData();
       showToast(`${successCount} categorias importadas com sucesso!`, 'success');
     } catch (err) {
@@ -6218,7 +6230,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               </span>
               Categorias de Receita
             </h3>
-            
+
             <div className="space-y-6">
               {sortedRevenueGroups.map(([groupName, cats]) => (
                 <div key={groupName} className="space-y-3">
@@ -6234,14 +6246,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           <p className="text-xs font-semibold text-slate-900">{cat.name}</p>
                         </div>
                         <div className="flex gap-1">
-                          <button 
+                          <button
                             onClick={() => handleEditCategoryClick(cat)}
                             className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
                             title="Editar"
                           >
                             <Pencil size={12} />
                           </button>
-                          <button 
+                          <button
                             onClick={() => handleDeleteCategory(cat.id)}
                             className="p-1 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
                             title="Excluir"
@@ -6268,7 +6280,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               </span>
               Categorias de Despesa
             </h3>
-            
+
             <div className="space-y-6">
               {sortedExpenseGroups.map(([groupName, cats]) => (
                 <div key={groupName} className="space-y-3">
@@ -6284,14 +6296,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           <p className="text-xs font-semibold text-slate-900">{cat.name}</p>
                         </div>
                         <div className="flex gap-1">
-                          <button 
+                          <button
                             onClick={() => handleEditCategoryClick(cat)}
                             className="p-1 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
                             title="Editar"
                           >
                             <Pencil size={12} />
                           </button>
-                          <button 
+                          <button
                             onClick={() => handleDeleteCategory(cat.id)}
                             className="p-1 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
                             title="Excluir"
@@ -6317,7 +6329,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const getGroupKeyAndLabelHelper = (dateStr: string, mode: 'DAILY' | 'WEEKLY' | 'MONTHLY') => {
     if (!dateStr) return { key: 'Sem Data', label: 'Sem Data' };
     const [year, month, day] = dateStr.split('-');
-    
+
     if (mode === 'DAILY') {
       return {
         key: dateStr,
@@ -6357,9 +6369,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             <div className="flex flex-wrap items-center gap-3">
               <div className="relative min-w-[240px]">
                 <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input 
-                  type="text" 
-                  placeholder="Buscar lançamentos..." 
+                <input
+                  type="text"
+                  placeholder="Buscar lançamentos..."
                   className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none w-full focus:ring-2 focus:ring-blue-100 transition-all font-semibold"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -6371,10 +6383,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <button
                     key={tab}
                     className={`px-3.5 py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer ${
-                      (tab === 'Todos' && typeFilter === 'ALL') || 
+                      (tab === 'Todos' && typeFilter === 'ALL') ||
                       (tab === 'Receitas' && typeFilter === TransactionType.INCOME) ||
                       (tab === 'Despesas' && typeFilter === TransactionType.EXPENSE)
-                        ? 'bg-white text-slate-800 shadow-sm' 
+                        ? 'bg-white text-slate-800 shadow-sm'
                         : 'text-slate-500 hover:text-slate-700'
                     }`}
                     onClick={() => {
@@ -6406,7 +6418,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                 {periodMode === 'CUSTOM' && (
                   <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl relative animate-fadeIn">
-                    <button 
+                    <button
                       onClick={() => {
                         setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
                         setVisibleCount(20);
@@ -6416,8 +6428,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     >
                       <ChevronLeft size={16} />
                     </button>
-                    
-                    <div 
+
+                    <div
                       onClick={() => {
                         monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
                       }}
@@ -6430,9 +6442,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         ];
                         return `${monthNames[currentPeriod.getMonth()]} de ${currentPeriod.getFullYear()}`;
                       })()}
-                      <input 
+                      <input
                         ref={monthInputRef}
-                        type="month" 
+                        type="month"
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                         value={`${currentPeriod.getFullYear()}-${String(currentPeriod.getMonth() + 1).padStart(2, '0')}`}
                         onChange={(e) => {
@@ -6444,8 +6456,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         }}
                       />
                     </div>
-                    
-                    <button 
+
+                    <button
                       onClick={() => {
                         setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
                         setVisibleCount(20);
@@ -6461,7 +6473,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
               {/* Additional Filter Trigger */}
               <div className="relative">
-                <button 
+                <button
                   onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
                   className="flex items-center gap-1.5 text-slate-500 hover:text-slate-900 transition-colors bg-white font-bold text-xs px-3.5 py-2.5 border border-slate-100 rounded-xl shadow-sm cursor-pointer"
                 >
@@ -6469,19 +6481,19 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <span>Filtrar</span>
                 </button>
                 {(categoryFilter !== 'ALL' || accountFilter !== 'ALL' || periodMode !== 'ALL') && (
-                  <span 
+                  <span
                     id="filter-active-dot"
-                    className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border border-white shadow-sm animate-pulse" 
+                    className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border border-white shadow-sm animate-pulse"
                   />
                 )}
-                
+
                 {isFilterDropdownOpen && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setIsFilterDropdownOpen(false)} />
                     <div className="absolute left-0 mt-2 w-64 bg-white border border-slate-100 rounded-2xl shadow-xl p-4 z-20 space-y-4">
                       <div>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Período</label>
-                        <select 
+                        <select
                           value={periodMode}
                           onChange={(e) => {
                             setPeriodMode(e.target.value as any);
@@ -6498,7 +6510,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                       <div>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Categoria</label>
-                        <select 
+                        <select
                           value={categoryFilter}
                           onChange={(e) => {
                             setCategoryFilter(e.target.value);
@@ -6515,7 +6527,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                       <div>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Conta</label>
-                        <select 
+                        <select
                           value={accountFilter}
                           onChange={(e) => {
                             setAccountFilter(e.target.value);
@@ -6536,7 +6548,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             </div>
 
             <div className="flex items-center gap-2">
-              <button 
+              <button
                 onClick={() => {
                   setNewTransaction({...newTransaction, type: TransactionType.INCOME});
                   setModalType('transaction');
@@ -6546,7 +6558,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               >
                 <Plus size={14} /> Receita
               </button>
-              <button 
+              <button
                 onClick={() => {
                   setNewTransaction({...newTransaction, type: TransactionType.EXPENSE});
                   setModalType('transaction');
@@ -6556,13 +6568,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               >
                 <Plus size={14} /> Despesa
               </button>
-              <button 
+              <button
                 onClick={handleOpenLancarExtratoModal}
                 className="flex items-center gap-1.5 px-3.5 py-2.5 bg-indigo-600 text-white font-black text-xs uppercase tracking-wider rounded-xl hover:bg-indigo-700 hover:scale-[1.02] transform transition-all shadow-sm cursor-pointer"
               >
                 <Plus size={14} /> Lançar Extrato
               </button>
-              <button 
+              <button
                 onClick={handleExportTransactionsCSV}
                 className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-200 text-slate-600 font-black text-xs uppercase tracking-wider rounded-xl hover:bg-slate-50 hover:text-slate-900 transition-all shadow-sm cursor-pointer"
               >
@@ -6579,7 +6591,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <span className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-1">
                 <TrendingUp size={14} /> Fluxo de Caixa
               </span>
-              
+
               {/* Group Mode Selector */}
               <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
                 {(['DAILY', 'WEEKLY', 'MONTHLY'] as const).map(mode => (
@@ -6599,7 +6611,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
               {/* Period Navigation */}
               <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl relative">
-                <button 
+                <button
                   onClick={() => {
                     setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
                   }}
@@ -6608,8 +6620,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 >
                   <ChevronLeft size={16} />
                 </button>
-                
-                <div 
+
+                <div
                   onClick={() => {
                     monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
                   }}
@@ -6622,9 +6634,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     ];
                     return `${monthNames[currentPeriod.getMonth()]} de ${currentPeriod.getFullYear()}`;
                   })()}
-                  <input 
+                  <input
                     ref={monthInputRef}
-                    type="month" 
+                    type="month"
                     className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                     value={`${currentPeriod.getFullYear()}-${String(currentPeriod.getMonth() + 1).padStart(2, '0')}`}
                     onChange={(e) => {
@@ -6635,8 +6647,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     }}
                   />
                 </div>
-                
-                <button 
+
+                <button
                   onClick={() => {
                     setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
                   }}
@@ -6726,7 +6738,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
               {/* Import/Clear Button */}
               {importedFile && (
-                <button 
+                <button
                   onClick={handleClearExtrato}
                   className="flex items-center gap-1 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
                 >
@@ -6738,9 +6750,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               {importedFile && (
                 <div className="relative min-w-[200px]">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input 
-                    type="text" 
-                    placeholder="Pesquisar no extrato..." 
+                  <input
+                    type="text"
+                    placeholder="Pesquisar no extrato..."
                     className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium"
                     value={reconciliationSearch}
                     onChange={(e) => setReconciliationSearch(e.target.value)}
@@ -6750,7 +6762,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
               {/* Period Filter (only when file is imported) */}
               {importedFile && (
-                <select 
+                <select
                   value={reconciliationPeriodFilter}
                   onChange={(e) => setReconciliationPeriodFilter(e.target.value as any)}
                   className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700 outline-none cursor-pointer"
@@ -6776,7 +6788,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     <CheckCircle2 size={13} /> Conciliar Selecionados ({selectedMatches.length})
                   </button>
                 )}
-                <button 
+                <button
                   onClick={handleAutoConciliation}
                   className="flex items-center gap-1.5 px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl text-xs uppercase tracking-wider transition-all shadow-sm cursor-pointer"
                 >
@@ -6797,7 +6809,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             </div>
 
             <div className="flex items-center gap-2">
-              <button 
+              <button
                 onClick={() => {
                   setModalType('card');
                   setIsModalOpen(true);
@@ -6820,7 +6832,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             </div>
 
             <div className="flex items-center gap-2">
-              <button 
+              <button
                 onClick={() => {
                   setModalType('account');
                   setIsModalOpen(true);
@@ -6845,10 +6857,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-1.5 bg-white border border-slate-200 text-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-black uppercase tracking-wider hover:bg-slate-50 transition-all shadow-sm cursor-pointer">
                 <Download size={14} className="rotate-180" /> Importar CSV
-                <input 
-                  type="file" 
-                  accept=".csv" 
-                  className="hidden" 
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) handleCsvImport(file);
@@ -6856,7 +6868,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   }}
                 />
               </label>
-              <button 
+              <button
                 onClick={() => {
                   setModalType('category');
                   setIsModalOpen(true);
@@ -6897,9 +6909,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               {/* Search Input */}
               <div className="relative min-w-[200px]">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input 
-                  type="text" 
-                  placeholder="Pesquisar lançamentos..." 
+                <input
+                  type="text"
+                  placeholder="Pesquisar lançamentos..."
                   className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -6908,7 +6920,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             </div>
 
             <div className="flex items-center gap-2">
-              <button 
+              <button
                 onClick={() => {
                   setNewTransaction({...newTransaction, type: TransactionType.EXPENSE, status: TransactionStatus.PENDING});
                   setModalType('transaction');
@@ -6918,7 +6930,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               >
                 <Plus size={13} /> Nova Despesa Pagar
               </button>
-              <button 
+              <button
                 onClick={() => {
                   setNewTransaction({...newTransaction, type: TransactionType.INCOME, status: TransactionStatus.PENDING});
                   setModalType('transaction');
@@ -6960,9 +6972,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               {/* Search Input */}
               <div className="relative min-w-[200px]">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input 
-                  type="text" 
-                  placeholder="Buscar no centro de custo..." 
+                <input
+                  type="text"
+                  placeholder="Buscar no centro de custo..."
                   className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -6997,7 +7009,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
               {/* Period Navigation */}
               <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl relative">
-                <button 
+                <button
                   onClick={() => {
                     setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
                   }}
@@ -7006,8 +7018,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 >
                   <ChevronLeft size={16} />
                 </button>
-                
-                <div 
+
+                <div
                   onClick={() => {
                     monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
                   }}
@@ -7020,9 +7032,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     ];
                     return `${monthNames[currentPeriod.getMonth()]} de ${currentPeriod.getFullYear()}`;
                   })()}
-                  <input 
+                  <input
                     ref={monthInputRef}
-                    type="month" 
+                    type="month"
                     className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                     value={`${currentPeriod.getFullYear()}-${String(currentPeriod.getMonth() + 1).padStart(2, '0')}`}
                     onChange={(e) => {
@@ -7033,8 +7045,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     }}
                   />
                 </div>
-                
-                <button 
+
+                <button
                   onClick={() => {
                     setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
                   }}
@@ -7065,7 +7077,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         </div>
       ) : (
         <AnimatePresence mode="wait">
-          <motion.div 
+          <motion.div
             key={localActiveView}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -7081,16 +7093,29 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <Conciliacao
                 currentUser={currentUser}
                 accounts={accounts}
+                categories={categories}
                 showToast={showToast}
                 onOpenNewExpenseModal={(data) => {
+                  const isIncome = data.type === 'INCOME' || data.type === 'credit';
+                  const txType = isIncome ? TransactionType.INCOME : TransactionType.EXPENSE;
+
                   setNewTransaction({
                     description: data.description,
                     amount: data.amount,
                     due_date: data.date,
-                    type: TransactionType.EXPENSE,
+                    payment_date: data.payment_date || data.date,
+                    type: txType,
                     status: TransactionStatus.PAID,
-                    agency_id: currentUser.agencyId
+                    agency_id: currentUser.agencyId,
+                    account_id: data.account_id || accounts[0]?.id || '',
+                    category_id: data.category_id || '',
+                    bank_transaction_id: data.bank_transaction_id,
                   });
+
+                  setAmountInputStr(data.amount ? data.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '');
+                  setMarkAsPaid(true);
+                  setIsAutoFilledFromBank(true);
+                  setEditingTransaction(null);
                   setModalType('transaction');
                   setIsModalOpen(true);
                 }}
@@ -7132,7 +7157,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-             <motion.div 
+             <motion.div
                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
                onClick={handleCloseModal}
@@ -7151,31 +7176,38 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                  <div className="px-7 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
                        <div>
                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Cliente / Fornecedor</label>
-                         <input 
-                           type="text" placeholder="Ex: João Silva / Cliente ou Fornecedor" 
+                         <input
+                           type="text" placeholder="Ex: João Silva / Cliente ou Fornecedor"
                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-800"
-                           value={responsibleClient} 
+                           value={responsibleClient}
                            onChange={(e) => setResponsibleClient(e.target.value)}
                          />
                        </div>
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Descrição do Lançamento*</label>
-                        <input 
+                        <input
                           type="text" placeholder="Ex: Aluguel Sala Fidelité"
                           className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-800"
-                          value={newTransaction.description} 
+                          value={newTransaction.description}
                           onChange={(e) => setNewTransaction({...newTransaction, description: e.target.value})}
                         />
                       </div>
+
+                      {isAutoFilledFromBank && (
+                        <div className="p-3 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-900 flex items-center gap-2">
+                          <Sparkles size={16} className="text-indigo-600 shrink-0" />
+                          <span>Dados preenchidos automaticamente do extrato. Revise a categoria antes de salvar.</span>
+                        </div>
+                      )}
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Tipo*</label>
-                        <select 
+                        <select
                           className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
                           value={newTransaction.type}
                           onChange={(e) => {
                             const selectedType = e.target.value as TransactionType;
                             setNewTransaction({
-                              ...newTransaction, 
+                              ...newTransaction,
                               type: selectedType,
                               category_id: '' // Clear category when type changes
                             });
@@ -7188,10 +7220,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Valor (R$)*</label>
-                          <input 
-                            type="text" placeholder="Ex: 710,00" 
+                          <input
+                            type="text" placeholder="Ex: 710,00"
                             className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-bold text-slate-800"
-                            value={amountInputStr} 
+                            value={amountInputStr}
                             onChange={(e) => {
                               const val = e.target.value;
                               setAmountInputStr(val);
@@ -7201,10 +7233,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         </div>
                         <div>
                           <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Data de Vencimento*</label>
-                          <input 
-                            type="date" 
+                          <input
+                            type="date"
                             className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
-                            value={newTransaction.due_date} 
+                            value={newTransaction.due_date}
                             onChange={(e) => setNewTransaction({...newTransaction, due_date: e.target.value})}
                           />
                         </div>
@@ -7221,8 +7253,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                 onClick={() => {
                                   setIsModalOpen(false);
                                   setTimeout(() => {
-                                    const btn = Array.from(document.querySelectorAll('button, a')).find(el => 
-                                      el.textContent?.toUpperCase().includes('CONTAS BANCÁRIAS') || 
+                                    const btn = Array.from(document.querySelectorAll('button, a')).find(el =>
+                                      el.textContent?.toUpperCase().includes('CONTAS BANCÁRIAS') ||
                                       el.textContent?.includes('Contas Bancárias')
                                     );
                                     if (btn) (btn as HTMLElement).click();
@@ -7234,7 +7266,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                               </button>
                             </div>
                           ) : (
-                            <select 
+                            <select
                               className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
                               value={newTransaction.account_id || ''}
                               required
@@ -7253,7 +7285,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         </div>
                         <div>
                           <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Categoria*</label>
-                          <select 
+                          <select
                             className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
                             value={newTransaction.category_id}
                             onChange={(e) => setNewTransaction({...newTransaction, category_id: e.target.value})}
@@ -7271,7 +7303,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Recorrência</label>
-                            <select 
+                            <select
                               className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
                               value={recurrenceType}
                               onChange={(e) => setRecurrenceType(e.target.value as any)}
@@ -7285,8 +7317,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           {recurrenceType !== 'NONE' && (
                             <div>
                               <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Repetir por X períodos</label>
-                              <input 
-                                type="number" 
+                              <input
+                                type="number"
                                 min={1}
                                 max={60}
                                 className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-800"
@@ -7299,8 +7331,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       )}
 
                       <div className="flex items-center gap-2 py-2">
-                        <input 
-                          type="checkbox" 
+                        <input
+                          type="checkbox"
                           id="markAsPaid"
                           className="rounded text-blue-600 focus:ring-blue-400 cursor-pointer w-4 h-4"
                           checked={markAsPaid}
@@ -7330,10 +7362,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       {markAsPaid && (
                         <div>
                           <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Data do Pagamento*</label>
-                          <input 
-                            type="date" 
+                          <input
+                            type="date"
                             className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
-                            value={newTransaction.payment_date || getLocalTodayStr()} 
+                            value={newTransaction.payment_date || getLocalTodayStr()}
                             onChange={(e) => setNewTransaction({...newTransaction, payment_date: e.target.value})}
                           />
                         </div>
@@ -7341,8 +7373,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Anotações Adicionais</label>
-                        <textarea 
-                          placeholder="Notas, observações, etc..." 
+                        <textarea
+                          placeholder="Notas, observações, etc..."
                           className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-800 h-20"
                           value={newTransaction.notes}
                           onChange={(e) => setNewTransaction({...newTransaction, notes: e.target.value})}
@@ -7353,12 +7385,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                    <button onClick={handleCloseModal} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-100 transition-colors">
                      Cancelar
                    </button>
-                   <button 
+                   <button
                      onClick={handleCreateTransaction}
                      disabled={isSubmittingTransaction}
                      className={`px-5 py-2.5 rounded-xl text-sm font-semibold shadow-lg transition-colors ${
-                       isSubmittingTransaction 
-                         ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none' 
+                       isSubmittingTransaction
+                         ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
                          : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-100'
                      }`}
                    >
@@ -7367,7 +7399,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                  </div>
                </div>
              ) : (
-               <motion.div 
+               <motion.div
                  initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
                  className="bg-white rounded-3xl w-full max-w-lg shadow-2xl relative z-10 p-8 overflow-hidden"
                >
@@ -7396,12 +7428,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                                   }));
                                 }}
                                 className={`flex flex-col items-center justify-center p-2 rounded-lg border text-center transition-all cursor-pointer ${
-                                  isSelected 
-                                    ? 'border-blue-500 bg-blue-50/50 shadow-sm' 
+                                  isSelected
+                                    ? 'border-blue-500 bg-blue-50/50 shadow-sm'
                                     : 'border-slate-100 bg-white hover:border-slate-200'
                                 }`}
                               >
-                                <span 
+                                <span
                                   className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white mb-1"
                                   style={{ backgroundColor: b.color }}
                                 >
@@ -7418,14 +7450,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Nome da Conta*</label>
-                        <input 
-                          type="text" placeholder="Ex: Cresol Comercial, Itaú Invest..." 
+                        <input
+                          type="text" placeholder="Ex: Cresol Comercial, Itaú Invest..."
                           className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
-                          value={newAccount.name} 
+                          value={newAccount.name}
                           onChange={(e) => setNewAccount({...newAccount, name: e.target.value})}
                         />
                       </div>
-                      
+
                       {editingAccount ? (
                         <div>
                           <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase block mb-1">
@@ -7433,14 +7465,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           </label>
                           <div className="relative flex items-center">
                             <span className="absolute left-3 text-sm font-bold text-slate-400 select-none">R$</span>
-                            <input 
+                            <input
                               type="text"
                               inputMode="decimal"
                               lang="pt-BR"
-                              placeholder="0,00" 
+                              placeholder="0,00"
                               required
                               className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 pr-3 outline-none text-slate-800 font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                              value={formatBRL(newAccount.current_balance)} 
+                              value={formatBRL(newAccount.current_balance)}
                               onChange={(e) => setNewAccount({...newAccount, current_balance: e.target.value})}
                               onBlur={(e) => setNewAccount({...newAccount, current_balance: formatBRL(e.target.value)})}
                             />
@@ -7457,14 +7489,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             </label>
                             <div className="relative flex items-center">
                               <span className="absolute left-3 text-sm font-bold text-slate-400 select-none">R$</span>
-                              <input 
+                              <input
                                 type="text"
                                 inputMode="decimal"
                                 lang="pt-BR"
-                                placeholder="0,00" 
+                                placeholder="0,00"
                                 required
                                 className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 pr-3 outline-none text-slate-800 font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                                value={formatBRL(newAccount.initial_balance)} 
+                                value={formatBRL(newAccount.initial_balance)}
                                 onChange={(e) => setNewAccount({...newAccount, initial_balance: e.target.value, current_balance: e.target.value})}
                                 onBlur={(e) => { const f = formatBRL(e.target.value); setNewAccount({...newAccount, initial_balance: f, current_balance: f}); }}
                               />
@@ -7472,7 +7504,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           </div>
                           <div>
                             <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase block mb-1">Tipo de Conta*</label>
-                            <select 
+                            <select
                               className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none text-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
                               value={newAccount.type}
                               onChange={(e) => setNewAccount({...newAccount, type: e.target.value})}
@@ -7488,7 +7520,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Cor da Conta</label>
-                        <select 
+                        <select
                           className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-805"
                           value={newAccount.color}
                           onChange={(e) => setNewAccount({...newAccount, color: e.target.value})}
@@ -7505,7 +7537,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                     <div className="flex gap-4 mt-8">
                       <button onClick={handleCloseModal} className="flex-1 font-bold text-slate-400">Cancelar</button>
-                      <button 
+                      <button
                         onClick={handleCreateAccount}
                         className="flex-1 bg-blue-600 text-white font-black py-3 rounded-xl shadow-lg"
                       >
@@ -7525,29 +7557,29 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     <div className="space-y-4">
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Nome da Categoria*</label>
-                        <input 
-                          type="text" placeholder="Ex: Impostos, Assinaturas..." 
+                        <input
+                          type="text" placeholder="Ex: Impostos, Assinaturas..."
                           className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
-                          value={newCategory.name} 
+                          value={newCategory.name}
                           onChange={(e) => setNewCategory({...newCategory, name: e.target.value})}
                         />
                       </div>
 
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Grupo / Agrupamento (Opcional)</label>
-                        <input 
-                          type="text" placeholder="Ex: Despesas Fixas, Receitas Operacionais, Impostos..." 
+                        <input
+                          type="text" placeholder="Ex: Despesas Fixas, Receitas Operacionais, Impostos..."
                           className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
-                          value={newCategory.group_name} 
+                          value={newCategory.group_name}
                           onChange={(e) => setNewCategory({...newCategory, group_name: e.target.value})}
                         />
                       </div>
-                      
+
                       {!editingCategory && (
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Tipo*</label>
-                            <select 
+                            <select
                               className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
                               value={newCategory.type}
                               onChange={(e) => setNewCategory({...newCategory, type: e.target.value as TransactionType})}
@@ -7558,7 +7590,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           </div>
                           <div>
                             <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Cor Visual</label>
-                            <select 
+                            <select
                               className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
                               value={newCategory.color}
                               onChange={(e) => setNewCategory({...newCategory, color: e.target.value})}
@@ -7576,7 +7608,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       {editingCategory && (
                         <div>
                           <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Cor Visual</label>
-                          <select 
+                          <select
                             className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
                             value={newCategory.color}
                             onChange={(e) => setNewCategory({...newCategory, color: e.target.value})}
@@ -7611,7 +7643,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                     <div className="flex gap-4 mt-8">
                       <button onClick={handleCloseModal} className="flex-1 font-bold text-slate-400">Cancelar</button>
-                      <button 
+                      <button
                         onClick={handleCreateCategory}
                         className="flex-1 bg-blue-600 text-white font-black py-3 rounded-xl shadow-lg"
                       >
@@ -7631,38 +7663,38 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     <div className="space-y-4">
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Nome / Identificador do Cartão*</label>
-                        <input 
-                          type="text" placeholder="Ex: Visa Corporate Gold..." 
+                        <input
+                          type="text" placeholder="Ex: Visa Corporate Gold..."
                           className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
-                          value={newAccount.name} 
+                          value={newAccount.name}
                           onChange={(e) => setNewAccount({...newAccount, name: e.target.value})}
                         />
                       </div>
                       <div>
                         <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Limite de Crédito Disponível (R$)*</label>
-                        <input 
-                          type="text" placeholder="0,00" 
+                        <input
+                          type="text" placeholder="0,00"
                           className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none font-bold text-slate-800"
-                          value={newAccount.credit_limit} 
+                          value={newAccount.credit_limit}
                           onChange={(e) => setNewAccount({...newAccount, credit_limit: formatBRL(e.target.value)})}
                         />
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Dia de Fechamento (1 a 31)</label>
-                          <input 
-                            type="number" min="1" max="31" placeholder="Ex: 5" 
+                          <input
+                            type="number" min="1" max="31" placeholder="Ex: 5"
                             className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
-                            value={newAccount.closing_day} 
+                            value={newAccount.closing_day}
                             onChange={(e) => setNewAccount({...newAccount, closing_day: e.target.value})}
                           />
                         </div>
                         <div>
                           <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Dia de Vencimento (1 a 31)</label>
-                          <input 
-                            type="number" min="1" max="31" placeholder="Ex: 15" 
+                          <input
+                            type="number" min="1" max="31" placeholder="Ex: 15"
                             className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
-                            value={newAccount.due_day} 
+                            value={newAccount.due_day}
                             onChange={(e) => setNewAccount({...newAccount, due_day: e.target.value})}
                           />
                         </div>
@@ -7672,7 +7704,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                     <div className="flex gap-4 mt-8">
                       <button onClick={handleCloseModal} className="flex-1 font-bold text-slate-400">Cancelar</button>
-                      <button 
+                      <button
                         onClick={() => {
                           setNewAccount(prev => ({...prev, type: 'credit_card', initial_balance: 0}));
                           handleCreateAccount();
@@ -7694,12 +7726,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       <AnimatePresence>
         {isCsvModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
               onClick={() => setIsCsvModalOpen(false)}
             />
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
               className="bg-white rounded-3xl w-full max-w-lg shadow-2xl relative z-10 p-8 overflow-hidden flex flex-col max-h-[85vh]"
             >
@@ -7709,7 +7741,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   Visualizar Categorias a Importar
                 </h2>
               </div>
-              
+
               <div className="flex-1 overflow-y-auto space-y-3 pr-2">
                 <p className="text-xs font-medium text-slate-500 mb-2">
                   As seguintes categorias foram detectadas no arquivo CSV. Verifique os dados antes de prosseguir com a importação:
@@ -7728,8 +7760,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       )}
                     </div>
                     <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
-                      item.type === TransactionType.INCOME 
-                        ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' 
+                      item.type === TransactionType.INCOME
+                        ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
                         : 'bg-rose-50 text-rose-600 border border-rose-100'
                     }`}>
                       {item.type === TransactionType.INCOME ? 'Receita' : 'Despesa'}
@@ -7737,10 +7769,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   </div>
                 ))}
               </div>
-              
+
               <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
                 <button onClick={() => setIsCsvModalOpen(false)} className="flex-1 font-bold text-slate-400 text-sm">Cancelar</button>
-                <button 
+                <button
                   onClick={handleConfirmCsvImport}
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl shadow-lg shadow-blue-100 text-sm"
                 >
@@ -7756,16 +7788,16 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       <AnimatePresence>
         {confirmModalOpen && (
           <div className="fixed inset-0 z-[99] flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
               onClick={() => setConfirmModalOpen(false)}
             />
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }} 
-              animate={{ scale: 1, opacity: 1 }} 
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               className="bg-white rounded-3xl w-full max-w-md shadow-2xl relative z-10 p-8 overflow-hidden flex flex-col"
             >
@@ -7775,19 +7807,19 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   {confirmModalTitle}
                 </h2>
               </div>
-              
+
               <div className="text-sm font-semibold text-slate-500 mb-8 leading-relaxed">
                 {confirmModalMessage}
               </div>
-              
+
               <div className="flex gap-4">
-                <button 
-                  onClick={() => setConfirmModalOpen(false)} 
+                <button
+                  onClick={() => setConfirmModalOpen(false)}
                   className="flex-1 py-3 text-slate-500 bg-slate-50 hover:bg-slate-100 font-bold text-sm rounded-xl transition-all cursor-pointer"
                 >
                   Cancelar
                 </button>
-                <button 
+                <button
                   onClick={() => {
                     if (onConfirmAction) onConfirmAction();
                     setConfirmModalOpen(false);
@@ -7868,21 +7900,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         categoryGroups={categoryGroups}
       />
 
-      <input 
-        type="file" 
-        ref={cardFileInputRef} 
-        className="hidden" 
-        accept=".csv,.ofx" 
-        onChange={handleCardFileChange} 
+      <input
+        type="file"
+        ref={cardFileInputRef}
+        className="hidden"
+        accept=".csv,.ofx"
+        onChange={handleCardFileChange}
       />
 
       {/* Modal: Importar Fatura de Cartão */}
       <AnimatePresence>
         {isImportModalOpen && importingCard && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
               onClick={() => {
@@ -7893,9 +7925,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 }
               }}
             />
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }} 
-              animate={{ scale: 1, opacity: 1 }} 
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               className="bg-white rounded-3xl w-[90vw] max-w-[1400px] shadow-2xl relative z-10 p-6 md:p-8 overflow-hidden flex flex-col max-h-[90vh]"
             >
@@ -7909,7 +7941,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     <p className="text-xs text-slate-400 font-bold uppercase mt-0.5">{importingCard.name}</p>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => {
                     setIsImportModalOpen(false);
                     setImportedLines([]);
@@ -7927,7 +7959,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
                   <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Configurações Gerais</span>
                 </div>
-                
+
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full md:w-auto">
                   <label className="text-xs font-black text-slate-400 uppercase whitespace-nowrap">Categoria Padrão para Itens:</label>
                   <select
@@ -7947,8 +7979,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
               {/* Transactions Preview Table Container */}
               <div className={`border border-slate-100 rounded-2xl mb-6 shadow-inner overflow-x-auto lg:overflow-x-clip ${
-                importedLines.length > 10 
-                  ? 'max-h-[70vh] overflow-y-auto' 
+                importedLines.length > 10
+                  ? 'max-h-[70vh] overflow-y-auto'
                   : ''
               }`}>
                 <table className="w-full text-left border-collapse table-fixed min-w-full">
@@ -7982,8 +8014,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       const defaultCategory = categories.find(c => c.id === defaultImportCategoryId);
                       const isUsingDefaultCategory = !line.categoryId;
                       return (
-                        <tr 
-                          key={line.id || idx} 
+                        <tr
+                          key={line.id || idx}
                           className={`text-xs hover:bg-slate-50/50 transition-colors ${line.isDuplicate ? 'bg-amber-50/20' : ''} ${line.selected === false ? 'opacity-60 bg-slate-50/30' : ''}`}
                         >
                           <td className="py-3.5 px-3 text-center">
@@ -8004,14 +8036,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           </td>
                           <td className="py-3.5 px-3 text-center whitespace-nowrap">
                             {line.isBalanceAdjustment ? (
-                              <span 
+                              <span
                                 className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[9px] font-black uppercase px-2.5 py-1 rounded-full border border-amber-300 shadow-sm"
                                 title="Lançamento de acerto de saldo."
                               >
                                 Acerto de Saldo
                               </span>
                             ) : line.isDuplicate ? (
-                              <span 
+                              <span
                                 className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-[9px] font-black uppercase px-2.5 py-1 rounded-full border border-amber-200"
                                 title="Aviso de possível duplicidade com lançamento existente no mesmo cartão, mesma data e mesmo valor."
                               >
@@ -8097,7 +8129,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
               {/* Action Buttons & Footer with Floating Shadow */}
               <div className="flex flex-col sm:flex-row items-center gap-4 pt-5 mt-auto border-t border-slate-100 shadow-[0_-8px_24px_rgba(0,0,0,0.04)] -mx-6 md:-mx-8 px-6 md:px-8 pb-1 bg-white z-20">
-                <button 
+                <button
                   onClick={() => {
                     setIsImportModalOpen(false);
                     setImportedLines([]);
@@ -8126,7 +8158,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     </span>
                   </div>
 
-                  <button 
+                  <button
                     onClick={handleSaveImportedInvoice}
                     disabled={loading}
                     className="bg-blue-600 hover:bg-blue-700 text-white font-black py-3 px-8 rounded-xl shadow-lg shadow-blue-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 w-full sm:w-auto"
@@ -8144,9 +8176,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       <AnimatePresence>
         {isQuickLaunchModalOpen && quickLaunchCard && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
               onClick={() => {
@@ -8156,9 +8188,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 }
               }}
             />
-            <motion.div 
-              initial={{ scale: 0.95, opacity: 0 }} 
-              animate={{ scale: 1, opacity: 1 }} 
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               className="bg-white rounded-3xl w-full max-w-md shadow-2xl relative z-10 p-8 overflow-hidden flex flex-col"
             >
@@ -8177,24 +8209,24 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <div className="space-y-4">
                 <div>
                   <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Descrição*</label>
-                  <input 
-                    type="text" 
-                    placeholder="Ex: Assinatura Software SaaS" 
+                  <input
+                    type="text"
+                    placeholder="Ex: Assinatura Software SaaS"
                     disabled={loading}
                     className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800 font-bold disabled:opacity-50"
-                    value={quickLaunchData.description} 
+                    value={quickLaunchData.description}
                     onChange={(e) => setQuickLaunchData(prev => ({ ...prev, description: e.target.value }))}
                   />
                 </div>
 
                 <div>
                   <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Valor da Compra (R$)*</label>
-                  <input 
-                    type="text" 
-                    placeholder="0,00" 
+                  <input
+                    type="text"
+                    placeholder="0,00"
                     disabled={loading}
                     className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none font-bold text-slate-800 text-lg disabled:opacity-50"
-                    value={quickLaunchData.amountStr} 
+                    value={quickLaunchData.amountStr}
                     onChange={(e) => setQuickLaunchData(prev => ({ ...prev, amountStr: formatBRL(e.target.value) }))}
                   />
                 </div>
@@ -8218,27 +8250,27 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                 <div>
                   <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Data da Compra*</label>
-                  <input 
-                    type="date" 
+                  <input
+                    type="date"
                     disabled={loading}
                     className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800 font-bold disabled:opacity-50"
-                    value={quickLaunchData.dueDate} 
+                    value={quickLaunchData.dueDate}
                     onChange={(e) => setQuickLaunchData(prev => ({ ...prev, dueDate: e.target.value }))}
                   />
                 </div>
 
                 <div className="flex gap-4 mt-8 pt-4 border-t border-slate-100">
-                  <button 
+                  <button
                     onClick={() => {
                       setIsQuickLaunchModalOpen(false);
                       setQuickLaunchCard(null);
-                    }} 
+                    }}
                     disabled={loading}
                     className="flex-1 font-bold text-slate-400 text-sm py-3 disabled:opacity-50"
                   >
                     Cancelar
                   </button>
-                  <button 
+                  <button
                     onClick={handleSaveQuickLaunch}
                     disabled={loading}
                     className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-black py-3 rounded-xl shadow-lg shadow-blue-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
@@ -8254,7 +8286,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         {/* Modal Lançar Extrato */}
         {isLancarExtratoModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]"
               onClick={() => setIsLancarExtratoModalOpen(false)}

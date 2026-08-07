@@ -21,6 +21,7 @@ import { TransferBadge } from '../../../components/TransferBadge';
 import { HeaderTooltip } from './HeaderTooltip';
 import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
 import { isCreditTransaction, getTransactionValueColor } from '../utils/currency';
+import { ConfirmModal } from '../../../components/ui/ConfirmModal';
 
 interface RentInstallmentItem {
   id: string;
@@ -47,7 +48,18 @@ interface ConciliacaoProps {
   accounts: FinancialAccount[];
   transactions?: FinancialTransaction[];
   showToast?: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
-  onOpenNewExpenseModal?: (data: { description: string; amount: number; date: string }) => void;
+  onOpenNewExpenseModal?: (data: { 
+    description: string; 
+    amount: number; 
+    date: string;
+    type?: string;
+    account_id?: string;
+    category_id?: string;
+    status?: string;
+    bank_transaction_id?: string;
+    payment_date?: string;
+  }) => void;
+  categories?: any[];
 }
 
 // Conciliação bancária de bank_transactions (Sicoob/OFX/CSV)
@@ -57,6 +69,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
   transactions = [],
   showToast,
   onOpenNewExpenseModal,
+  categories = [],
 }) => {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('ALL');
   const {
@@ -72,6 +85,87 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
   const [brokerSplits, setBrokerSplits] = useState<BrokerSplitItem[]>([]);
   const [manualTransactions, setManualTransactions] = useState<FinancialTransaction[]>([]);
   const [loadingPendingItems, setLoadingPendingItems] = useState(false);
+
+  // Modal de Reconciliação com confirmação
+  const [reconcileTargetTx, setReconcileTargetTx] = useState<BankTransaction | null>(null);
+  const [fetchedCategories, setFetchedCategories] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (supabase && (!categories || categories.length === 0)) {
+      supabase
+        .from('financial_categories')
+        .select('*')
+        .then(({ data }) => {
+          if (data) setFetchedCategories(data);
+        });
+    }
+  }, [categories]);
+
+  const inferCategoryId = (description: string, type: string) => {
+    if (!description) return '';
+    const desc = description.toLowerCase();
+    const catList = categories && categories.length > 0 ? categories : fetchedCategories;
+
+    // 1. NFS-e ou taxa
+    if (desc.includes('nfs-e') || desc.includes('taxa') || desc.includes('tarifa') || desc.includes('imposto')) {
+      const match = catList.find(c =>
+        c.type === type && (
+          c.name.toLowerCase().includes('taxa') ||
+          c.name.toLowerCase().includes('tarifa') ||
+          c.name.toLowerCase().includes('imposto') ||
+          c.name.toLowerCase().includes('bancá')
+        )
+      );
+      if (match) return match.id;
+    }
+
+    // 2. Pix & débito
+    if (desc.includes('pix') && (type === 'EXPENSE' || type === 'debit')) {
+      const match = catList.find(c =>
+        c.type === type && (
+          c.name.toLowerCase().includes('transferência') ||
+          c.name.toLowerCase().includes('transferencia') ||
+          c.name.toLowerCase().includes('pagamento') ||
+          c.name.toLowerCase().includes('pix') ||
+          c.name.toLowerCase().includes('outras despesas') ||
+          c.name.toLowerCase().includes('despesas diversas')
+        )
+      );
+      if (match) return match.id;
+    }
+
+    // 3. Cobrança recebida / aluguel
+    if (desc.includes('cobrança') || desc.includes('cobranca') || desc.includes('aluguel') || desc.includes('recebido') || desc.includes('recebida')) {
+      const match = catList.find(c =>
+        c.type === type && (
+          c.name.toLowerCase().includes('aluguel') ||
+          c.name.toLowerCase().includes('receita')
+        )
+      );
+      if (match) return match.id;
+    }
+
+    return '';
+  };
+
+  const handleLancarFromBankTx = (tx: BankTransaction) => {
+    const txType = tx.type === 'credit' ? 'INCOME' : 'EXPENSE';
+    const categoryId = inferCategoryId(tx.description, txType);
+
+    if (onOpenNewExpenseModal) {
+      onOpenNewExpenseModal({
+        description: tx.description,
+        amount: tx.amount,
+        date: tx.date,
+        payment_date: tx.date,
+        type: txType,
+        account_id: tx.account_id || (selectedAccountId !== 'ALL' ? selectedAccountId : (accounts[0]?.id || '')),
+        category_id: categoryId,
+        status: 'PAID',
+        bank_transaction_id: tx.id,
+      });
+    }
+  };
 
   // Modal de Vínculo
   const [linkingBankTx, setLinkingBankTx] = useState<BankTransaction | null>(null);
@@ -579,9 +673,9 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                           </button>
 
                           <button
-                            onClick={() => handleDirectReconcile(tx.id)}
+                            onClick={() => setReconcileTargetTx(tx)}
                             className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-                            title="Marcar como concilado direto (sem vincular)"
+                            title="Marcar como conciliado. A transação sai da lista de pendentes mas NÃO cria lançamento no extrato. Use quando a transação já está registrada em outro sistema (ex: contabilidade externa) ou é irrelevante."
                           >
                             <Check size={13} />
                             Reconciliar
@@ -589,13 +683,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
 
                           {onOpenNewExpenseModal && (
                             <button
-                              onClick={() =>
-                                onOpenNewExpenseModal({
-                                  description: tx.description,
-                                  amount: tx.amount,
-                                  date: tx.date,
-                                })
-                              }
+                              onClick={() => handleLancarFromBankTx(tx)}
                               className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
                             >
                               <PlusCircle size={13} />
@@ -1054,6 +1142,29 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
           </div>
         </div>
       )}
+
+      {/* Confirm Modal for Reconciliar */}
+      <ConfirmModal
+        isOpen={!!reconcileTargetTx}
+        onClose={() => setReconcileTargetTx(null)}
+        onConfirm={async () => {
+          if (!reconcileTargetTx) return;
+          const txId = reconcileTargetTx.id;
+          setReconcileTargetTx(null);
+          const ok = await reconcileTransaction(txId);
+          if (ok) {
+            if (showToast) showToast('Transação marcada como conciliada', 'success');
+            loadPendingItems();
+          } else {
+            if (showToast) showToast('Erro ao conciliar transação.', 'error');
+          }
+        }}
+        title="Marcar como conciliado?"
+        description="Esta transação sairá da lista de pendentes. Nenhum lançamento será criado."
+        confirmText="Confirmar"
+        cancelText="Cancelar"
+        variant="info"
+      />
     </div>
   );
 };
