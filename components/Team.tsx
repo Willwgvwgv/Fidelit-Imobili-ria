@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Edit, Trash2, UserPlus, X, Mail, Shield, User as UserIcon, Phone, Users, Crown, Briefcase } from 'lucide-react';
 import { User, UserRole } from '../types';
 import { supabaseService } from '../services/supabaseService';
+import { ConfirmModal } from './ui/ConfirmModal';
 
 interface TeamProps {
   team: User[];
@@ -28,6 +29,7 @@ const getAvatarColor = (name: string) => {
 const Team: React.FC<TeamProps> = ({ team, setTeam, currentUser }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [userToRemove, setUserToRemove] = useState<User | null>(null);
   const [formData, setFormData] = useState<Partial<User>>({ name: '', email: '', phone: '', role: UserRole.BROKER });
 
   const admins = team.filter(u => u.role === UserRole.ADMIN);
@@ -69,7 +71,17 @@ const Team: React.FC<TeamProps> = ({ team, setTeam, currentUser }) => {
 
   const handleRemove = (id: string) => {
     if (id === currentUser.id) { alert('Você não pode remover a si mesmo.'); return; }
-    if (confirm('Tem certeza que deseja remover este membro?')) setTeam(prev => prev.filter(u => u.id !== id));
+    const targetUser = team.find(u => u.id === id);
+    if (targetUser) {
+      setUserToRemove(targetUser);
+    }
+  };
+
+  const confirmRemoveUser = () => {
+    if (userToRemove) {
+      setTeam(prev => prev.filter(u => u.id !== userToRemove.id));
+      setUserToRemove(null);
+    }
   };
 
   const UserCard = ({ user }: { user: User; key?: React.Key }) => {
@@ -242,6 +254,21 @@ const Team: React.FC<TeamProps> = ({ team, setTeam, currentUser }) => {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!userToRemove}
+        title="Remover Membro"
+        message={
+          <span>
+            Tem certeza que deseja remover <strong>{userToRemove?.name}</strong> da equipe?
+          </span>
+        }
+        variant="danger"
+        confirmText="Remover"
+        cancelText="Cancelar"
+        onConfirm={confirmRemoveUser}
+        onCancel={() => setUserToRemove(null)}
+      />
     </div>
   );
 };

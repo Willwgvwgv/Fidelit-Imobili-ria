@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, X, AlertCircle, RefreshCw } from 'lucide-react';
 import { BrokerEntry, BrokerEntryType, User } from '../types';
 import { supabaseService } from '../services/supabaseService';
+import { ConfirmModal } from './ui/ConfirmModal';
 
 interface BrokerStatementProps {
   broker: User;
@@ -30,6 +31,8 @@ const BrokerStatement: React.FC<BrokerStatementProps> = ({ broker, agencyId, com
   const [formDate, setFormDate] = useState(new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [entryToDeleteId, setEntryToDeleteId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     loadEntries();
@@ -100,18 +103,26 @@ const BrokerStatement: React.FC<BrokerStatementProps> = ({ broker, agencyId, com
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Remover este lançamento?')) return;
+  const handleDelete = (id: string) => {
+    setEntryToDeleteId(id);
+  };
+
+  const executeDelete = async () => {
+    if (!entryToDeleteId) return;
     setError(null);
+    setIsDeleting(true);
     try {
-      const ok = await supabaseService.deleteBrokerEntry(id);
+      const ok = await supabaseService.deleteBrokerEntry(entryToDeleteId);
       if (ok) {
-        setEntries(prev => prev.filter(e => e.id !== id));
+        setEntries(prev => prev.filter(e => e.id !== entryToDeleteId));
       } else {
         setError('Não foi possível remover o lançamento.');
       }
     } catch (err: any) {
       setError('Erro ao deletar o lançamento.');
+    } finally {
+      setIsDeleting(false);
+      setEntryToDeleteId(null);
     }
   };
 
@@ -299,6 +310,18 @@ const BrokerStatement: React.FC<BrokerStatementProps> = ({ broker, agencyId, com
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={!!entryToDeleteId}
+        title="Remover Lançamento"
+        message="Tem certeza que deseja remover este lançamento do extrato?"
+        variant="danger"
+        confirmText="Remover"
+        cancelText="Cancelar"
+        isLoading={isDeleting}
+        onConfirm={executeDelete}
+        onCancel={() => setEntryToDeleteId(null)}
+      />
     </div>
   );
 };

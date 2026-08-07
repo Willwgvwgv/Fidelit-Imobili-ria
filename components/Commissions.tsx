@@ -22,6 +22,7 @@ import {
 import { Sale, User, UserRole, CommissionStatus } from '../types';
 import BrokerStatement from './BrokerStatement';
 import { supabaseService } from '../services/supabaseService';
+import { ConfirmModal } from './ui/ConfirmModal';
 
 interface CommissionsProps {
   sales: Sale[];
@@ -54,6 +55,11 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
 
   // Estados para visualização de comprovante
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
+
+  // Estados para modal de confirmação de exclusão
+  const [confirmDeleteSplit, setConfirmDeleteSplit] = useState<any | null>(null);
+  const [warningPaidSplitModal, setWarningPaidSplitModal] = useState<boolean>(false);
+  const [isDeletingSplit, setIsDeletingSplit] = useState<boolean>(false);
 
   const [statementBroker, setStatementBroker] = useState<User | null>(null);
   const [openStatusMenu, setOpenStatusMenu] = useState<string | null>(null);
@@ -452,9 +458,9 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
     }
   };
 
-  const handleDeleteSplit = async (comm: any) => {
+  const handleDeleteSplit = (comm: any) => {
     if (comm.status === CommissionStatus.PAID || comm.paymentDate) {
-      alert("Rateio com pagamento registrado não pode ser excluído. Estorne o pagamento primeiro.");
+      setWarningPaidSplitModal(true);
       return;
     }
 
@@ -463,18 +469,30 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
       return;
     }
 
-    const confirmed = window.confirm("Tem certeza que deseja excluir este rateio?");
-    if (!confirmed) return;
+    setConfirmDeleteSplit(comm);
+  };
 
-    const success = await supabaseService.deleteSplit(comm.id);
-    if (success) {
-      if (onRefresh) {
-        onRefresh();
-      } else if (onDeleteSplit) {
-        await onDeleteSplit(comm.id);
+  const executeDeleteSplit = async () => {
+    if (!confirmDeleteSplit?.id) return;
+
+    setIsDeletingSplit(true);
+    try {
+      const success = await supabaseService.deleteSplit(confirmDeleteSplit.id);
+      if (success) {
+        if (onRefresh) {
+          onRefresh();
+        } else if (onDeleteSplit) {
+          await onDeleteSplit(confirmDeleteSplit.id);
+        }
+      } else {
+        alert("Erro ao excluir o rateio.");
       }
-    } else {
+    } catch (err) {
+      console.error("Erro ao excluir rateio:", err);
       alert("Erro ao excluir o rateio.");
+    } finally {
+      setIsDeletingSplit(false);
+      setConfirmDeleteSplit(null);
     }
   };
 
@@ -1055,6 +1073,35 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
           </div>
         </div>
       )}
+
+      {/* Modal de Confirmação de Exclusão de Rateio */}
+      <ConfirmModal
+        open={!!confirmDeleteSplit}
+        title="Excluir Rateio"
+        message={
+          <span>
+            Tem certeza que deseja excluir o rateio de <strong>{confirmDeleteSplit?.brokerName || 'Corretor'}</strong> no valor de <strong>R$ {(confirmDeleteSplit?.value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>?
+          </span>
+        }
+        variant="danger"
+        confirmText="Excluir Rateio"
+        cancelText="Cancelar"
+        isLoading={isDeletingSplit}
+        onConfirm={executeDeleteSplit}
+        onCancel={() => setConfirmDeleteSplit(null)}
+      />
+
+      {/* Modal de Aviso de Rateio Pago */}
+      <ConfirmModal
+        open={warningPaidSplitModal}
+        title="Ação Não Permitida"
+        message="Rateio com pagamento registrado não pode ser excluído. Estorne o pagamento primeiro."
+        variant="warning"
+        confirmText="Entendido"
+        showCancel={false}
+        onConfirm={() => setWarningPaidSplitModal(false)}
+        onCancel={() => setWarningPaidSplitModal(false)}
+      />
     </div>
   );
 };
