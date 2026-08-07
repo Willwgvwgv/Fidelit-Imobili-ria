@@ -455,13 +455,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         setAmountInputStr(editingTransaction.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
         setMarkAsPaid(editingTransaction.status === TransactionStatus.PAID);
         setResponsibleClient(editingTransaction.contact_name || '');
-      } else {
+      } else if (!isAutoFilledFromBank) {
         setAmountInputStr('');
         setMarkAsPaid(false);
         setResponsibleClient('');
       }
     }
-  }, [isModalOpen, editingTransaction, modalType]);
+  }, [isModalOpen, editingTransaction, modalType, isAutoFilledFromBank]);
 
   const handleAmountBlur = () => {
     const parsed = parseBrlValue(amountInputStr);

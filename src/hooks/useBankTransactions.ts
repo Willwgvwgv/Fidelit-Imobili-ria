@@ -82,7 +82,7 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
 
       const { error: insertErr } = await supabase
         .from('bank_transactions')
-        .upsert(payload, { onConflict: 'account_id,ofx_fitid', ignoreDuplicates: true });
+        .upsert(payload, { onConflict: 'ofx_fitid' });
 
       if (insertErr) {
         if (insertErr.code === '23505') {

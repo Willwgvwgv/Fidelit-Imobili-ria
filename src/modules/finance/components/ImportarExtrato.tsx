@@ -20,6 +20,12 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
   const [selectedAccountId, setSelectedAccountId] = useState<string>(
     accounts.length > 0 ? accounts[0].id : ''
   );
+
+  React.useEffect(() => {
+    if (!selectedAccountId && accounts.length > 0) {
+      setSelectedAccountId(accounts[0].id);
+    }
+  }, [accounts, selectedAccountId]);
   const [selectedBank, setSelectedBank] = useState<string>('Sicoob');
   const [file, setFile] = useState<File | null>(null);
   const [fileContent, setFileContent] = useState<string>('');

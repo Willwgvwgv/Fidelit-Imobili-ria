@@ -107,9 +107,9 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
     const catList = categories && categories.length > 0 ? categories : fetchedCategories;
 
     // 1. NFS-e ou taxa
-    if (desc.includes('nfs-e') || desc.includes('taxa') || desc.includes('tarifa') || desc.includes('imposto')) {
+    if (desc.includes('nfs-e') || desc.includes('taxa') || desc.includes('tarifa') || desc.includes('imposto') || desc.includes('bancá') || desc.includes('bancaria') || desc.includes('iof')) {
       const match = catList.find(c =>
-        c.type === type && (
+        (c.type === type || !c.type) && (
           c.name.toLowerCase().includes('taxa') ||
           c.name.toLowerCase().includes('tarifa') ||
           c.name.toLowerCase().includes('imposto') ||
@@ -122,7 +122,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
     // 2. Pix & débito
     if (desc.includes('pix') && (type === 'EXPENSE' || type === 'debit')) {
       const match = catList.find(c =>
-        c.type === type && (
+        (c.type === type || !c.type) && (
           c.name.toLowerCase().includes('transferência') ||
           c.name.toLowerCase().includes('transferencia') ||
           c.name.toLowerCase().includes('pagamento') ||
@@ -134,16 +134,21 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
       if (match) return match.id;
     }
 
-    // 3. Cobrança recebida / aluguel
+    // 3. Cobrança recebida / aluguel / receita
     if (desc.includes('cobrança') || desc.includes('cobranca') || desc.includes('aluguel') || desc.includes('recebido') || desc.includes('recebida')) {
       const match = catList.find(c =>
-        c.type === type && (
+        (c.type === type || !c.type) && (
           c.name.toLowerCase().includes('aluguel') ||
-          c.name.toLowerCase().includes('receita')
+          c.name.toLowerCase().includes('receita') ||
+          c.name.toLowerCase().includes('loca')
         )
       );
       if (match) return match.id;
     }
+
+    // Fallback: primeira categoria do tipo correto se houver
+    const defaultForType = catList.find(c => c.type === type);
+    if (defaultForType) return defaultForType.id;
 
     return '';
   };
@@ -151,15 +156,16 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
   const handleLancarFromBankTx = (tx: BankTransaction) => {
     const txType = tx.type === 'credit' ? 'INCOME' : 'EXPENSE';
     const categoryId = inferCategoryId(tx.description, txType);
+    const targetAccountId = tx.account_id || (selectedAccountId !== 'ALL' ? selectedAccountId : (accounts[0]?.id || ''));
 
     if (onOpenNewExpenseModal) {
       onOpenNewExpenseModal({
         description: tx.description,
-        amount: tx.amount,
+        amount: Math.abs(Number(tx.amount || 0)),
         date: tx.date,
         payment_date: tx.date,
         type: txType,
-        account_id: tx.account_id || (selectedAccountId !== 'ALL' ? selectedAccountId : (accounts[0]?.id || '')),
+        account_id: targetAccountId,
         category_id: categoryId,
         status: 'PAID',
         bank_transaction_id: tx.id,
@@ -1160,8 +1166,8 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
           }
         }}
         title="Marcar como conciliado?"
-        description="Esta transação sairá da lista de pendentes. Nenhum lançamento será criado."
-        confirmText="Confirmar"
+        description="Esta transação sairá da lista de pendentes. Nenhum lançamento será criado no extrato."
+        confirmText="Marcar como Conciliado"
         cancelText="Cancelar"
         variant="info"
       />
