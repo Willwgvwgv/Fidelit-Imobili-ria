@@ -1,5 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { 
   Search, 
   Download, 
@@ -628,6 +630,427 @@ const Commissions: React.FC<CommissionsProps> = ({
     }
   };
 
+  const handleExportPDF = () => {
+    try {
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const now = new Date();
+      const formattedDate = now.toLocaleDateString('pt-BR');
+      const formattedTime = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const currentDateTimeStr = `${formattedDate} às ${formattedTime}`;
+
+      const formatCurrencyVal = (val?: number | null) => {
+        return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
+      };
+
+      const formatDateLocal = (d?: string) => {
+        if (!d) return '-';
+        const clean = d.split('T')[0];
+        const parts = clean.split('-');
+        if (parts.length === 3) {
+          return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        }
+        return d;
+      };
+
+      const getRoleName = (role?: string) => {
+        if (!role) return 'Corretor';
+        const r = String(role).toLowerCase();
+        if (r.includes('agency') || r.includes('agencia') || r.includes('agência')) return 'Agência';
+        if (r.includes('partner') || r.includes('socio') || r.includes('sócio')) return 'Sócio';
+        if (r.includes('capturer') || r.includes('captador')) return 'Captador';
+        if (r.includes('manager') || r.includes('gerente')) return 'Gerente';
+        if (r.includes('broker') || r.includes('corretor')) return 'Corretor';
+        return role;
+      };
+
+      const getStatusText = (st?: string) => {
+        if (!st) return 'PENDENTE';
+        const s = String(st).toUpperCase();
+        if (s === 'PAID') return 'PAGO';
+        if (s === 'PENDING') return 'PENDENTE';
+        if (s === 'OVERDUE') return 'ATRASADO';
+        if (s === 'PARTIAL') return 'PARCIAL';
+        return s;
+      };
+
+      // Agency name
+      const agencyName = currentUser?.agencyId ? "Agência Imobiliária" : "Agência";
+
+      // Period label
+      let periodLabel = "Período Total";
+      if (period === 'month') periodLabel = "Este Mês";
+      else if (period === 'prev_month') periodLabel = "Mês Anterior";
+      else if (period === 'quarter') periodLabel = "Este Trimestre";
+      else if (period === 'year') periodLabel = "Este Ano";
+      else if (period === 'custom') {
+        const s = startDate ? formatDateLocal(startDate) : 'Início';
+        const e = endDate ? formatDateLocal(endDate) : 'Fim';
+        periodLabel = `De ${s} até ${e}`;
+      }
+
+      // Filter details text
+      let filterDetails = "";
+      if (statusFilter !== 'ALL') {
+        filterDetails += ` | Status: ${getStatusText(statusFilter)}`;
+      }
+      if (brokerFilter !== 'ALL') {
+        const brokerObj = team.find(u => u.id === brokerFilter);
+        if (brokerObj) filterDetails += ` | Corretor: ${brokerObj.name}`;
+      }
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      let y = 16;
+
+      // === PÁGINA 1: RESUMO EXECUTIVO ===
+      doc.setFillColor(30, 41, 59); // Slate 800
+      doc.rect(14, y, pageWidth - 28, 24, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text("RELATÓRIO DE COMISSÕES", 20, y + 10);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text(`${agencyName} — ${periodLabel}${filterDetails}`, 20, y + 18);
+
+      y += 30;
+
+      doc.setTextColor(100, 116, 139);
+      doc.setFontSize(8);
+      doc.text(`Gerado em: ${currentDateTimeStr}`, 14, y);
+
+      y += 6;
+
+      // Totais por status
+      let paidCount = 0, paidVal = 0;
+      let pendingCount = 0, pendingVal = 0;
+      let overdueCount = 0, overdueVal = 0;
+      let partialCount = 0, partialVal = 0;
+
+      filteredCommissions.forEach(c => {
+        const val = c.value || 0;
+        if (c.status === CommissionStatus.PAID) {
+          paidCount++;
+          paidVal += val;
+        } else if (c.status === CommissionStatus.OVERDUE) {
+          overdueCount++;
+          overdueVal += val;
+        } else if (c.status === CommissionStatus.PENDING) {
+          pendingCount++;
+          pendingVal += val;
+        }
+      });
+
+      groupedCommissions.forEach(g => {
+        if (g.groupStatus === 'PARTIAL') {
+          partialCount++;
+          partialVal += g.totalValue;
+        }
+      });
+
+      const totalCount = filteredCommissions.length;
+      const totalVal = paidVal + pendingVal + overdueVal;
+
+      doc.setTextColor(30, 41, 59);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.text("1. Resumo Executivo", 14, y + 4);
+      y += 8;
+
+      autoTable(doc, {
+        startY: y,
+        head: [['Status', 'Qtd Registros', 'Valor Total']],
+        body: [
+          ['PAGO', paidCount.toString(), formatCurrencyVal(paidVal)],
+          ['PENDENTE', pendingCount.toString(), formatCurrencyVal(pendingVal)],
+          ['ATRASADO', overdueCount.toString(), formatCurrencyVal(overdueVal)],
+          ['PARCIAL (Grupos)', partialCount.toString(), formatCurrencyVal(partialVal)],
+          ['TOTAL GERAL', totalCount.toString(), formatCurrencyVal(totalVal)],
+        ],
+        theme: 'grid',
+        headStyles: {
+          fillColor: [79, 70, 229],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 9,
+        },
+        bodyStyles: {
+          fontSize: 9,
+          textColor: [51, 65, 85],
+        },
+        columnStyles: {
+          0: { fontStyle: 'bold', cellWidth: 50 },
+          1: { halign: 'center', cellWidth: 40 },
+          2: { halign: 'right', fontStyle: 'bold' },
+        },
+        margin: { left: 14, right: 14 },
+      });
+
+      y = (doc as any).lastAutoTable.finalY + 14;
+
+      // === PÁGINAS 2+: DETALHAMENTO POR VENDA ===
+      const salesMap = new Map<string, any[]>();
+      filteredCommissions.forEach(comm => {
+        if (!salesMap.has(comm.saleId)) {
+          salesMap.set(comm.saleId, []);
+        }
+        salesMap.get(comm.saleId)!.push(comm);
+      });
+
+      if (salesMap.size > 0) {
+        doc.addPage();
+        y = 16;
+
+        doc.setTextColor(30, 41, 59);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.text("2. Detalhamento por Venda", 14, y);
+        y += 10;
+
+        let saleIndex = 1;
+        salesMap.forEach((splitsInSale, saleId) => {
+          const saleObj = sales.find(s => s.id === saleId);
+          const propertyName = saleObj?.propertyAddress || splitsInSale[0]?.property || "Imóvel Não Identificado";
+          const saleDate = formatDateLocal(saleObj?.saleDate || splitsInSale[0]?.date);
+          const vgvVal = saleObj?.vgv ? formatCurrencyVal(saleObj.vgv) : 'R$ 0,00';
+          const commVal = saleObj?.totalCommissionValue ? formatCurrencyVal(saleObj.totalCommissionValue) : formatCurrencyVal(splitsInSale.reduce((a, b) => a + (b.value || 0), 0));
+
+          if (y > 230) {
+            doc.addPage();
+            y = 16;
+          }
+
+          doc.setFillColor(248, 250, 252);
+          doc.setDrawColor(226, 232, 240);
+          doc.roundedRect(14, y, pageWidth - 28, 18, 2, 2, 'FD');
+
+          doc.setTextColor(15, 23, 42);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.text(`VENDA #${saleIndex} — ${propertyName}`, 18, y + 6);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text(`Data: ${saleDate}   |   VGV: ${vgvVal}   |   Comissão Total: ${commVal}`, 18, y + 13);
+
+          y += 22;
+
+          const tableBody = splitsInSale.map(split => {
+            let pct = '-';
+            if (split.percentage !== undefined && split.percentage !== null) {
+              pct = `${split.percentage}%`;
+            } else if (saleObj?.totalCommissionValue && saleObj.totalCommissionValue > 0) {
+              pct = `${((split.value / saleObj.totalCommissionValue) * 100).toFixed(1)}%`;
+            }
+
+            return [
+              split.brokerName || 'Não Informado',
+              getRoleName(split.role),
+              pct,
+              formatCurrencyVal(split.value),
+              getStatusText(split.status),
+              split.paymentDate ? formatDateLocal(split.paymentDate) : '-'
+            ];
+          });
+
+          const saleSubtotal = splitsInSale.reduce((acc, curr) => acc + (curr.value || 0), 0);
+
+          autoTable(doc, {
+            startY: y,
+            head: [['Corretor / Beneficiário', 'Papel', '%', 'Valor', 'Status', 'Pago em']],
+            body: tableBody,
+            foot: [[
+              { content: 'Subtotal desta Venda', colSpan: 3, styles: { fontStyle: 'bold', halign: 'right' } },
+              { content: formatCurrencyVal(saleSubtotal), colSpan: 3, styles: { fontStyle: 'bold', halign: 'left' } }
+            ]],
+            theme: 'striped',
+            headStyles: {
+              fillColor: [241, 245, 249],
+              textColor: [30, 41, 59],
+              fontStyle: 'bold',
+              fontSize: 8,
+            },
+            bodyStyles: {
+              fontSize: 8,
+              textColor: [51, 65, 85],
+            },
+            footStyles: {
+              fillColor: [241, 245, 249],
+              textColor: [30, 41, 59],
+              fontSize: 8,
+            },
+            columnStyles: {
+              0: { cellWidth: 55 },
+              1: { cellWidth: 25 },
+              2: { halign: 'center', cellWidth: 20 },
+              3: { halign: 'right', fontStyle: 'bold', cellWidth: 30 },
+              4: { halign: 'center', cellWidth: 25 },
+              5: { halign: 'center', cellWidth: 25 },
+            },
+            margin: { left: 14, right: 14 },
+          });
+
+          y = (doc as any).lastAutoTable.finalY + 12;
+          saleIndex++;
+        });
+      }
+
+      // === PÁGINA FINAL: RESUMO POR CORRETOR ===
+      doc.addPage();
+      y = 16;
+
+      doc.setTextColor(30, 41, 59);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(14);
+      doc.text("3. Resumo por Corretor", 14, y);
+      y += 10;
+
+      const brokerStatsMap = new Map<string, {
+        name: string;
+        totalQtd: number;
+        pago: number;
+        pendente: number;
+        atrasado: number;
+      }>();
+
+      team.forEach(member => {
+        brokerStatsMap.set(member.id, {
+          name: member.name,
+          totalQtd: 0,
+          pago: 0,
+          pendente: 0,
+          atrasado: 0,
+        });
+      });
+
+      filteredCommissions.forEach(comm => {
+        const bKey = comm.brokerId || comm.brokerName;
+        if (!brokerStatsMap.has(bKey)) {
+          brokerStatsMap.set(bKey, {
+            name: comm.brokerName || 'Desconhecido',
+            totalQtd: 0,
+            pago: 0,
+            pendente: 0,
+            atrasado: 0,
+          });
+        }
+
+        const stats = brokerStatsMap.get(bKey)!;
+        stats.totalQtd += 1;
+
+        const val = comm.value || 0;
+        if (comm.status === CommissionStatus.PAID) {
+          stats.pago += val;
+        } else if (comm.status === CommissionStatus.OVERDUE) {
+          stats.atrasado += val;
+        } else {
+          stats.pendente += val;
+        }
+      });
+
+      const brokerRows: any[] = [];
+      let totQtd = 0;
+      let totPago = 0;
+      let totPendente = 0;
+      let totAtrasado = 0;
+      let totAReceber = 0;
+
+      brokerStatsMap.forEach((stats) => {
+        const aReceber = stats.pago + stats.pendente + stats.atrasado;
+
+        totQtd += stats.totalQtd;
+        totPago += stats.pago;
+        totPendente += stats.pendente;
+        totAtrasado += stats.atrasado;
+        totAReceber += aReceber;
+
+        brokerRows.push([
+          stats.name,
+          stats.totalQtd.toString(),
+          formatCurrencyVal(stats.pago),
+          formatCurrencyVal(stats.pendente),
+          formatCurrencyVal(stats.atrasado),
+          formatCurrencyVal(aReceber),
+        ]);
+      });
+
+      autoTable(doc, {
+        startY: y,
+        head: [['Corretor', 'Total', 'Pago', 'Pendente', 'Atrasado', 'A Receber']],
+        body: brokerRows,
+        foot: [[
+          'TOTAL',
+          totQtd.toString(),
+          formatCurrencyVal(totPago),
+          formatCurrencyVal(totPendente),
+          formatCurrencyVal(totAtrasado),
+          formatCurrencyVal(totAReceber),
+        ]],
+        theme: 'grid',
+        headStyles: {
+          fillColor: [79, 70, 229],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 8.5,
+        },
+        bodyStyles: {
+          fontSize: 8.5,
+          textColor: [51, 65, 85],
+        },
+        footStyles: {
+          fillColor: [30, 41, 59],
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 8.5,
+        },
+        columnStyles: {
+          0: { cellWidth: 50 },
+          1: { halign: 'center', cellWidth: 15 },
+          2: { halign: 'right', cellWidth: 28 },
+          3: { halign: 'right', cellWidth: 28 },
+          4: { halign: 'right', cellWidth: 28 },
+          5: { halign: 'right', fontStyle: 'bold', cellWidth: 33 },
+        },
+        margin: { left: 14, right: 14 },
+      });
+
+      // === RODAPÉ E NUMERAÇÃO DE PÁGINAS ===
+      const totalPages = doc.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184);
+
+        const pageHeight = doc.internal.pageSize.getHeight();
+        
+        doc.setDrawColor(226, 232, 240);
+        doc.line(14, pageHeight - 12, pageWidth - 14, pageHeight - 12);
+
+        doc.text(
+          `Página ${i} de ${totalPages}   |   ComissOne — Relatório de Comissões   |   Gerado em ${currentDateTimeStr}`,
+          pageWidth / 2,
+          pageHeight - 6,
+          { align: 'center' }
+        );
+      }
+
+      const todayISO = new Date().toISOString().split('T')[0];
+      doc.save(`comissoes_${todayISO}.pdf`);
+      triggerToast("Relatório PDF baixado com sucesso!", "success");
+    } catch (err) {
+      console.error("Erro ao gerar PDF:", err);
+      triggerToast("Erro ao gerar relatório em PDF.", "error");
+    }
+  };
+
   const handleExportCSV = () => {
     const headers = ["Data", "Imóvel", "Corretor", "Valor", "Status", "Previsão"];
     const rows = filteredCommissions.map(c => [
@@ -807,12 +1230,22 @@ const Commissions: React.FC<CommissionsProps> = ({
           </div>
 
           {/* Exportar */}
-          <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-2 h-[38px] px-4 text-sm bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-all"
-          >
-            <Download size={16} /> Exportar CSV
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportPDF}
+              className="flex items-center gap-2 h-[38px] px-4 text-sm bg-indigo-600 text-white font-semibold rounded-lg hover:bg-indigo-700 transition-all shadow-sm cursor-pointer"
+              title="Exportar Relatório em PDF"
+            >
+              <FileText size={16} /> Exportar PDF
+            </button>
+            <button
+              onClick={handleExportCSV}
+              className="flex items-center gap-2 h-[38px] px-4 text-sm bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition-all shadow-sm cursor-pointer"
+              title="Exportar Planilha CSV"
+            >
+              <Download size={16} /> Exportar CSV
+            </button>
+          </div>
         </div>
 
         {/* Datas customizadas — aparece inline quando selecionado */}
