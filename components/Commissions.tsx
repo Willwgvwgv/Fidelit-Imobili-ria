@@ -34,9 +34,19 @@ interface CommissionsProps {
   onUpdateForecast?: (saleId: string, brokerId: string, newForecastDate: string) => void;
   onDeleteSplit?: (splitId: string) => Promise<boolean | void> | void;
   onRefresh?: () => void;
+  showToast?: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
-const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onUpdateStatus, onUpdateForecast, onDeleteSplit, onRefresh }) => {
+const Commissions: React.FC<CommissionsProps> = ({ 
+  sales, 
+  team, 
+  currentUser, 
+  onUpdateStatus, 
+  onUpdateForecast, 
+  onDeleteSplit, 
+  onRefresh,
+  showToast: showToastProp 
+}) => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [brokerFilter, setBrokerFilter] = useState<string>('ALL');
@@ -44,6 +54,18 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   const [endDate, setEndDate] = useState<string>('');
   const [period, setPeriod] = useState<string>('all');
   const [sortDateDir, setSortDateDir] = useState<'desc' | 'asc'>('desc');
+
+  // Estado para Toast Notification
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'warning' | 'info' } | null>(null);
+
+  const triggerToast = (message: string, type: 'success' | 'error' | 'warning' | 'info' = 'success') => {
+    if (showToastProp) {
+      showToastProp(message, type);
+    } else {
+      setToast({ message, type });
+      setTimeout(() => setToast(null), 4000);
+    }
+  };
   
   // Estados para modal de previsão
   const [isForecastModalOpen, setIsForecastModalOpen] = useState(false);
@@ -459,7 +481,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
 
   const handleConfirmPayment = () => {
     if (!paymentDate) {
-      alert("Por favor, selecione a data do pagamento.");
+      triggerToast("Por favor, selecione a data do pagamento.", "warning");
       return;
     }
     if (selectedPayment) {
@@ -467,6 +489,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
       setIsPaymentModalOpen(false);
       setSelectedPayment(null);
       setPaymentReceipt(null);
+      triggerToast("Pagamento registrado com sucesso!", "success");
     }
   };
 
@@ -477,7 +500,7 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
     }
 
     if (!comm.id) {
-      alert("ID do rateio não encontrado.");
+      triggerToast("ID do rateio não encontrado.", "error");
       return;
     }
 
@@ -487,21 +510,30 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   const executeDeleteSplit = async () => {
     if (!confirmDeleteSplit?.id) return;
 
+    const targetSplit = confirmDeleteSplit;
     setIsDeletingSplit(true);
     try {
-      const success = await supabaseService.deleteSplit(confirmDeleteSplit.id);
+      const success = await supabaseService.deleteSplit(targetSplit.id);
       if (success) {
+        setConfirmDeleteSplit(null);
+        setIsDeletingSplit(false);
+        triggerToast("Rateio excluído com sucesso.", "success");
+
         if (onRefresh) {
           onRefresh();
         } else if (onDeleteSplit) {
-          await onDeleteSplit(confirmDeleteSplit.id);
+          await onDeleteSplit(targetSplit.id);
         }
       } else {
-        alert("Erro ao excluir o rateio.");
+        setConfirmDeleteSplit(null);
+        setIsDeletingSplit(false);
+        triggerToast("Erro ao excluir o rateio.", "error");
       }
     } catch (err) {
       console.error("Erro ao excluir rateio:", err);
-      alert("Erro ao excluir o rateio.");
+      setConfirmDeleteSplit(null);
+      setIsDeletingSplit(false);
+      triggerToast("Erro ao excluir o rateio.", "error");
     } finally {
       setIsDeletingSplit(false);
       setConfirmDeleteSplit(null);
@@ -515,9 +547,11 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   const executeEstornarSplit = async () => {
     if (!confirmEstornarSplit?.id) return;
 
+    const commToEstornar = confirmEstornarSplit;
     setIsEstornandoSplit(true);
+
     try {
-      const splitId = confirmEstornarSplit.id;
+      const splitId = commToEstornar.id;
 
       let oldData: any = null;
       if (supabase) {
@@ -566,19 +600,28 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
           }
         }
 
-        alert("Pagamento estornado. Agora você pode deletar se for duplicata.");
+        // Close modal immediately and stop loading state
+        setConfirmEstornarSplit(null);
+        setIsEstornandoSplit(false);
+
+        // Show styled toast notification
+        triggerToast("Pagamento estornado. Agora você pode deletar se for duplicata.", "success");
 
         if (onRefresh) {
           onRefresh();
         } else if (onUpdateStatus) {
-          onUpdateStatus(confirmEstornarSplit.saleId, confirmEstornarSplit.brokerId, CommissionStatus.PENDING);
+          onUpdateStatus(commToEstornar.saleId, commToEstornar.brokerId, CommissionStatus.PENDING);
         }
       } else {
-        alert("Erro ao estornar o pagamento.");
+        setConfirmEstornarSplit(null);
+        setIsEstornandoSplit(false);
+        triggerToast("Erro ao estornar o pagamento.", "error");
       }
     } catch (err) {
       console.error("Erro ao estornar pagamento:", err);
-      alert("Erro ao estornar o pagamento.");
+      setConfirmEstornarSplit(null);
+      setIsEstornandoSplit(false);
+      triggerToast("Erro ao estornar o pagamento.", "error");
     } finally {
       setIsEstornandoSplit(false);
       setConfirmEstornarSplit(null);
@@ -1223,6 +1266,18 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
         onConfirm={() => setWarningPaidSplitModal(false)}
         onCancel={() => setWarningPaidSplitModal(false)}
       />
+
+      {/* Notification Toast */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-[100] text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center space-x-3 border border-white/20 backdrop-blur-sm transition-all ${
+          toast.type === 'error' ? 'bg-rose-600' :
+          toast.type === 'warning' ? 'bg-amber-600' :
+          toast.type === 'info' ? 'bg-blue-600' :
+          'bg-emerald-600'
+        }`}>
+          <p className="text-xs font-bold tracking-wide">{toast.message}</p>
+        </div>
+      )}
     </div>
   );
 };

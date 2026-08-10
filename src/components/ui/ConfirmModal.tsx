@@ -2,29 +2,41 @@ import React from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface ConfirmModalProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen?: boolean;
+  open?: boolean;
+  onClose?: () => void;
+  onCancel?: () => void;
   onConfirm: () => void;
   title: string;
-  description: string;
+  description?: React.ReactNode;
+  message?: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   variant?: 'danger' | 'info' | 'warning' | 'primary';
   isLoading?: boolean;
+  showCancel?: boolean;
 }
 
 export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   isOpen,
+  open,
   onClose,
+  onCancel,
   onConfirm,
   title,
   description,
+  message,
   confirmText = 'Confirmar',
   cancelText = 'Cancelar',
   variant = 'info',
   isLoading = false,
+  showCancel = true,
 }) => {
-  if (!isOpen) return null;
+  const isVisible = open !== undefined ? open : (isOpen ?? false);
+  const handleClose = onCancel || onClose || (() => {});
+  const bodyText = message || description;
+
+  if (!isVisible) return null;
 
   const getConfirmBtnColor = () => {
     switch (variant) {
@@ -56,7 +68,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     <div className="fixed inset-0 z-[99] flex items-center justify-center p-4">
       <div 
         className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" 
-        onClick={onClose}
+        onClick={handleClose}
       />
       <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl relative z-10 p-6 overflow-hidden flex flex-col space-y-4 border border-slate-100">
         <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
@@ -67,18 +79,20 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         </div>
 
         <div className="text-xs font-medium text-slate-600 leading-relaxed">
-          {description}
+          {bodyText}
         </div>
 
         <div className="flex gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isLoading}
-            className="flex-1 py-2.5 text-slate-600 bg-slate-100 hover:bg-slate-200 font-bold text-xs rounded-xl transition-all cursor-pointer"
-          >
-            {cancelText}
-          </button>
+          {showCancel && (
+            <button
+              type="button"
+              onClick={handleClose}
+              disabled={isLoading}
+              className="flex-1 py-2.5 text-slate-600 bg-slate-100 hover:bg-slate-200 font-bold text-xs rounded-xl transition-all cursor-pointer"
+            >
+              {cancelText}
+            </button>
+          )}
           <button
             type="button"
             onClick={onConfirm}
