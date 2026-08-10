@@ -775,7 +775,7 @@ const Commissions: React.FC<CommissionsProps> = ({
         ],
         theme: 'grid',
         headStyles: {
-          fillColor: [79, 70, 229],
+          fillColor: [37, 99, 235],
           textColor: [255, 255, 255],
           fontStyle: 'bold',
           fontSize: 9,
@@ -872,8 +872,8 @@ const Commissions: React.FC<CommissionsProps> = ({
             ]],
             theme: 'striped',
             headStyles: {
-              fillColor: [241, 245, 249],
-              textColor: [30, 41, 59],
+              fillColor: [37, 99, 235],
+              textColor: [255, 255, 255],
               fontStyle: 'bold',
               fontSize: 8,
             },
@@ -920,21 +920,26 @@ const Commissions: React.FC<CommissionsProps> = ({
         atrasado: number;
       }>();
 
-      team.forEach(member => {
-        brokerStatsMap.set(member.id, {
-          name: member.name,
-          totalQtd: 0,
-          pago: 0,
-          pendente: 0,
-          atrasado: 0,
-        });
-      });
-
       filteredCommissions.forEach(comm => {
-        const bKey = comm.brokerId || comm.brokerName;
+        let displayName = comm.brokerName?.trim() || 'Desconhecido';
+        let bKey = comm.brokerId ? comm.brokerId.trim().toLowerCase() : '';
+
+        // Tenta associar com membro do time para garantir nome/ID canônico
+        const teamMember = team.find(m => 
+          (comm.brokerId && m.id === comm.brokerId) || 
+          (m.name && comm.brokerName && m.name.trim().toLowerCase() === comm.brokerName.trim().toLowerCase())
+        );
+
+        if (teamMember) {
+          bKey = teamMember.id;
+          displayName = teamMember.name.trim();
+        } else if (!bKey) {
+          bKey = displayName.toLowerCase();
+        }
+
         if (!brokerStatsMap.has(bKey)) {
           brokerStatsMap.set(bKey, {
-            name: comm.brokerName || 'Desconhecido',
+            name: displayName,
             totalQtd: 0,
             pago: 0,
             pendente: 0,
@@ -955,6 +960,11 @@ const Commissions: React.FC<CommissionsProps> = ({
         }
       });
 
+      // Filtrar apenas corretores com Total > 0 (qtd > 0 ou valor > 0)
+      const activeBrokers = Array.from(brokerStatsMap.values()).filter(
+        b => b.totalQtd > 0 || (b.pago + b.pendente + b.atrasado) > 0
+      );
+
       const brokerRows: any[] = [];
       let totQtd = 0;
       let totPago = 0;
@@ -962,7 +972,7 @@ const Commissions: React.FC<CommissionsProps> = ({
       let totAtrasado = 0;
       let totAReceber = 0;
 
-      brokerStatsMap.forEach((stats) => {
+      activeBrokers.forEach((stats) => {
         const aReceber = stats.pago + stats.pendente + stats.atrasado;
 
         totQtd += stats.totalQtd;
@@ -995,7 +1005,7 @@ const Commissions: React.FC<CommissionsProps> = ({
         ]],
         theme: 'grid',
         headStyles: {
-          fillColor: [79, 70, 229],
+          fillColor: [37, 99, 235],
           textColor: [255, 255, 255],
           fontStyle: 'bold',
           fontSize: 8.5,
