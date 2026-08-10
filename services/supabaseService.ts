@@ -456,7 +456,7 @@ export const supabaseService = {
   async updateSplitStatus(
     splitId: string, 
     status: CommissionStatus, 
-    paymentData?: { date?: string, method?: string, receipt?: string }
+    paymentData?: { date?: string, method?: string, receipt?: string } | null
   ): Promise<boolean> {
     if (!supabase) return false;
 
@@ -465,6 +465,10 @@ export const supabaseService = {
       if (paymentData.date) updateData.payment_date = paymentData.date;
       if (paymentData.method) updateData.payment_method = paymentData.method;
       if (paymentData.receipt) updateData.receipt_data = paymentData.receipt;
+    } else {
+      updateData.payment_date = null;
+      updateData.payment_method = null;
+      updateData.receipt_data = null;
     }
 
     const { error } = await supabase

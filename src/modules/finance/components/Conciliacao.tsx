@@ -222,30 +222,35 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
       setRentInstallments(formattedInst);
 
       // 2. Fetch ALL broker splits (including PENDING and PAID)
-      const { data: splitData } = await supabase
-        .from('broker_splits')
-        .select(`
-          id,
-          sale_id,
-          calculated_value,
-          status,
-          forecast_date,
-          due_date,
-          broker_name,
-          users (
-            name
-          )
-        `);
+      try {
+        const { data: splitData, error: splitErr } = await supabase
+          .from('broker_splits')
+          .select(`
+            id,
+            sale_id,
+            calculated_value,
+            status,
+            forecast_date,
+            payment_date,
+            broker_name
+          `);
 
-      const formattedSplits: BrokerSplitItem[] = (splitData || []).map((item: any) => ({
-        id: item.id,
-        sale_id: item.sale_id,
-        broker_name: item.users?.name || item.broker_name || 'Corretor',
-        calculated_value: Number(item.calculated_value || 0),
-        due_date: item.due_date || item.forecast_date || new Date().toISOString().split('T')[0],
-        status: item.status,
-      }));
-      setBrokerSplits(formattedSplits);
+        if (splitErr) {
+          console.warn('Aviso ao carregar comissões (broker_splits):', splitErr.message);
+        } else if (splitData) {
+          const formattedSplits: BrokerSplitItem[] = splitData.map((item: any) => ({
+            id: item.id,
+            sale_id: item.sale_id,
+            broker_name: item.broker_name || 'Corretor',
+            calculated_value: Number(item.calculated_value || 0),
+            due_date: item.forecast_date || item.payment_date || new Date().toISOString().split('T')[0],
+            status: item.status,
+          }));
+          setBrokerSplits(formattedSplits);
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar comissões:', err);
+      }
 
       // 3. Fetch manual transactions from financial_transactions
       if (transactions && transactions.length > 0) {

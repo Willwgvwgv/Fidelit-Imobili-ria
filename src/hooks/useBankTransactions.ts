@@ -128,34 +128,62 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
 
   const matchTransaction = async (
     bankTxId: string,
-    matchType: 'rent' | 'sale' | 'broker_split' | 'owner_payout' | 'expense' | 'other',
+    matchType: 'rent' | 'sale' | 'broker_split' | 'owner_payout' | 'expense' | 'other' | string,
     matchId: string
   ) => {
-    if (!supabase) return false;
+    if (!supabase || !bankTxId) return false;
+
+    const cleanMatchId = (matchId && typeof matchId === 'string' && matchId.trim() !== '') ? matchId.trim() : null;
+    const cleanMatchType = (matchType && typeof matchType === 'string' && matchType.trim() !== '') ? matchType.trim() : null;
+
     try {
-      const { error: err } = await supabase
+      const payload: Record<string, any> = {
+        status: 'reconciled',
+        updated_at: new Date().toISOString(),
+      };
+
+      if (cleanMatchType) payload.match_type = cleanMatchType;
+      if (cleanMatchId) payload.match_id = cleanMatchId;
+
+      let { error: err } = await supabase
         .from('bank_transactions')
-        .update({
-          status: 'reconciled',
-          match_type: matchType,
-          match_id: matchId,
-          updated_at: new Date().toISOString(),
-        })
+        .update(payload)
         .eq('id', bankTxId);
 
-      if (err) throw err;
+      if (err) {
+        console.warn('First match attempt failed, retrying with fallback:', err.message);
+        const retryPayload: Record<string, any> = {
+          status: 'reconciled',
+          updated_at: new Date().toISOString(),
+        };
+        if (cleanMatchId) retryPayload.matched_id = cleanMatchId;
+
+        const { error: retryErr } = await supabase
+          .from('bank_transactions')
+          .update(retryPayload)
+          .eq('id', bankTxId);
+
+        if (retryErr) {
+          console.error('Retry match also failed:', retryErr.message);
+          return false;
+        }
+      }
 
       // If matching with a rent installment, update installment status to 'received'
-      if (matchType === 'rent') {
-        await supabase
-          .from('rent_installments')
-          .update({
-            status: 'received',
-            bank_tx_id: bankTxId,
-            received_at: new Date().toISOString().split('T')[0],
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', matchId);
+      if (cleanMatchType === 'rent' && cleanMatchId) {
+        try {
+          await supabase
+            .from('rent_installments')
+            .update({
+              status: 'received',
+              bank_tx_id: bankTxId,
+              received_at: new Date().toISOString().split('T')[0],
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', cleanMatchId);
+        } catch (rentErr) {
+          console.warn('Could not update rent_installments:', rentErr);
+        }
       }
 
       await fetchTransactions();
@@ -167,9 +195,9 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
   };
 
   const ignoreTransaction = async (bankTxId: string) => {
-    if (!supabase) return false;
+    if (!supabase || !bankTxId) return false;
     try {
-      const { error: err } = await supabase
+      let { error: err } = await supabase
         .from('bank_transactions')
         .update({
           status: 'ignored',
@@ -177,7 +205,16 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
         })
         .eq('id', bankTxId);
 
-      if (err) throw err;
+      if (err) {
+        const { error: retryErr } = await supabase
+          .from('bank_transactions')
+          .update({
+            status: 'IGNORED',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', bankTxId);
+        if (retryErr) throw retryErr;
+      }
       await fetchTransactions();
       return true;
     } catch (err) {
@@ -187,9 +224,9 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
   };
 
   const reconcileTransaction = async (bankTxId: string) => {
-    if (!supabase) return false;
+    if (!supabase || !bankTxId) return false;
     try {
-      const { error: err } = await supabase
+      let { error: err } = await supabase
         .from('bank_transactions')
         .update({
           status: 'reconciled',
@@ -197,7 +234,16 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
         })
         .eq('id', bankTxId);
 
-      if (err) throw err;
+      if (err) {
+        const { error: retryErr } = await supabase
+          .from('bank_transactions')
+          .update({
+            status: 'RECONCILED',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', bankTxId);
+        if (retryErr) throw retryErr;
+      }
       await fetchTransactions();
       return true;
     } catch (err) {

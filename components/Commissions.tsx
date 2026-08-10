@@ -17,11 +17,13 @@ import {
   Eye,
   Check,
   TrendingUp,
-  Trash2
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
 import { Sale, User, UserRole, CommissionStatus } from '../types';
 import BrokerStatement from './BrokerStatement';
 import { supabaseService } from '../services/supabaseService';
+import { supabase } from '../supabase';
 import { ConfirmModal } from './ui/ConfirmModal';
 
 interface CommissionsProps {
@@ -61,6 +63,10 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
   const [confirmDeleteSplit, setConfirmDeleteSplit] = useState<any | null>(null);
   const [warningPaidSplitModal, setWarningPaidSplitModal] = useState<boolean>(false);
   const [isDeletingSplit, setIsDeletingSplit] = useState<boolean>(false);
+
+  // Estados para estorno de pagamento
+  const [confirmEstornarSplit, setConfirmEstornarSplit] = useState<any | null>(null);
+  const [isEstornandoSplit, setIsEstornandoSplit] = useState<boolean>(false);
 
   const [statementBroker, setStatementBroker] = useState<User | null>(null);
   const [openStatusMenu, setOpenStatusMenu] = useState<string | null>(null);
@@ -502,6 +508,83 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
     }
   };
 
+  const handleOpenEstornarModal = (comm: any) => {
+    setConfirmEstornarSplit(comm);
+  };
+
+  const executeEstornarSplit = async () => {
+    if (!confirmEstornarSplit?.id) return;
+
+    setIsEstornandoSplit(true);
+    try {
+      const splitId = confirmEstornarSplit.id;
+
+      let oldData: any = null;
+      if (supabase) {
+        try {
+          const { data } = await supabase
+            .from('broker_splits')
+            .select('*')
+            .eq('id', splitId)
+            .single();
+          oldData = data;
+        } catch (e) {
+          console.warn('Could not fetch old split data for audit log:', e);
+        }
+      }
+
+      const success = await supabaseService.updateSplitStatus(splitId, CommissionStatus.PENDING, null);
+
+      if (success) {
+        if (supabase) {
+          try {
+            const newData = {
+              ...(oldData || {}),
+              status: 'PENDING',
+              payment_date: null,
+              payment_method: null,
+              receipt_data: null,
+            };
+
+            await supabase.from('audit_log').insert([{
+              table_name: 'broker_splits',
+              record_id: splitId,
+              action: 'UPDATE',
+              user_email: currentUser?.email || '',
+              agency_id: currentUser?.agencyId || null,
+              changed_fields: JSON.stringify({
+                status: "PAGO→PENDENTE",
+                payment_date: "limpo",
+                payment_method: "limpo",
+                receipt_data: "limpo"
+              }),
+              old_data: oldData ? JSON.stringify(oldData) : null,
+              new_data: JSON.stringify(newData)
+            }]);
+          } catch (auditErr) {
+            console.warn('Error inserting into audit_log:', auditErr);
+          }
+        }
+
+        alert("Pagamento estornado. Agora você pode deletar se for duplicata.");
+
+        if (onRefresh) {
+          onRefresh();
+        } else if (onUpdateStatus) {
+          onUpdateStatus(confirmEstornarSplit.saleId, confirmEstornarSplit.brokerId, CommissionStatus.PENDING);
+        }
+      } else {
+        alert("Erro ao estornar o pagamento.");
+      }
+    } catch (err) {
+      console.error("Erro ao estornar pagamento:", err);
+      alert("Erro ao estornar o pagamento.");
+    } finally {
+      setIsEstornandoSplit(false);
+      setConfirmEstornarSplit(null);
+    }
+  };
+
   const handleExportCSV = () => {
     const headers = ["Data", "Imóvel", "Corretor", "Valor", "Status", "Previsão"];
     const rows = filteredCommissions.map(c => [
@@ -838,6 +921,9 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
                               {isAdmin && comm.status !== CommissionStatus.PAID && (
                                 <button onClick={e => { e.stopPropagation(); handleOpenPaymentModal(comm); }} className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title="Registrar Pagamento"><DollarSign size={15} /></button>
                               )}
+                              {isAdmin && comm.status === CommissionStatus.PAID && (
+                                <button onClick={e => { e.stopPropagation(); handleOpenEstornarModal(comm); }} className="p-1.5 text-amber-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-all" title="Estornar pagamento. Volta status para Pendente e limpa data/método/comprovante. Depois você pode deletar."><RotateCcw size={15} /></button>
+                              )}
                               {comm.receiptData && (
                                 <button onClick={e => { e.stopPropagation(); setViewingReceipt(comm.receiptData); }} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Ver Comprovante"><Eye size={15} /></button>
                               )}
@@ -880,6 +966,9 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
                             )}
                             {isAdmin && comm.status !== CommissionStatus.PAID && (
                               <button onClick={e => { e.stopPropagation(); handleOpenPaymentModal(comm); }} className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all" title="Registrar Pagamento"><DollarSign size={15} /></button>
+                            )}
+                            {isAdmin && comm.status === CommissionStatus.PAID && (
+                              <button onClick={e => { e.stopPropagation(); handleOpenEstornarModal(comm); }} className="p-1.5 text-amber-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-all" title="Estornar pagamento. Volta status para Pendente e limpa data/método/comprovante. Depois você pode deletar."><RotateCcw size={15} /></button>
                             )}
                             {comm.receiptData && (
                               <button onClick={e => { e.stopPropagation(); setViewingReceipt(comm.receiptData); }} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Ver Comprovante"><Eye size={15} /></button>
@@ -1092,6 +1181,19 @@ const Commissions: React.FC<CommissionsProps> = ({ sales, team, currentUser, onU
           </div>
         </div>
       )}
+
+      {/* Modal de Confirmação de Estorno de Pagamento */}
+      <ConfirmModal
+        open={!!confirmEstornarSplit}
+        title="Estornar pagamento?"
+        message="Este rateio voltará para status Pendente. O pagamento registrado será removido mas o histórico fica no audit log. Depois você poderá deletar se for duplicata."
+        variant="warning"
+        confirmText="Estornar"
+        cancelText="Cancelar"
+        isLoading={isEstornandoSplit}
+        onConfirm={executeEstornarSplit}
+        onCancel={() => setConfirmEstornarSplit(null)}
+      />
 
       {/* Modal de Confirmação de Exclusão de Rateio */}
       <ConfirmModal
