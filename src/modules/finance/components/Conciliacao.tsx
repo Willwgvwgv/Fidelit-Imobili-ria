@@ -23,6 +23,7 @@ import { TransferBadge } from '../../../components/TransferBadge';
 import { HeaderTooltip } from './HeaderTooltip';
 import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
 import { isCreditTransaction, getTransactionValueColor } from '../utils/currency';
+import { formatDateBR } from '../utils/dates';
 import { ConfirmModal } from '../../../components/ui/ConfirmModal';
 
 interface RentInstallmentItem {
@@ -876,7 +877,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                           />
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[11px] font-mono text-slate-500 font-semibold">{tx.date}</span>
+                              <span className="text-[11px] font-mono text-slate-500 font-semibold">{formatDateBR(tx.date)}</span>
                               <span
                                 className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full border ${
                                   isCreditTransaction(tx)
@@ -1022,7 +1023,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-mono text-slate-500 font-semibold">{tx.date}</span>
+                            <span className="text-[11px] font-mono text-slate-500 font-semibold">{formatDateBR(tx.date)}</span>
                             <span
                               className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full border ${
                                 isCreditTransaction(tx)
@@ -1196,7 +1197,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
               <span className="font-bold block uppercase tracking-wider text-[10px] text-indigo-600">Extrato Bancário:</span>
               <p className="font-bold text-sm">{linkingBankTx.description}</p>
               <p className="font-mono">
-                {linkingBankTx.date} |{' '}
+                {formatDateBR(linkingBankTx.date)} |{' '}
                 <strong className={linkingBankTx.type === 'credit' ? 'text-emerald-700' : 'text-rose-700'}>
                   R$ {linkingBankTx.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </strong>
