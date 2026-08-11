@@ -649,12 +649,24 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
           agency_id: currentUser.agencyId,
           type: isDebit ? 'EXPENSE' : 'INCOME',
           status: 'PAID',
-          category: isDebit ? 'Despesas Diversas' : 'Receitas Diversas',
         })
         .select()
         .single();
 
-      if (createErr || !createdTx) throw createErr || new Error('Falha ao criar lançamento.');
+      if (createErr) {
+        console.error('[createManualLancamento] Supabase error:', {
+          code: createErr.code,
+          message: createErr.message,
+          details: createErr.details,
+          hint: createErr.hint,
+        });
+        if (showToast) {
+          showToast(`Erro ao criar lançamento: ${createErr.message || createErr.code}`, 'error');
+        }
+        return;
+      }
+
+      if (!createdTx) throw new Error('Falha ao criar lançamento.');
 
       const ok = await matchTransaction(linkingBankTx.id, 'expense', createdTx.id);
       if (ok) {
