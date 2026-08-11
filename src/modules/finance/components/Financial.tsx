@@ -48,6 +48,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
+import { BankLogo, getNormalizedBankCode } from '../../../components/BankLogo';
 import {
   User,
   FinancialAccount,
@@ -129,7 +130,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const getAccountBank = (account: FinancialAccount) => {
     const bankCode = (account as any).bank_code;
     if (!bankCode) return null;
-    return BANKS.find(b => b.code === bankCode) || null;
+    const norm = getNormalizedBankCode(bankCode);
+    return BANKS.find(b => b.code === bankCode || b.code === norm) || null;
   };
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -7426,153 +7428,199 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
              ) : (
                <motion.div
                  initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-                 className="bg-white rounded-3xl w-full max-w-lg shadow-2xl relative z-10 p-8 overflow-hidden"
+                 className="bg-white rounded-3xl w-full max-w-xl shadow-2xl relative z-10 overflow-hidden"
                >
                 {/* 2. Modal type: Account creation */}
-                {modalType === 'account' && (
-                  <div>
-                    <h2 className="text-xl font-black text-slate-900 mb-6 flex items-center gap-2">
-                       <Landmark className="text-blue-500" size={24} />
-                       {editingAccount ? 'Editar Conta Bancária' : 'Adicionar Nova Conta'}
-                    </h2>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase mb-2 block">Banco</label>
-                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-2 bg-slate-50 rounded-xl border border-slate-100">
-                          {BANKS.map(b => {
-                            const isSelected = newAccount.bank_code === b.code;
-                            return (
-                              <button
-                                key={b.code}
-                                type="button"
-                                onClick={() => {
-                                  setNewAccount(prev => ({
-                                    ...prev,
-                                    bank_code: b.code,
-                                    color: b.color // "Usar a cor automaticamente"
-                                  }));
-                                }}
-                                className={`flex flex-col items-center justify-center p-2 rounded-lg border text-center transition-all cursor-pointer ${
-                                  isSelected
-                                    ? 'border-blue-500 bg-blue-50/50 shadow-sm'
-                                    : 'border-slate-100 bg-white hover:border-slate-200'
-                                }`}
-                              >
-                                <span
-                                  className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white mb-1"
-                                  style={{ backgroundColor: b.color }}
-                                >
-                                  {b.initials}
-                                </span>
-                                <span className="text-[10px] font-extrabold text-slate-700 truncate w-full">
-                                  {b.name}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
+                 {modalType === 'account' && (
+                   <div className="flex flex-col">
+                     {/* Header */}
+                     <div className="p-6 border-b border-slate-100 bg-white flex items-center justify-between">
+                       <div className="flex items-center gap-3">
+                         <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                           <Landmark size={20} />
+                         </div>
+                         <div>
+                           <h2 className="text-xl font-semibold text-slate-900 leading-tight">
+                             {editingAccount ? 'Editar Conta Bancária' : 'Adicionar Nova Conta'}
+                           </h2>
+                           <p className="text-xs text-slate-500 font-medium">
+                             {editingAccount ? 'Atualize os dados da sua conta bancária' : 'Cadastre uma nova conta financeira'}
+                           </p>
+                         </div>
+                       </div>
+                       <button
+                         type="button"
+                         onClick={handleCloseModal}
+                         className="text-slate-400 hover:text-slate-600 p-2 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+                         title="Fechar"
+                       >
+                         <X size={20} />
+                       </button>
+                     </div>
 
-                      <div>
-                        <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Nome da Conta*</label>
-                        <input
-                          type="text" placeholder="Ex: Cresol Comercial, Itaú Invest..."
-                          className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-800"
-                          value={newAccount.name}
-                          onChange={(e) => setNewAccount({...newAccount, name: e.target.value})}
-                        />
-                      </div>
+                     {/* Form Body */}
+                     <div className="p-6 space-y-5 bg-white">
+                       {/* Seção Banco */}
+                       <div>
+                         <label className="text-xs font-semibold text-slate-500 tracking-wider uppercase block mb-2.5">
+                           BANCO
+                         </label>
+                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                           {[
+                             { code: 'sicoob', name: 'Sicoob', color: '#006B3F', normalized: 'sicoob' },
+                             { code: 'cresol', name: 'Cresol', color: '#007BC0', normalized: 'cresol' },
+                             { code: 'inter', name: 'Inter', color: '#FF7A00', normalized: 'inter' },
+                             { code: 'outros', name: 'Outros', color: '#64748b', normalized: 'outros' },
+                           ].map((b) => {
+                             const isSelected = getNormalizedBankCode(newAccount.bank_code) === b.normalized;
+                             return (
+                               <button
+                                 key={b.normalized}
+                                 type="button"
+                                 onClick={() => {
+                                   setNewAccount((prev) => ({
+                                     ...prev,
+                                     bank_code: b.code,
+                                     color: b.color,
+                                   }));
+                                 }}
+                                 className={`aspect-square rounded-xl border-2 p-4 bg-white flex flex-col items-center justify-center text-center transition-all cursor-pointer ${isSelected ? "border-blue-500 ring-2 ring-blue-100 bg-blue-50/20 shadow-xs" : "border-slate-200 hover:border-slate-300 hover:shadow-md"}`}
+                               >
+                                 <BankLogo code={b.normalized} size={48} className="w-12 h-12" />
+                                 <span className="text-sm font-medium text-slate-700 mt-2">
+                                   {b.name}
+                                 </span>
+                               </button>
+                             );
+                           })}
+                         </div>
+                       </div>
 
-                      {editingAccount ? (
-                        <div>
-                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase block mb-1">
-                            Saldo Atual*
-                          </label>
-                          <div className="relative flex items-center">
-                            <span className="absolute left-3 text-sm font-bold text-slate-400 select-none">R$</span>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              lang="pt-BR"
-                              placeholder="0,00"
-                              required
-                              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 pr-3 outline-none text-slate-800 font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                              value={formatBRL(newAccount.current_balance)}
-                              onChange={(e) => setNewAccount({...newAccount, current_balance: e.target.value})}
-                              onBlur={(e) => setNewAccount({...newAccount, current_balance: formatBRL(e.target.value)})}
-                            />
-                          </div>
-                          <p className="text-xs text-slate-500 mt-1">
-                            Saldo Anterior: {formatCurrency(editingAccount.current_balance !== undefined && editingAccount.current_balance !== null ? editingAccount.current_balance : (editingAccount.initial_balance || 0))}
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase block mb-1">
-                              Saldo Inicial (R$)*
-                            </label>
-                            <div className="relative flex items-center">
-                              <span className="absolute left-3 text-sm font-bold text-slate-400 select-none">R$</span>
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                lang="pt-BR"
-                                placeholder="0,00"
-                                required
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 pr-3 outline-none text-slate-800 font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                                value={formatBRL(newAccount.initial_balance)}
-                                onChange={(e) => setNewAccount({...newAccount, initial_balance: e.target.value, current_balance: e.target.value})}
-                                onBlur={(e) => { const f = formatBRL(e.target.value); setNewAccount({...newAccount, initial_balance: f, current_balance: f}); }}
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase block mb-1">Tipo de Conta*</label>
-                            <select
-                              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 outline-none text-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                              value={newAccount.type}
-                              onChange={(e) => setNewAccount({...newAccount, type: e.target.value})}
-                            >
-                              <option value="checking">Conta Corrente</option>
-                              <option value="savings">Poupança</option>
-                              <option value="credit_card">Cartão de Crédito</option>
-                              <option value="cash">Caixa</option>
-                            </select>
-                          </div>
-                        </div>
-                      )}
+                       {/* Nome da Conta */}
+                       <div>
+                         <label className="text-xs font-semibold text-slate-500 tracking-wider uppercase block mb-1.5">
+                           NOME DA CONTA*
+                         </label>
+                         <input
+                           type="text"
+                           placeholder="Ex: Conta principal, Conta salários"
+                           className="w-full rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none text-slate-800 text-sm font-medium py-3 px-4 transition-all bg-white"
+                           value={newAccount.name}
+                           onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })}
+                         />
+                       </div>
 
-                      <div>
-                        <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Cor da Conta</label>
-                        <select
-                          className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none text-slate-805"
-                          value={newAccount.color}
-                          onChange={(e) => setNewAccount({...newAccount, color: e.target.value})}
-                        >
-                          <option value="#3b82f6">Azul Standard</option>
-                          <option value="#10b981">Verde</option>
-                          <option value="#f43f5e">Vermelho</option>
-                          <option value="#eab308">Amarelo Itaú</option>
-                          <option value="#8b5cf6">Roxo</option>
-                          <option value="#1e293b">Cinza Escuro</option>
-                        </select>
-                      </div>
-                    </div>
+                       {/* Saldo */}
+                       {editingAccount ? (
+                         <div>
+                           <label className="text-xs font-semibold text-slate-500 tracking-wider uppercase block mb-1.5">
+                             SALDO ATUAL*
+                           </label>
+                           <div className="relative flex items-center">
+                             <span className="absolute left-4 text-sm font-bold text-slate-400 select-none">
+                               R$
+                             </span>
+                             <input
+                               type="text"
+                               inputMode="decimal"
+                               lang="pt-BR"
+                               placeholder="0,00"
+                               required
+                               className="w-full rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none text-slate-900 font-bold text-base py-3 pl-11 pr-4 transition-all bg-white"
+                               value={formatBRL(newAccount.current_balance)}
+                               onChange={(e) => setNewAccount({ ...newAccount, current_balance: e.target.value })}
+                               onBlur={(e) => setNewAccount({ ...newAccount, current_balance: formatBRL(e.target.value) })}
+                             />
+                           </div>
+                           <p className="text-xs text-slate-500 mt-1.5 font-medium">
+                             Saldo Anterior: {formatCurrency(editingAccount.current_balance !== undefined && editingAccount.current_balance !== null ? editingAccount.current_balance : (editingAccount.initial_balance || 0))}
+                           </p>
+                         </div>
+                       ) : (
+                         <div className="grid grid-cols-2 gap-4">
+                           <div>
+                             <label className="text-xs font-semibold text-slate-500 tracking-wider uppercase block mb-1.5">
+                               SALDO INICIAL (R$)*
+                             </label>
+                             <div className="relative flex items-center">
+                               <span className="absolute left-4 text-sm font-bold text-slate-400 select-none">
+                                 R$
+                               </span>
+                               <input
+                                 type="text"
+                                 inputMode="decimal"
+                                 lang="pt-BR"
+                                 placeholder="0,00"
+                                 required
+                                 className="w-full rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none text-slate-900 font-bold text-base py-3 pl-11 pr-4 transition-all bg-white"
+                                 value={formatBRL(newAccount.initial_balance)}
+                                 onChange={(e) => setNewAccount({ ...newAccount, initial_balance: e.target.value, current_balance: e.target.value })}
+                                 onBlur={(e) => {
+                                   const f = formatBRL(e.target.value);
+                                   setNewAccount({ ...newAccount, initial_balance: f, current_balance: f });
+                                 }}
+                               />
+                             </div>
+                           </div>
+                           <div>
+                             <label className="text-xs font-semibold text-slate-500 tracking-wider uppercase block mb-1.5">
+                               TIPO DE CONTA*
+                             </label>
+                             <select
+                               className="w-full rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none text-slate-800 text-sm font-medium py-3 px-4 transition-all bg-white"
+                               value={newAccount.type}
+                               onChange={(e) => setNewAccount({ ...newAccount, type: e.target.value })}
+                             >
+                               <option value="checking">Conta Corrente</option>
+                               <option value="savings">Poupança</option>
+                               <option value="credit_card">Cartão de Crédito</option>
+                               <option value="cash">Caixa</option>
+                             </select>
+                           </div>
+                         </div>
+                       )}
 
-                    <div className="flex gap-4 mt-8">
-                      <button onClick={handleCloseModal} className="flex-1 font-bold text-slate-400">Cancelar</button>
-                      <button
-                        onClick={handleCreateAccount}
-                        className="flex-1 bg-blue-600 text-white font-black py-3 rounded-xl shadow-lg"
-                      >
-                        {editingAccount ? 'Salvar Alterações' : 'Salvar Conta'}
-                      </button>
-                    </div>
-                  </div>
-                )}
+                       {/* Cor da Conta */}
+                       <div>
+                         <label className="text-xs font-semibold text-slate-500 tracking-wider uppercase block mb-1.5">
+                           COR DA CONTA
+                         </label>
+                         <select
+                           className="w-full rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none text-slate-800 text-sm font-medium py-3 px-4 transition-all bg-white"
+                           value={newAccount.color}
+                           onChange={(e) => setNewAccount({ ...newAccount, color: e.target.value })}
+                         >
+                           <option value="#3b82f6">Azul Standard</option>
+                           <option value="#10b981">Verde</option>
+                           <option value="#f43f5e">Vermelho</option>
+                           <option value="#eab308">Amarelo Itaú</option>
+                           <option value="#8b5cf6">Roxo</option>
+                           <option value="#1e293b">Cinza Escuro</option>
+                         </select>
+                       </div>
+                     </div>
 
-                {/* 3. Modal type: Category creation */}
+                     {/* Footer */}
+                     <div className="p-6 border-t border-slate-100 bg-white flex items-center justify-end gap-3">
+                       <button
+                         type="button"
+                         onClick={handleCloseModal}
+                         className="px-5 py-3 text-slate-600 hover:bg-slate-50 rounded-xl font-medium text-sm transition-colors cursor-pointer"
+                       >
+                         Cancelar
+                       </button>
+                       <button
+                         type="button"
+                         onClick={handleCreateAccount}
+                         className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-medium text-sm hover:from-blue-700 hover:to-indigo-700 transition-all px-6 py-3 shadow-xs hover:shadow-md cursor-pointer"
+                       >
+                         {editingAccount ? 'Salvar Alterações' : 'Salvar Conta'}
+                       </button>
+                     </div>
+                   </div>
+                 )}
+
+                 {/* 3. Modal type: Category creation */}
                 {modalType === 'category' && (
                   <div>
                     <h2 className="text-xl font-black text-slate-900 mb-6 flex items-center gap-2">

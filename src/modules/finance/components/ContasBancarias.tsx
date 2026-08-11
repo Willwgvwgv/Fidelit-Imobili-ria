@@ -5,6 +5,7 @@ import { formatCurrency } from '../utils/currency';
 import { getLocalTodayStr } from '../utils/dates';
 import { supabase } from '../../../../supabase';
 import { HeaderTooltip } from './HeaderTooltip';
+import { BankLogo, getNormalizedBankCode } from '../../../components/BankLogo';
 
 export const BANKS = [
   { code: '001', name: 'Banco do Brasil', initials: 'BB', color: '#fcf800' },
@@ -443,23 +444,20 @@ export const ContasBancarias: React.FC<ContasBancariasProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
           {filteredAccounts.map(account => {
             const liveBalance = getAccountLiveBalance(account);
-            const bank = BANKS.find(b => b.code === (account as any).bank_code);
-            const initials = bank ? bank.initials : 'BC';
-            const bankName = bank ? bank.name : 'Banco';
-            const bankColor = bank ? bank.color : '#64748b';
+            const rawBankCode = (account as any).bank_code;
+            const normBankCode = getNormalizedBankCode(rawBankCode);
+            const bank = BANKS.find(b => b.code === rawBankCode || b.code === normBankCode);
+            const bankName = bank ? bank.name : (normBankCode !== 'outros' ? normBankCode.toUpperCase() : 'Banco');
 
             return (
               <div key={account.id} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between pb-3 border-b border-slate-50 mb-4">
                     <div className="flex items-center gap-2.5">
-                      <div 
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-sm shrink-0"
-                        style={{ backgroundColor: bankColor }}
-                      >
-                        {initials}
+                      <div className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 p-1">
+                        <BankLogo code={normBankCode} size={24} className="w-6 h-6" />
                       </div>
-                      <span className="text-xs font-extrabold text-slate-700 tracking-tight">
+                      <span className="text-xs font-extrabold text-slate-700 tracking-tight capitalize">
                         {bankName}
                       </span>
                     </div>
