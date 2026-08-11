@@ -555,6 +555,10 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       }
     }
 
+    const nonAgencySplit = tempSplits.find(s => s.brokerId !== 'AGENCY');
+    const extBrokerId = nonAgencySplit?.brokerId !== 'AGENCY' ? nonAgencySplit?.brokerId : undefined;
+    const extBrokerName = nonAgencySplit?.brokerName && nonAgencySplit?.brokerName !== 'Agência (Imobiliária)' ? nonAgencySplit?.brokerName : undefined;
+
     const saleData: Omit<Sale, 'id' | 'splits'> = {
       agencyId,
       saleDate,
@@ -573,6 +577,8 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       notes,
       buyer_cpf: buyerCpf,
       seller_cpf: sellerCpf,
+      external_broker_id: editingSale?.external_broker_id || extBrokerId,
+      external_broker_name: editingSale?.external_broker_name || extBrokerName,
       is_installment: isInstallment,
       installments: isInstallment ? generatedInstallments : null,
       status: isDraft ? 'DRAFT' : (editingSale?.status || 'ACTIVE')

@@ -894,6 +894,29 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                 </div>
               </div>
 
+              {/* Corretor Responsável */}
+              {(() => {
+                const nonAgencySplits = (detailSale.splits || []).filter(s => s.brokerId !== 'AGENCY');
+                const brokerNames = nonAgencySplits.map(s => {
+                  const brokerObj = team.find(u => u.id === s.brokerId);
+                  if (brokerObj) return brokerObj.name;
+                  if (s.brokerName && s.brokerName !== 'Corretor Externo' && s.brokerName !== 'Corretor') return s.brokerName;
+                  if (detailSale.external_broker_name) return detailSale.external_broker_name;
+                  return s.brokerName;
+                });
+                const uniqueNames = Array.from(new Set(brokerNames.filter(Boolean)));
+                const displayBroker = uniqueNames.length > 0 
+                  ? uniqueNames.join(', ') 
+                  : (detailSale.external_broker_name || '—');
+
+                return (
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Corretor Responsável</p>
+                    <p className="text-sm font-semibold text-slate-700">{displayBroker}</p>
+                  </div>
+                );
+              })()}
+
               {/* VGV / Comissão */}
               <div className="grid grid-cols-2 gap-4 bg-slate-50 rounded-2xl px-4 py-3">
                 <div>
@@ -921,9 +944,16 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                 // Agrupar splits por brokerId, somando valores
                 const grouped = detailSale.splits.reduce((acc: Record<string, { brokerName: string; role: string; percentage: number; totalValue: number }>, split) => {
                   const key = split.brokerId || split.brokerName || 'unknown';
+                  const brokerObj = team.find(u => u.id === split.brokerId);
+                  let resolvedName = brokerObj ? brokerObj.name : split.brokerName;
+                  if (!resolvedName || resolvedName === 'Corretor Externo' || resolvedName === 'Corretor') {
+                    if (detailSale.external_broker_name) {
+                      resolvedName = detailSale.external_broker_name;
+                    }
+                  }
                   if (!acc[key]) {
                     acc[key] = {
-                      brokerName: split.brokerName,
+                      brokerName: resolvedName || split.brokerName || 'Agência',
                       role: split.role,
                       percentage: split.percentage,
                       totalValue: 0

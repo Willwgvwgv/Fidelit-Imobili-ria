@@ -172,6 +172,8 @@ export const supabaseService = {
       status: s.status,
       buyer_cpf: s.buyer_cpf,
       seller_cpf: s.seller_cpf,
+      external_broker_id: s.external_broker_id,
+      external_broker_name: s.external_broker_name,
       is_installment: s.is_installment,
       installments: s.installments,
       created_at: s.created_at,
@@ -227,6 +229,8 @@ export const supabaseService = {
         status: sale.status || 'ACTIVE',
         buyer_cpf: sale.buyer_cpf,
         seller_cpf: sale.seller_cpf,
+        external_broker_id: sale.external_broker_id,
+        external_broker_name: sale.external_broker_name,
         is_installment: sale.is_installment,
         installments: sale.installments
       })
@@ -305,6 +309,8 @@ export const supabaseService = {
         status: sale.status,
         buyer_cpf: sale.buyer_cpf,
         seller_cpf: sale.seller_cpf,
+        external_broker_id: sale.external_broker_id,
+        external_broker_name: sale.external_broker_name,
         is_installment: sale.is_installment,
         installments: sale.installments
       })

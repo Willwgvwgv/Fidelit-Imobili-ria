@@ -68,6 +68,8 @@ export interface Sale {
   status?: string;
   buyer_cpf?: string;
   seller_cpf?: string;
+  external_broker_id?: string;
+  external_broker_name?: string;
   is_installment?: boolean;
   installments?: any;
   splits: BrokerSplit[];
