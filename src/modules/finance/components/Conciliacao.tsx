@@ -41,6 +41,9 @@ interface BrokerSplitItem {
   calculated_value: number;
   due_date?: string;
   status: string;
+  buyer_name?: string;
+  buyer_document?: string;
+  property_address?: string;
 }
 
 interface ConciliacaoProps {
@@ -221,7 +224,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
       }));
       setRentInstallments(formattedInst);
 
-      // 2. Fetch ALL broker splits (including PENDING and PAID)
+      // 2. Fetch ALL broker splits (including PENDING and PAID) with sale details
       try {
         const { data: splitData, error: splitErr } = await supabase
           .from('broker_splits')
@@ -232,7 +235,13 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
             status,
             forecast_date,
             payment_date,
-            broker_name
+            broker_name,
+            sales (
+              buyer_name,
+              buyer_document,
+              property_address,
+              code
+            )
           `);
 
         if (splitErr) {
@@ -245,6 +254,9 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
             calculated_value: Number(item.calculated_value || 0),
             due_date: item.forecast_date || item.payment_date || new Date().toISOString().split('T')[0],
             status: item.status,
+            buyer_name: item.sales?.buyer_name || null,
+            buyer_document: item.sales?.buyer_document || null,
+            property_address: item.sales?.property_address || null,
           }));
           setBrokerSplits(formattedSplits);
         }
@@ -328,10 +340,11 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
         });
 
         if (candidate.length === 1) {
+          const clientLabel = candidate[0].buyer_name ? ` (Cliente: ${candidate[0].buyer_name})` : '';
           map.set(tx.id, {
             type: 'broker_split',
             id: candidate[0].id,
-            label: `Comissão: ${candidate[0].broker_name} (R$ ${candidate[0].calculated_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`,
+            label: `Comissão: ${candidate[0].broker_name}${clientLabel} (R$ ${candidate[0].calculated_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`,
           });
         }
       }
@@ -368,7 +381,13 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
       // 2. Broker name match (case-insensitive)
       if (split.broker_name.toLowerCase().includes(term)) return true;
 
-      // 3. Due date match (DD/MM/AAAA or YYYY-MM-DD)
+      // 3. Buyer name match
+      if (split.buyer_name && split.buyer_name.toLowerCase().includes(term)) return true;
+
+      // 4. Property address match
+      if (split.property_address && split.property_address.toLowerCase().includes(term)) return true;
+
+      // 5. Due date match (DD/MM/AAAA or YYYY-MM-DD)
       if (split.due_date) {
         const rawDate = split.due_date;
         const parts = rawDate.split('-');
@@ -816,8 +835,11 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                             R$ {split.calculated_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
-                        <div className="text-[11px] text-slate-500 text-right">
-                          Data prevista: {split.due_date || 'N/A'}
+                        <div className="flex items-center justify-between text-[11px] text-slate-500 mt-0.5">
+                          <span className="text-slate-600 font-medium truncate max-w-[190px]">
+                            {split.buyer_name ? `Cliente: ${split.buyer_name}` : (split.property_address ? `Imóvel: ${split.property_address}` : 'Comissão')}
+                          </span>
+                          <span className="shrink-0">Prev: {split.due_date || 'N/A'}</span>
                         </div>
                       </div>
                     ))}
@@ -1098,7 +1120,14 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                                   </div>
                                   <span>R$ {split.calculated_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                 </div>
-                                <div className="text-[11px] text-slate-500 mt-0.5">Previsto: {split.due_date || 'N/A'}</div>
+                                <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
+                                  {split.property_address && <p className="font-medium text-slate-700 truncate">Imóvel: {split.property_address}</p>}
+                                  <p className="text-slate-600">
+                                    Cliente: <strong className="font-semibold text-slate-800">{split.buyer_name || 'Não informado'}</strong>
+                                    {split.buyer_document ? ` (${split.buyer_document})` : ''}
+                                  </p>
+                                  <p className="text-slate-400 text-[10px]">Previsão: {split.due_date || 'N/A'}</p>
+                                </div>
                               </div>
                             );
                           })}

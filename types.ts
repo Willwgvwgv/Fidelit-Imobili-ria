@@ -67,6 +67,9 @@ export interface Sale {
   notes?: string;
   status?: string;
   buyer_cpf?: string;
+  buyer_document?: string;
+  buyer_type?: string;
+  code?: string;
   seller_cpf?: string;
   external_broker_id?: string;
   external_broker_name?: string;

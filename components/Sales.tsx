@@ -23,6 +23,21 @@ import { supabaseService } from '../services/supabaseService';
 import { SaleForm } from './SaleForm';
 import * as XLSX from 'xlsx';
 
+function formatDocument(doc?: string, type?: string): string {
+  if (!doc) return '—';
+  const clean = doc.replace(/\D/g, '');
+  if (type === 'cnpj' || clean.length > 11) {
+    if (clean.length === 14) {
+      return clean.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+    }
+    return doc;
+  }
+  if (clean.length === 11) {
+    return clean.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+  }
+  return doc;
+}
+
 interface SalesProps {
   sales: Sale[];
   onRefresh: () => Promise<void>;
@@ -710,11 +725,14 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                   </td>
                   <td className="px-6 py-8 min-w-[200px]">
                     <span className="text-[14px] font-bold text-slate-800 block leading-tight">{sale.propertyAddress}</span>
+                    <span className="text-[11px] text-slate-500 block tracking-tight mt-1">
+                      Cliente: <strong className="font-semibold text-slate-700">{sale.buyerName || '—'}</strong> • {new Date(sale.saleDate + 'T12:00:00').toLocaleDateString('pt-BR')} {sale.code ? `(#${sale.code})` : ''}
+                    </span>
                   </td>
                   <td className="px-6 py-8">
                     <span className="text-sm font-semibold text-slate-700 block">{sale.buyerName || 'Não Informado'}</span>
-                    <span className="text-[10px] text-slate-400 block tracking-wide mt-0.5">
-                      {sale.buyer_cpf || ''}
+                    <span className="text-[10px] text-slate-400 block tracking-wide mt-0.5 font-mono">
+                      {formatDocument(sale.buyer_document || sale.buyer_cpf || (sale as any).buyerCpf, sale.buyer_type)}
                     </span>
                   </td>
                   <td className="px-6 py-8">
@@ -852,8 +870,11 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
             {/* Header */}
             <div className="flex items-center justify-between px-7 pt-7 pb-4 border-b border-slate-100">
               <div>
-                <h3 className="text-base font-bold text-slate-800">Detalhes da Venda</h3>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <h3 className="text-base font-bold text-slate-800">
+                  {detailSale.buyerName ? `Venda — ${detailSale.buyerName}` : 'Detalhes da Venda'}
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5 font-medium">
+                  {detailSale.code ? `#${detailSale.code} • ` : ''}
                   {detailSale.saleDate
                     ? new Date(detailSale.saleDate + 'T12:00:00').toLocaleDateString('pt-BR')
                     : '—'}
@@ -876,22 +897,35 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                 <p className="text-sm font-semibold text-slate-700">{detailSale.propertyAddress || '—'}</p>
               </div>
 
-              {/* Comprador / Vendedor */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Comprador</p>
-                  <p className="text-sm text-slate-700">{detailSale.buyerName || '—'}</p>
-                  {(detailSale.buyer_cpf || (detailSale as any).buyerCpf) && (
-                    <p className="text-xs text-slate-400">{detailSale.buyer_cpf || (detailSale as any).buyerCpf}</p>
-                  )}
+              {/* Cliente / Comprador */}
+              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Cliente / Comprador</p>
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider ${
+                    detailSale.buyer_type === 'cnpj' || (detailSale.buyer_document && detailSale.buyer_document.replace(/\D/g, '').length > 11)
+                      ? 'bg-purple-100 text-purple-700 border border-purple-200'
+                      : 'bg-blue-100 text-blue-700 border border-blue-200'
+                  }`}>
+                    {detailSale.buyer_type === 'cnpj' || (detailSale.buyer_document && detailSale.buyer_document.replace(/\D/g, '').length > 11)
+                      ? 'Pessoa Jurídica'
+                      : 'Pessoa Física'}
+                  </span>
                 </div>
                 <div>
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Vendedor / Construtora</p>
-                  <p className="text-sm text-slate-700">{detailSale.sellerName || '—'}</p>
-                  {(detailSale.seller_cpf || (detailSale as any).sellerCpfCnpj) && (
-                    <p className="text-xs text-slate-400">{detailSale.seller_cpf || (detailSale as any).sellerCpfCnpj}</p>
-                  )}
+                  <p className="text-sm font-bold text-slate-800">{detailSale.buyerName || 'Não Informado'}</p>
+                  <p className="text-xs text-slate-500 font-mono mt-0.5">
+                    Doc: {formatDocument(detailSale.buyer_document || detailSale.buyer_cpf || (detailSale as any).buyerCpf, detailSale.buyer_type)}
+                  </p>
                 </div>
+              </div>
+
+              {/* Vendedor / Construtora */}
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Vendedor / Construtora</p>
+                <p className="text-sm text-slate-700">{detailSale.sellerName || '—'}</p>
+                {(detailSale.seller_cpf || (detailSale as any).sellerCpfCnpj) && (
+                  <p className="text-xs text-slate-400 font-mono">{detailSale.seller_cpf || (detailSale as any).sellerCpfCnpj}</p>
+                )}
               </div>
 
               {/* Corretor Responsável */}

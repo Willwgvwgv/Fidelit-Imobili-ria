@@ -129,6 +129,8 @@ const Commissions: React.FC<CommissionsProps> = ({
           list.push({
             id: split.id,
             saleId: sale.id,
+            saleCode: (sale as any).code || sale.id.substring(0, 8).toUpperCase(),
+            buyerName: sale.buyerName || (sale as any).buyer_name || null,
             brokerId: split.brokerId,
             brokerName: split.brokerName,
             property: sale.propertyAddress,
@@ -156,7 +158,9 @@ const Commissions: React.FC<CommissionsProps> = ({
   const filteredCommissions = commissionList.filter(c => {
     const matchesStatus = statusFilter === 'ALL' || c.status === statusFilter;
     const matchesSearch = c.property.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                         c.brokerName.toLowerCase().includes(searchTerm.toLowerCase());
+                         c.brokerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (c.buyerName && c.buyerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                         (c.saleCode && c.saleCode.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesBroker = brokerFilter === 'ALL' || c.brokerId === brokerFilter;
     
     const matchesDate = (() => {
@@ -236,6 +240,8 @@ const Commissions: React.FC<CommissionsProps> = ({
     const map = new Map<string, {
       key: string;
       saleId: string;
+      saleCode?: string;
+      buyerName?: string;
       brokerId?: string;
       brokerName: string;
       property: string;
@@ -254,6 +260,8 @@ const Commissions: React.FC<CommissionsProps> = ({
         map.set(key, {
           key,
           saleId: comm.saleId,
+          saleCode: comm.saleCode,
+          buyerName: comm.buyerName,
           brokerId: comm.brokerId,
           brokerName: comm.brokerName,
           property: comm.property,
@@ -820,6 +828,7 @@ const Commissions: React.FC<CommissionsProps> = ({
           const saleDate = formatDateLocal(saleObj?.saleDate || splitsInSale[0]?.date);
           const vgvVal = saleObj?.vgv ? formatCurrencyVal(saleObj.vgv) : 'R$ 0,00';
           const commVal = saleObj?.totalCommissionValue ? formatCurrencyVal(saleObj.totalCommissionValue) : formatCurrencyVal(splitsInSale.reduce((a, b) => a + (b.value || 0), 0));
+          const buyerName = saleObj?.buyerName || splitsInSale[0]?.buyerName || '—';
 
           if (y > 230) {
             doc.addPage();
@@ -838,7 +847,7 @@ const Commissions: React.FC<CommissionsProps> = ({
           doc.setFont('helvetica', 'normal');
           doc.setFontSize(8);
           doc.setTextColor(100, 116, 139);
-          doc.text(`Data: ${saleDate}   |   VGV: ${vgvVal}   |   Comissão Total: ${commVal}`, 18, y + 13);
+          doc.text(`Cliente: ${buyerName}   |   Data: ${saleDate}   |   VGV: ${vgvVal}   |   Comissão Total: ${commVal}`, 18, y + 13);
 
           y += 22;
 
@@ -1341,10 +1350,16 @@ const Commissions: React.FC<CommissionsProps> = ({
                       <td className="px-5 py-4">
                         <div className="flex flex-col">
                           <span className="text-sm font-semibold text-gray-950">{group.property}</span>
-                          <span className="text-[10px] text-gray-400 uppercase tracking-tight font-medium">
-                            #{group.saleId.slice(0, 8).toUpperCase()} • {new Date(group.date).toLocaleDateString('pt-BR')}
+                          <span className="text-[11px] text-gray-500 font-medium flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <span className="text-gray-400 uppercase text-[10px] font-bold">CLIENTE:</span>
+                            <span className="text-gray-800 font-bold">
+                              {group.buyerName ? group.buyerName : <em className="text-gray-400 font-normal">Cliente: —</em>}
+                            </span>
+                            <span className="text-gray-300">•</span>
+                            <span className="text-gray-500 text-[10px] font-semibold">{new Date(group.date + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                            {group.saleCode && <span className="text-[10px] text-gray-400 font-normal">({`#${group.saleCode}`})</span>}
                             {isMulti && (
-                              <span className="ml-2 text-indigo-500 font-bold">
+                              <span className="ml-1 text-indigo-600 font-bold text-[10px]">
                                 {isExpanded ? '▲' : '▼'} {group.installments.length} parcelas
                               </span>
                             )}
