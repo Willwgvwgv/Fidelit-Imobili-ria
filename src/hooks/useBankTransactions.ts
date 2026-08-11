@@ -693,6 +693,193 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
     }
   };
 
+  const bulkIgnoreTransactions = async (
+    bankTxIds: string[],
+    userId?: string,
+    currentAgencyId?: string
+  ): Promise<{ success: boolean; count: number; error?: string }> => {
+    if (!supabase || !bankTxIds || bankTxIds.length === 0) {
+      return { success: false, count: 0, error: 'Supabase indisponível ou nenhuma transação selecionada' };
+    }
+
+    try {
+      // 1. Fetch transactions to check for match_id / match_type and perform unlinking
+      const { data: txs, error: fetchErr } = await supabase
+        .from('bank_transactions')
+        .select('id, match_id, match_type, description, amount')
+        .in('id', bankTxIds);
+
+      if (fetchErr) throw fetchErr;
+
+      if (txs && txs.length > 0) {
+        const brokerSplitIds = txs.filter(t => t.match_type === 'broker_split' && t.match_id).map(t => t.match_id as string);
+        const rentIds = txs.filter(t => t.match_type === 'rent' && t.match_id).map(t => t.match_id as string);
+
+        if (brokerSplitIds.length > 0) {
+          try {
+            await supabase
+              .from('broker_splits')
+              .update({
+                status: 'pending',
+                payment_date: null,
+                method: null,
+                receipt_data: null,
+                updated_at: new Date().toISOString(),
+              })
+              .in('id', brokerSplitIds);
+          } catch (e) {
+            console.warn('Could not reset broker_splits for bulk ignore:', e);
+          }
+        }
+
+        if (rentIds.length > 0) {
+          try {
+            await supabase
+              .from('rent_installments')
+              .update({
+                status: 'pending',
+                received_amount: null,
+                received_at: null,
+                bank_tx_id: null,
+                updated_at: new Date().toISOString(),
+              })
+              .in('id', rentIds);
+          } catch (e) {
+            console.warn('Could not reset rent_installments for bulk ignore:', e);
+          }
+        }
+      }
+
+      // 2. Update bank_transactions to status 'ignored'
+      const { error: updateErr } = await supabase
+        .from('bank_transactions')
+        .update({
+          status: 'ignored',
+          match_id: null,
+          match_type: null,
+          updated_at: new Date().toISOString(),
+        })
+        .in('id', bankTxIds);
+
+      if (updateErr) throw updateErr;
+
+      // 3. Insert audit log
+      try {
+        await supabase.from('audit_log').insert([{
+          action: 'bulk_ignore',
+          entity_type: 'bank_transactions',
+          entity_id: bankTxIds.join(','),
+          user_id: userId || null,
+          agency_id: currentAgencyId || agencyId || null,
+          details: {
+            count: bankTxIds.length,
+            tx_ids: bankTxIds,
+            timestamp: new Date().toISOString(),
+          }
+        }]);
+      } catch (auditErr) {
+        console.warn('Could not record audit_log for bulk_ignore:', auditErr);
+      }
+
+      await fetchTransactions();
+      return { success: true, count: bankTxIds.length };
+    } catch (err: any) {
+      console.error('Error in bulkIgnoreTransactions:', err);
+      return { success: false, count: 0, error: err.message || 'Erro ao ignorar transações' };
+    }
+  };
+
+  const bulkDeleteTransactions = async (
+    bankTxIds: string[],
+    userId?: string,
+    currentAgencyId?: string
+  ): Promise<{ success: boolean; count: number; error?: string }> => {
+    if (!supabase || !bankTxIds || bankTxIds.length === 0) {
+      return { success: false, count: 0, error: 'Supabase indisponível ou nenhuma transação selecionada' };
+    }
+
+    try {
+      // 1. Fetch transactions to check for match_id / match_type and perform unlinking
+      const { data: txs, error: fetchErr } = await supabase
+        .from('bank_transactions')
+        .select('id, match_id, match_type, description, amount')
+        .in('id', bankTxIds);
+
+      if (fetchErr) throw fetchErr;
+
+      if (txs && txs.length > 0) {
+        const brokerSplitIds = txs.filter(t => t.match_type === 'broker_split' && t.match_id).map(t => t.match_id as string);
+        const rentIds = txs.filter(t => t.match_type === 'rent' && t.match_id).map(t => t.match_id as string);
+
+        if (brokerSplitIds.length > 0) {
+          try {
+            await supabase
+              .from('broker_splits')
+              .update({
+                status: 'pending',
+                payment_date: null,
+                method: null,
+                receipt_data: null,
+                updated_at: new Date().toISOString(),
+              })
+              .in('id', brokerSplitIds);
+          } catch (e) {
+            console.warn('Could not reset broker_splits for bulk delete:', e);
+          }
+        }
+
+        if (rentIds.length > 0) {
+          try {
+            await supabase
+              .from('rent_installments')
+              .update({
+                status: 'pending',
+                received_amount: null,
+                received_at: null,
+                bank_tx_id: null,
+                updated_at: new Date().toISOString(),
+              })
+              .in('id', rentIds);
+          } catch (e) {
+            console.warn('Could not reset rent_installments for bulk delete:', e);
+          }
+        }
+      }
+
+      // 2. Delete bank_transactions
+      const { error: deleteErr } = await supabase
+        .from('bank_transactions')
+        .delete()
+        .in('id', bankTxIds);
+
+      if (deleteErr) throw deleteErr;
+
+      // 3. Insert audit log
+      try {
+        await supabase.from('audit_log').insert([{
+          action: 'bulk_delete',
+          entity_type: 'bank_transactions',
+          entity_id: bankTxIds.join(','),
+          user_id: userId || null,
+          agency_id: currentAgencyId || agencyId || null,
+          details: {
+            count: bankTxIds.length,
+            tx_ids: bankTxIds,
+            timestamp: new Date().toISOString(),
+          }
+        }]);
+      } catch (auditErr) {
+        console.warn('Could not record audit_log for bulk_delete:', auditErr);
+      }
+
+      await fetchTransactions();
+      return { success: true, count: bankTxIds.length };
+    } catch (err: any) {
+      console.error('Error in bulkDeleteTransactions:', err);
+      return { success: false, count: 0, error: err.message || 'Erro ao excluir transações' };
+    }
+  };
+
   return {
     bankTransactions,
     loading,
@@ -709,5 +896,7 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
     reconcileTransaction,
     undoReconciliation,
     deleteBankTransaction,
+    bulkIgnoreTransactions,
+    bulkDeleteTransactions,
   };
 }

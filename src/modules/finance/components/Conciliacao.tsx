@@ -94,9 +94,15 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
     reconcileTransaction,
     undoReconciliation,
     deleteBankTransaction,
+    bulkIgnoreTransactions,
+    bulkDeleteTransactions,
   } = useBankTransactions(currentUser.agencyId, selectedAccountId);
 
   const [activeBankTab, setActiveBankTab] = useState<'pending' | 'reconciled'>('pending');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isBulkIgnoreOpen, setIsBulkIgnoreOpen] = useState(false);
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+
   const [undoTargetTx, setUndoTargetTx] = useState<BankTransaction | null>(null);
   const [deleteTargetTx, setDeleteTargetTx] = useState<BankTransaction | null>(null);
 
@@ -382,6 +388,61 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
       loadPendingItems();
     } else {
       if (showToast) showToast(res.error || 'Erro ao excluir transação.', 'error');
+    }
+  };
+
+  // Clear selection when tab or account changes
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [activeBankTab, selectedAccountId]);
+
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedIds.size === pendingBankTxs.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(pendingBankTxs.map(t => t.id)));
+    }
+  };
+
+  const handleConfirmBulkIgnore = async () => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    setIsBulkIgnoreOpen(false);
+
+    const res = await bulkIgnoreTransactions(ids, currentUser.id, currentUser.agencyId);
+    if (res.success) {
+      setSelectedIds(new Set());
+      if (showToast) showToast(`${res.count} transação(ões) ignorada(s) com sucesso!`, 'success');
+      loadPendingItems();
+    } else {
+      if (showToast) showToast(res.error || 'Erro ao ignorar transações selecionadas.', 'error');
+    }
+  };
+
+  const handleConfirmBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    setIsBulkDeleteOpen(false);
+
+    const res = await bulkDeleteTransactions(ids, currentUser.id, currentUser.agencyId);
+    if (res.success) {
+      setSelectedIds(new Set());
+      if (showToast) showToast(`${res.count} transação(ões) excluída(s) com sucesso!`, 'success');
+      loadPendingItems();
+    } else {
+      if (showToast) showToast(res.error || 'Erro ao excluir transações selecionadas.', 'error');
     }
   };
 
@@ -765,6 +826,29 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
               </div>
             ) : (
               <div className="space-y-3">
+                {/* Bulk selection header */}
+                <div className="flex items-center justify-between bg-slate-50 border border-slate-200/80 rounded-xl px-3.5 py-2 text-xs text-slate-700">
+                  <label className="flex items-center gap-2.5 font-bold cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size > 0 && selectedIds.size === pendingBankTxs.length}
+                      ref={(el) => {
+                        if (el) {
+                          el.indeterminate = selectedIds.size > 0 && selectedIds.size < pendingBankTxs.length;
+                        }
+                      }}
+                      onChange={handleToggleSelectAll}
+                      className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span>Selecionar todos</span>
+                  </label>
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    {selectedIds.size > 0
+                      ? `${selectedIds.size} de ${pendingBankTxs.length} selecionada(s)`
+                      : `${pendingBankTxs.length} pendentes`}
+                  </span>
+                </div>
+
                 {pendingBankTxs.map((tx) => {
                   const suggested = suggestedMatches.get(tx.id);
                   const isTransfer = Boolean(tx.transfer_id);
@@ -773,7 +857,9 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                     <div
                       key={tx.id}
                       className={`p-3.5 rounded-xl border transition-all space-y-2.5 ${
-                        isTransfer
+                        selectedIds.has(tx.id)
+                          ? 'bg-indigo-50/50 border-indigo-300 shadow-2xs'
+                          : isTransfer
                           ? 'bg-slate-50/80 border-slate-200 opacity-90'
                           : suggested
                           ? 'bg-amber-50/40 border-amber-200/80 shadow-2xs'
@@ -781,26 +867,34 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-mono text-slate-500 font-semibold">{tx.date}</span>
-                            <span
-                              className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full border ${
-                                isCreditTransaction(tx)
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                  : 'bg-slate-100 text-slate-700 border-slate-200'
-                              }`}
-                            >
-                              {isCreditTransaction(tx) ? 'Crédito' : 'Débito'}
-                            </span>
-                            <TransferBadge transferId={tx.transfer_id} />
-                            {tx.ofx_fitid?.startsWith('MANUAL-') && (
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-amber-100 text-amber-800 border border-amber-300/60 inline-flex items-center gap-1">
-                                ✎ Lançamento manual
+                        <div className="flex items-start gap-2.5 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(tx.id)}
+                            onChange={() => handleToggleSelect(tx.id)}
+                            className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0"
+                          />
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] font-mono text-slate-500 font-semibold">{tx.date}</span>
+                              <span
+                                className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full border ${
+                                  isCreditTransaction(tx)
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                                }`}
+                              >
+                                {isCreditTransaction(tx) ? 'Crédito' : 'Débito'}
                               </span>
-                            )}
+                              <TransferBadge transferId={tx.transfer_id} />
+                              {tx.ofx_fitid?.startsWith('MANUAL-') && (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-amber-100 text-amber-800 border border-amber-300/60 inline-flex items-center gap-1">
+                                  ✎ Lançamento manual
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm font-bold text-slate-800 mt-1 leading-snug">{tx.description}</p>
                           </div>
-                          <p className="text-sm font-bold text-slate-800 mt-1 leading-snug">{tx.description}</p>
                         </div>
 
                         <div className="text-right shrink-0">
@@ -874,6 +968,35 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                     </div>
                   );
                 })}
+
+                {/* Sticky action bar when items are selected */}
+                {selectedIds.size > 0 && (
+                  <div className="sticky bottom-3 z-10 bg-slate-900 text-white p-3 rounded-2xl shadow-xl border border-slate-800 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                    <div className="flex items-center gap-2 pl-2">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                      <span className="text-xs font-bold">
+                        {selectedIds.size} {selectedIds.size === 1 ? 'selecionada' : 'selecionadas'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setIsBulkIgnoreOpen(true)}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer border border-slate-700"
+                      >
+                        <XCircle size={14} className="text-amber-400" />
+                        <span>Ignorar selecionadas</span>
+                      </button>
+
+                      <button
+                        onClick={() => setIsBulkDeleteOpen(true)}
+                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <Trash2 size={14} />
+                        <span>Excluir selecionadas</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )
           ) : (
@@ -1473,6 +1596,48 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
           ) : undefined
         }
         confirmText="Excluir Transação"
+        cancelText="Cancelar"
+        variant="danger"
+      />
+
+      {/* Confirm Modal for Bulk Ignore */}
+      <ConfirmModal
+        isOpen={isBulkIgnoreOpen}
+        onClose={() => setIsBulkIgnoreOpen(false)}
+        onConfirm={handleConfirmBulkIgnore}
+        title={`Ignorar ${selectedIds.size} transação(ões)?`}
+        description={
+          <div className="space-y-2 text-xs text-slate-600">
+            <p>
+              As <strong>{selectedIds.size}</strong> transações selecionadas serão marcadas como ignoradas e não aparecerão mais na lista de pendentes.
+            </p>
+            <p className="text-slate-500">
+              Caso alguma delas possua vinculação com comissão ou aluguel, o vínculo será desfeito e a parcela retornará para o status pendente no sistema.
+            </p>
+          </div>
+        }
+        confirmText="Ignorar Selecionadas"
+        cancelText="Cancelar"
+        variant="warning"
+      />
+
+      {/* Confirm Modal for Bulk Delete */}
+      <ConfirmModal
+        isOpen={isBulkDeleteOpen}
+        onClose={() => setIsBulkDeleteOpen(false)}
+        onConfirm={handleConfirmBulkDelete}
+        title={`Excluir ${selectedIds.size} transação(ões)?`}
+        description={
+          <div className="space-y-2 text-xs text-slate-600">
+            <p className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg font-medium">
+              ⚠️ <strong>ATENÇÃO:</strong> Isso vai DELETAR permanentemente <strong>{selectedIds.size}</strong> transação(ões) do extrato bancário. Essa ação NÃO pode ser desfeita.
+            </p>
+            <p className="text-slate-500">
+              Quaisquer vinculações existentes com lançamentos do sistema também serão desfeitas.
+            </p>
+          </div>
+        }
+        confirmText="Excluir Permanentemente"
         cancelText="Cancelar"
         variant="danger"
       />
