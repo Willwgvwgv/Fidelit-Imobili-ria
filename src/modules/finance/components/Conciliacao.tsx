@@ -63,6 +63,7 @@ interface ConciliacaoProps {
     payment_date?: string;
   }) => void;
   categories?: any[];
+  accountId?: string;
 }
 
 // Conciliação bancária de bank_transactions (Sicoob/OFX/CSV)
@@ -73,8 +74,15 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
   showToast,
   onOpenNewExpenseModal,
   categories = [],
+  accountId,
 }) => {
-  const [selectedAccountId, setSelectedAccountId] = useState<string>('ALL');
+  const [selectedAccountId, setSelectedAccountId] = useState<string>(() => accountId || 'ALL');
+
+  useEffect(() => {
+    if (accountId) {
+      setSelectedAccountId(accountId);
+    }
+  }, [accountId]);
   const {
     bankTransactions,
     loading,
@@ -589,18 +597,20 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
-          <select
-            value={selectedAccountId}
-            onChange={(e) => setSelectedAccountId(e.target.value)}
-            className="h-10 px-3 border border-slate-200 rounded-xl text-xs font-semibold bg-white focus:outline-none focus:border-indigo-500"
-          >
-            <option value="ALL">Todas as Contas Bancárias</option>
-            {accounts.map((acc) => (
-              <option key={acc.id} value={acc.id}>
-                {acc.name}
-              </option>
-            ))}
-          </select>
+          {!accountId && (
+            <select
+              value={selectedAccountId}
+              onChange={(e) => setSelectedAccountId(e.target.value)}
+              className="h-10 px-3 border border-slate-200 rounded-xl text-xs font-semibold bg-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="ALL">Todas as Contas Bancárias</option>
+              {accounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name}
+                </option>
+              ))}
+            </select>
+          )}
 
           <button
             onClick={() => fetchTransactions()}

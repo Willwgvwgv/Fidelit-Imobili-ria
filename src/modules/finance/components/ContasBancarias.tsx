@@ -24,6 +24,16 @@ export const BANKS = [
   { code: '000', name: 'Outro Banco / Carteira', initials: 'OU', color: '#64748b' }
 ];
 
+export const formatAccountTypeLabel = (typeStr?: string) => {
+  if (!typeStr) return 'Conta Corrente';
+  const t = typeStr.toLowerCase();
+  if (t === 'checking' || t === 'corrente') return 'Conta Corrente';
+  if (t === 'savings' || t === 'poupança') return 'Poupança';
+  if (t === 'credit_card' || t === 'credit' || t === 'cartão') return 'Cartão de Crédito';
+  if (t === 'cash' || t === 'caixa' || t === 'dinheiro') return 'Caixa';
+  return typeStr;
+};
+
 interface ContasBancariasProps {
   currentUser?: User | null;
   accounts: FinancialAccount[];
@@ -35,6 +45,7 @@ interface ContasBancariasProps {
   onAddAccount: () => void;
   onEditAccount: (account: FinancialAccount) => void;
   onDeleteAccount: (id: string) => void;
+  onSelectAccount?: (accountId: string) => void;
 }
 
 export const ContasBancarias: React.FC<ContasBancariasProps> = ({
@@ -47,6 +58,7 @@ export const ContasBancarias: React.FC<ContasBancariasProps> = ({
   onAddAccount,
   onEditAccount,
   onDeleteAccount,
+  onSelectAccount,
 }) => {
   const [accountTypeFilter, setAccountTypeFilter] = useState<'all' | 'bank' | 'card'>('all');
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -179,16 +191,6 @@ export const ContasBancarias: React.FC<ContasBancariasProps> = ({
     fetch30dMetrics();
     return () => { isMounted = false; };
   }, [transactions]);
-
-  const formatAccountTypeLabel = (typeStr?: string) => {
-    if (!typeStr) return 'Conta Corrente';
-    const t = typeStr.toLowerCase();
-    if (t === 'checking' || t === 'corrente') return 'Conta Corrente';
-    if (t === 'savings' || t === 'poupança') return 'Poupança';
-    if (t === 'credit_card' || t === 'credit' || t === 'cartão') return 'Cartão de Crédito';
-    if (t === 'cash' || t === 'caixa' || t === 'dinheiro') return 'Caixa';
-    return typeStr;
-  };
 
   const filteredAccounts = accounts.filter(a => {
     const isCard = a.type === 'credit_card' || (a as any).account_type === 'credit_card' || a.type === 'CREDIT';
@@ -450,7 +452,11 @@ export const ContasBancarias: React.FC<ContasBancariasProps> = ({
             const bankName = bank ? bank.name : (normBankCode !== 'outros' ? normBankCode.toUpperCase() : 'Banco');
 
             return (
-              <div key={account.id} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+              <div 
+                key={account.id} 
+                onClick={() => onSelectAccount && onSelectAccount(account.id)}
+                className="bg-white rounded-2xl border border-slate-100 p-6 shadow-xs hover:shadow-md hover:border-blue-300 transition-all flex flex-col justify-between cursor-pointer group"
+              >
                 <div>
                   <div className="flex items-center justify-between pb-3 border-b border-slate-50 mb-4">
                     <div className="flex items-center gap-2.5">
@@ -466,8 +472,8 @@ export const ContasBancarias: React.FC<ContasBancariasProps> = ({
                     </span>
                   </div>
 
-                  <div className="mb-4">
-                    <h4 className="text-base font-black text-slate-800 leading-tight">{account.name}</h4>
+                  <div className="mb-4 flex items-center justify-between">
+                    <h4 className="text-base font-black text-slate-800 leading-tight group-hover:text-blue-600 transition-colors">{account.name}</h4>
                   </div>
                 </div>
 
@@ -484,16 +490,22 @@ export const ContasBancarias: React.FC<ContasBancariasProps> = ({
                       <Check size={10} /> Conciliada
                     </span>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                       <button 
-                        onClick={() => onEditAccount(account)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditAccount(account);
+                        }}
                         className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors p-1.5 rounded-lg cursor-pointer"
                         title="Editar Conta"
                       >
                         <Pencil size={11} /> <span className="sr-only sm:not-sr-only">Editar</span>
                       </button>
                       <button 
-                        onClick={() => onDeleteAccount(account.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteAccount(account.id);
+                        }}
                         className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors p-1.5 rounded-lg cursor-pointer"
                         title="Excluir Conta"
                       >

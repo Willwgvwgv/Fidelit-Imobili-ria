@@ -79,6 +79,7 @@ import { FluxoCaixa } from './FluxoCaixa';
 import { ImportarImobia } from './ImportarImobia';
 import { Cartoes } from './Cartoes'; // Component from Cartoes.tsx
 import { ContasBancarias } from './ContasBancarias';
+import { ContaBancariaDetalhe } from './ContaBancariaDetalhe';
 import { TransferBadge } from '../../../components/TransferBadge';
 
 function escapeHtml(input: unknown): string {
@@ -409,11 +410,20 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   // Accounts payable and receivable states
   const [pagamentosTab, setPagamentosTab] = useState<'todas' | 'pagar' | 'receber' | 'vencidos'>('todas');
   const [localActiveView, setLocalActiveView] = useState<string>(activeView);
+  const [selectedAccountIdForDetail, setSelectedAccountIdForDetail] = useState<string | null>(null);
   const [centroCustoTab, setCentroCustoTab] = useState<'todos' | 'despesas' | 'receitas'>('todos');
 
   useEffect(() => {
-    setLocalActiveView(activeView);
-  }, [activeView]);
+    if (activeView === 'financial-conciliacao' || activeView === 'financial-importar-extrato') {
+      setLocalActiveView('financial-contas');
+      if (accounts.length > 0 && !selectedAccountIdForDetail) {
+        const def = accounts.find((a) => a.is_default) || accounts[0];
+        setSelectedAccountIdForDetail(def.id);
+      }
+    } else {
+      setLocalActiveView(activeView);
+    }
+  }, [activeView, accounts]);
 
   const handleCloseModal = () => {
     setIsModalOpen(false);
@@ -5093,6 +5103,46 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   const renderContas = () => {
+    if (selectedAccountIdForDetail) {
+      return (
+        <ContaBancariaDetalhe
+          accountId={selectedAccountIdForDetail}
+          currentUser={currentUser}
+          accounts={accounts}
+          categories={categories}
+          transactions={transactions}
+          getAccountLiveBalance={getAccountLiveBalance}
+          showToast={showToast}
+          onBack={() => setSelectedAccountIdForDetail(null)}
+          onRefreshData={loadFinancialData}
+          onOpenNewExpenseModal={(data) => {
+            const isIncome = data.type === 'INCOME' || data.type === 'credit';
+            const txType = isIncome ? TransactionType.INCOME : TransactionType.EXPENSE;
+
+            setNewTransaction({
+              description: data.description,
+              amount: data.amount,
+              due_date: data.date,
+              payment_date: data.payment_date || data.date,
+              type: txType,
+              status: TransactionStatus.PAID,
+              agency_id: currentUser.agencyId,
+              account_id: data.account_id || selectedAccountIdForDetail || accounts[0]?.id || '',
+              category_id: data.category_id || '',
+              bank_transaction_id: data.bank_transaction_id,
+            });
+
+            setAmountInputStr(data.amount ? data.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '');
+            setMarkAsPaid(true);
+            setIsAutoFilledFromBank(true);
+            setEditingTransaction(null);
+            setModalType('transaction');
+            setIsModalOpen(true);
+          }}
+        />
+      );
+    }
+
     return (
       <ContasBancarias
         currentUser={currentUser}
@@ -5107,6 +5157,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         }}
         onEditAccount={handleEditAccountClick}
         onDeleteAccount={handleDeleteAccount}
+        onSelectAccount={(accId) => setSelectedAccountIdForDetail(accId)}
       />
     );
   };

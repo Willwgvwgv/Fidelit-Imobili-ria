@@ -9,6 +9,7 @@ interface ImportarExtratoProps {
   agencyId: string;
   onImportDone: () => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
+  accountId?: string;
 }
 
 export const BANK_OPTIONS = [
@@ -49,9 +50,14 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
   agencyId,
   onImportDone,
   showToast,
+  accountId,
 }) => {
-  // FIX 1: Set default bank and account synchronously from first/default account
+  // Set default bank and account synchronously from passed accountId or default
   const [selectedBank, setSelectedBank] = useState<string>(() => {
+    if (accountId) {
+      const targetAcc = accounts.find((a) => a.id === accountId);
+      if (targetAcc) return getAccountBankCode(targetAcc);
+    }
     if (accounts.length > 0) {
       const def = accounts.find((a) => a.is_default) || accounts[0];
       return getAccountBankCode(def);
@@ -60,6 +66,7 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
   });
 
   const [selectedAccountId, setSelectedAccountId] = useState<string>(() => {
+    if (accountId) return accountId;
     if (accounts.length > 0) {
       const def = accounts.find((a) => a.is_default) || accounts[0];
       return def.id;
@@ -67,9 +74,15 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
     return '';
   });
 
-  // Sync selectedBank & selectedAccountId if accounts list updates
+  // Sync selectedBank & selectedAccountId if accountId prop or accounts list updates
   useEffect(() => {
-    if (accounts.length > 0) {
+    if (accountId) {
+      setSelectedAccountId(accountId);
+      const targetAcc = accounts.find((a) => a.id === accountId);
+      if (targetAcc) {
+        setSelectedBank(getAccountBankCode(targetAcc));
+      }
+    } else if (accounts.length > 0) {
       const currentAccExists = accounts.some((a) => a.id === selectedAccountId);
       if (!currentAccExists) {
         const def = accounts.find((a) => a.is_default) || accounts[0];
@@ -78,7 +91,7 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
         setSelectedAccountId(def.id);
       }
     }
-  }, [accounts, selectedAccountId]);
+  }, [accountId, accounts, selectedAccountId]);
 
   const [file, setFile] = useState<File | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
@@ -269,51 +282,70 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Seletor de Banco */}
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">
-            1. Banco
-          </label>
-          <select
-            value={selectedBank}
-            onChange={(e) => handleBankChange(e.target.value)}
-            className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 bg-white font-medium"
-          >
-            {BANK_OPTIONS.map((b) => (
-              <option key={b.code} value={b.code}>
-                {b.name}
-              </option>
-            ))}
-          </select>
-          <p className="text-[11px] text-slate-500 mt-1">
-            {selectedBank === 'sicoob'
-              ? 'Sicoob: aceita arquivos .OFX direto do Internet Banking.'
-              : `${selectedBankName}: aceita arquivos .OFX ou .CSV.`}
-          </p>
-        </div>
+      {!accountId ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Seletor de Banco */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">
+              1. Banco
+            </label>
+            <select
+              value={selectedBank}
+              onChange={(e) => handleBankChange(e.target.value)}
+              className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 bg-white font-medium"
+            >
+              {BANK_OPTIONS.map((b) => (
+                <option key={b.code} value={b.code}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-500 mt-1">
+              {selectedBank === 'sicoob'
+                ? 'Sicoob: aceita arquivos .OFX direto do Internet Banking.'
+                : `${selectedBankName}: aceita arquivos .OFX ou .CSV.`}
+            </p>
+          </div>
 
-        {/* Seletor de Conta */}
-        <div>
-          <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">
-            2. Conta Bancária de Destino
-          </label>
-          <select
-            value={selectedAccountId}
-            onChange={(e) => setSelectedAccountId(e.target.value)}
-            className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 bg-white font-medium"
-          >
-            {filteredAccounts.length === 0 && (
-              <option value="">Nenhuma conta cadastrada para {selectedBankName}</option>
-            )}
-            {filteredAccounts.map((acc) => (
-              <option key={acc.id} value={acc.id}>
-                {acc.name} ({acc.type || 'Corrente'})
-              </option>
-            ))}
-          </select>
+          {/* Seletor de Conta */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-2">
+              2. Conta Bancária de Destino
+            </label>
+            <select
+              value={selectedAccountId}
+              onChange={(e) => setSelectedAccountId(e.target.value)}
+              className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 bg-white font-medium"
+            >
+              {filteredAccounts.length === 0 && (
+                <option value="">Nenhuma conta cadastrada para {selectedBankName}</option>
+              )}
+              {filteredAccounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name} ({acc.type || 'Corrente'})
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 flex items-center justify-center p-1.5 shrink-0 shadow-xs">
+              <BankLogo code={getNormalizedBankCode(selectedBank)} size={28} />
+            </div>
+            <div>
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider block">Conta de Destino</span>
+              <h4 className="text-sm font-bold text-slate-800">
+                {accounts.find((a) => a.id === accountId)?.name || 'Conta Selecionada'}
+              </h4>
+            </div>
+          </div>
+          <span className="px-3 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full text-xs font-bold uppercase tracking-wider">
+            {selectedBankName}
+          </span>
+        </div>
+      )}
 
       {/* Dynamic Bank Label */}
       <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl text-xs text-indigo-900 leading-relaxed flex items-center justify-between">
