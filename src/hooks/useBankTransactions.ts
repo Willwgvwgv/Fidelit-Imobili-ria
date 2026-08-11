@@ -17,6 +17,23 @@ export interface BankTransaction {
   transfer_id?: string | null;
   raw_data?: any;
   imported_at?: string;
+  import_batch_id?: string | null;
+}
+
+export interface ImportBatchInfo {
+  id: string;
+  batch_id: string;
+  account_id: string;
+  file_type: 'ofx' | 'csv';
+  tx_count: number;
+  total_amount: number;
+  first_date: string;
+  last_date: string;
+  imported_at: string;
+  has_reconciled: boolean;
+  has_matched: boolean;
+  reconciled_count: number;
+  bank_name?: string;
 }
 
 export function useBankTransactions(agencyId?: string, selectedAccountId?: string) {
@@ -60,19 +77,47 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
     parsedList: ParsedBankTransaction[],
     accountId: string,
     currentAgencyId: string,
+    batchId?: string,
     options?: { signal?: AbortSignal }
-  ): Promise<{ inserted: number; skipped: number }> => {
+  ): Promise<{ inserted: number; skipped: number; batchId?: string }> => {
     if (!supabase) throw new Error('Supabase client não configurado');
     if (!parsedList.length) return { inserted: 0, skipped: 0 };
 
+    const activeBatchId = batchId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `batch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
+
     let inserted = 0;
     let skipped = 0;
+
+    // Check existing fitids to preserve original import_batch_id on re-import
+    const fitids = parsedList.map(p => p.ofx_fitid).filter(Boolean);
+    const existingBatchMap = new Map<string, string>();
+    if (fitids.length > 0) {
+      try {
+        const { data: existingData } = await supabase
+          .from('bank_transactions')
+          .select('ofx_fitid, import_batch_id')
+          .eq('account_id', accountId)
+          .in('ofx_fitid', fitids);
+        if (existingData) {
+          existingData.forEach((row: any) => {
+            if (row.ofx_fitid && row.import_batch_id) {
+              existingBatchMap.set(row.ofx_fitid, row.import_batch_id);
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('Could not query existing fitids import_batch_id:', e);
+      }
+    }
 
     for (const item of parsedList) {
       if (options?.signal?.aborted) {
         console.log('Import operation aborted by user signal');
         break;
       }
+
+      const finalBatchId = (item.ofx_fitid && existingBatchMap.get(item.ofx_fitid)) || activeBatchId;
+
       const payload = {
         agency_id: currentAgencyId,
         account_id: accountId,
@@ -83,6 +128,7 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
         ofx_fitid: item.ofx_fitid,
         status: 'pending',
         raw_data: item.raw_data || {},
+        import_batch_id: finalBatchId,
       };
 
       const { error: insertErr } = await supabase
@@ -102,7 +148,7 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
     }
 
     await fetchTransactions(accountId);
-    return { inserted, skipped };
+    return { inserted, skipped, batchId: activeBatchId };
   };
 
   const importFromOFX = async (
@@ -110,9 +156,10 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
     accountId: string,
     currentAgencyId: string,
     options?: { signal?: AbortSignal }
-  ): Promise<{ inserted: number; skipped: number }> => {
+  ): Promise<{ inserted: number; skipped: number; batchId?: string }> => {
+    const batchId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `batch-${Date.now()}`;
     const parsed = await parseOFX(fileContent);
-    return saveParsedTransactions(parsed, accountId, currentAgencyId, options);
+    return saveParsedTransactions(parsed, accountId, currentAgencyId, batchId, options);
   };
 
   const importFromCSV = async (
@@ -120,9 +167,202 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
     accountId: string,
     currentAgencyId: string,
     options?: { signal?: AbortSignal }
-  ): Promise<{ inserted: number; skipped: number }> => {
+  ): Promise<{ inserted: number; skipped: number; batchId?: string }> => {
+    const batchId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `batch-${Date.now()}`;
     const parsed = parseCSV(fileContent, accountId);
-    return saveParsedTransactions(parsed, accountId, currentAgencyId, options);
+    return saveParsedTransactions(parsed, accountId, currentAgencyId, batchId, options);
+  };
+
+  const removeImportBatch = async (
+    batchId: string,
+    targetAccountId?: string,
+    userId?: string,
+    currentAgencyId?: string
+  ): Promise<{ success: boolean; count: number; error?: string }> => {
+    if (!supabase || !batchId) return { success: false, count: 0, error: 'Supabase indisponível ou batchId ausente' };
+
+    try {
+      let selectQuery = supabase
+        .from('bank_transactions')
+        .select('id, status, match_id')
+        .eq('import_batch_id', batchId);
+
+      if (targetAccountId) {
+        selectQuery = selectQuery.eq('account_id', targetAccountId);
+      }
+
+      const { data: batchTxs, error: selectErr } = await selectQuery;
+      if (selectErr) throw selectErr;
+
+      const count = batchTxs ? batchTxs.length : 0;
+      if (count === 0) {
+        return { success: true, count: 0 };
+      }
+
+      // Reset any rent installments associated with these transactions
+      const txIds = batchTxs.map(t => t.id);
+      if (txIds.length > 0) {
+        try {
+          await supabase
+            .from('rent_installments')
+            .update({ bank_tx_id: null, status: 'pending' })
+            .in('bank_tx_id', txIds);
+        } catch (e) {
+          console.warn('Could not reset rent_installments linked to batch:', e);
+        }
+      }
+
+      let deleteQuery = supabase
+        .from('bank_transactions')
+        .delete()
+        .eq('import_batch_id', batchId);
+
+      if (targetAccountId) {
+        deleteQuery = deleteQuery.eq('account_id', targetAccountId);
+      }
+
+      const { error: deleteErr } = await deleteQuery;
+      if (deleteErr) throw deleteErr;
+
+      // Register audit log
+      try {
+        await supabase.from('audit_log').insert([{
+          action: 'remove_import',
+          entity_type: 'bank_transactions',
+          entity_id: batchId,
+          user_id: userId || null,
+          agency_id: currentAgencyId || agencyId || null,
+          details: {
+            batch_id: batchId,
+            account_id: targetAccountId,
+            removed_count: count,
+            timestamp: new Date().toISOString()
+          }
+        }]);
+      } catch (auditErr) {
+        console.warn('Could not record audit_log for remove_import:', auditErr);
+      }
+
+      await fetchTransactions(targetAccountId || selectedAccountId);
+      return { success: true, count };
+    } catch (err: any) {
+      console.error('Error removing import batch:', err);
+      return { success: false, count: 0, error: err.message || 'Erro ao remover importação' };
+    }
+  };
+
+  const listImportBatches = useCallback(async (targetAccountId?: string): Promise<ImportBatchInfo[]> => {
+    if (!supabase) return [];
+    const accId = targetAccountId || selectedAccountId;
+    if (!accId || accId === 'ALL') return [];
+
+    try {
+      const { data, error: err } = await supabase
+        .from('bank_transactions')
+        .select('*')
+        .eq('account_id', accId)
+        .not('import_batch_id', 'is', null)
+        .order('created_at', { ascending: false });
+
+      if (err) throw err;
+      if (!data || data.length === 0) return [];
+
+      const batchMap = new Map<string, BankTransaction[]>();
+      for (const tx of data) {
+        if (!tx.import_batch_id) continue;
+        const existing = batchMap.get(tx.import_batch_id) || [];
+        existing.push(tx);
+        batchMap.set(tx.import_batch_id, existing);
+      }
+
+      const batchList: ImportBatchInfo[] = [];
+      batchMap.forEach((txs, bId) => {
+        let totalAmount = 0;
+        let reconciledCount = 0;
+        let hasReconciled = false;
+        let hasMatched = false;
+        let fileType: 'ofx' | 'csv' = 'ofx';
+        let bankName: string | undefined = undefined;
+
+        let firstDate = txs[0].date;
+        let lastDate = txs[0].date;
+        let importedAt = txs[0].created_at || (txs[0] as any).imported_at || new Date().toISOString();
+
+        for (const tx of txs) {
+          const amt = Number(tx.amount) || 0;
+          if (tx.type === 'debit') {
+            totalAmount -= Math.abs(amt);
+          } else {
+            totalAmount += Math.abs(amt);
+          }
+
+          if (tx.status === 'reconciled' || (tx.status as any) === 'RECONCILED') {
+            hasReconciled = true;
+            reconciledCount++;
+          }
+          if (tx.status === 'matched' || (tx.status as any) === 'MATCHED') {
+            hasMatched = true;
+            reconciledCount++;
+          }
+
+          if (tx.date < firstDate) firstDate = tx.date;
+          if (tx.date > lastDate) lastDate = tx.date;
+
+          if (tx.ofx_fitid && tx.ofx_fitid.startsWith('CSV-')) {
+            fileType = 'csv';
+          }
+          if (tx.raw_data && tx.raw_data.bank_name) {
+            bankName = tx.raw_data.bank_name;
+          }
+        }
+
+        batchList.push({
+          id: bId,
+          batch_id: bId,
+          account_id: accId,
+          file_type: fileType,
+          tx_count: txs.length,
+          total_amount: totalAmount,
+          first_date: firstDate,
+          last_date: lastDate,
+          imported_at: importedAt,
+          has_reconciled: hasReconciled,
+          has_matched: hasMatched,
+          reconciled_count: reconciledCount,
+          bank_name: bankName
+        });
+      });
+
+      batchList.sort((a, b) => new Date(b.imported_at).getTime() - new Date(a.imported_at).getTime());
+      return batchList.slice(0, 50);
+    } catch (err) {
+      console.error('Error listing import batches:', err);
+      return [];
+    }
+  }, [selectedAccountId]);
+
+  const countPendingInBatch = async (batchId: string): Promise<{ total: number; pending: number; reconciled: number }> => {
+    if (!supabase || !batchId) return { total: 0, pending: 0, reconciled: 0 };
+    try {
+      const { data, error: err } = await supabase
+        .from('bank_transactions')
+        .select('status')
+        .eq('import_batch_id', batchId);
+
+      if (err || !data) return { total: 0, pending: 0, reconciled: 0 };
+      let pending = 0;
+      let reconciled = 0;
+      for (const item of data) {
+        if (item.status === 'reconciled' || item.status === 'matched') {
+          reconciled++;
+        } else {
+          pending++;
+        }
+      }
+      return { total: data.length, pending, reconciled };
+    } catch (e) {
+      return { total: 0, pending: 0, reconciled: 0 };
+    }
   };
 
   const listUnmatched = (accId?: string) => {
@@ -267,6 +507,9 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
     fetchTransactions,
     importFromOFX,
     importFromCSV,
+    removeImportBatch,
+    listImportBatches,
+    countPendingInBatch,
     listUnmatched,
     matchTransaction,
     ignoreTransaction,

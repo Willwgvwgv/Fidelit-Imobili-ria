@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, ArrowRight, X } from 'lucide-react';
-import { FinancialAccount } from '../../../../types';
+import { FinancialAccount, User } from '../../../../types';
 import { parseOFX, parseCSV, ParsedBankTransaction } from '../../../utils/ofxParser';
 import { useBankTransactions } from '../../../hooks/useBankTransactions';
+import { ImportHistoryList } from './ImportHistoryList';
 
 interface ImportarExtratoProps {
   accounts: FinancialAccount[];
@@ -10,6 +11,8 @@ interface ImportarExtratoProps {
   onImportDone: () => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
   accountId?: string;
+  currentUser?: User;
+  onGoToReconcile?: () => void;
 }
 
 export const BANK_OPTIONS = [
@@ -51,6 +54,8 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
   onImportDone,
   showToast,
   accountId,
+  currentUser,
+  onGoToReconcile,
 }) => {
   // Set default bank and account synchronously from passed accountId or default
   const [selectedBank, setSelectedBank] = useState<string>(() => {
@@ -456,6 +461,20 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Histórico de Importações da Conta */}
+      {selectedAccountId && (
+        <div className="pt-2">
+          <ImportHistoryList
+            accountId={selectedAccountId}
+            agencyId={agencyId}
+            currentUserId={currentUser?.id}
+            onGoToReconcile={onGoToReconcile}
+            onBatchDeleted={onImportDone}
+            showToast={showToast}
+          />
         </div>
       )}
     </div>

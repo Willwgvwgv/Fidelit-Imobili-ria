@@ -513,11 +513,12 @@ export const ContaBancariaDetalhe: React.FC<ContaBancariaDetalheProps> = ({
           <ImportarExtrato
             accounts={accounts}
             agencyId={currentUser.agencyId}
+            currentUser={currentUser}
+            onGoToReconcile={() => setActiveTab('conciliacao')}
             onImportDone={() => {
               onRefreshData();
-              setActiveTab('conciliacao');
               if (showToast) {
-                showToast('Extrato importado com sucesso! Redirecionado para a Conciliação.', 'success');
+                showToast('Ação concluída com sucesso.', 'success');
               }
             }}
             showToast={showToast}
