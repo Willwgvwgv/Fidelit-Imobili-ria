@@ -35,7 +35,7 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
         .select('*')
         .order('date', { ascending: false });
 
-      const targetAccount = accId || selectedAccountId;
+      const targetAccount = accId !== undefined ? accId : selectedAccountId;
       if (targetAccount && targetAccount !== 'ALL') {
         query = query.eq('account_id', targetAccount);
       }
@@ -119,9 +119,10 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
   };
 
   const listUnmatched = (accId?: string) => {
+    const targetAccount = accId !== undefined ? accId : selectedAccountId;
     return bankTransactions.filter(tx => {
       if (tx.status !== 'pending') return false;
-      if (accId && accId !== 'ALL') return tx.account_id === accId;
+      if (targetAccount && targetAccount !== 'ALL') return tx.account_id === targetAccount;
       return true;
     });
   };

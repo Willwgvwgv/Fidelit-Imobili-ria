@@ -277,10 +277,21 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
     loadPendingItems();
   }, []);
 
-  // Filter bank transactions that are pending
+  const selectedAccount = useMemo(() => {
+    if (!selectedAccountId || selectedAccountId === 'ALL') return null;
+    return accounts.find(a => a.id === selectedAccountId) || null;
+  }, [accounts, selectedAccountId]);
+
+  // Filter bank transactions that are pending and belong to selectedAccountId if specified
   const pendingBankTxs = useMemo(() => {
-    return bankTransactions.filter(tx => tx.status === 'pending');
-  }, [bankTransactions]);
+    return bankTransactions.filter(tx => {
+      if (tx.status !== 'pending') return false;
+      if (selectedAccountId && selectedAccountId !== 'ALL') {
+        return tx.account_id === selectedAccountId;
+      }
+      return true;
+    });
+  }, [bankTransactions, selectedAccountId]);
 
   // Auto-match calculation:
   // For each pending bank_tx, check if there's an exact match in amount and due_date ± 3 days
@@ -546,7 +557,15 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
             <HeaderTooltip text="Comparativo e cruzamento automático de extratos bancários importados (OFX/CSV) com lançamentos do sistema." />
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Vincule extratos importados do Sicoob aos recebimentos de aluguel e pagamentos de comissão.
+            {selectedAccount ? (
+              <>
+                Vincule extratos importados do <strong className="font-semibold text-slate-700">{selectedAccount.name}</strong> aos recebimentos de aluguel e pagamentos de comissão.
+              </>
+            ) : (
+              <>
+                Selecione uma conta bancária para começar a conciliar.
+              </>
+            )}
           </p>
         </div>
 
@@ -602,7 +621,15 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
               <CheckCircle2 size={36} className="text-emerald-500 mx-auto" />
               <p className="text-sm font-bold text-slate-700">Tudo Conciliado!</p>
               <p className="text-xs text-slate-400">
-                Não há transações pendentes de conciliação no momento. Importe um novo extrato OFX/CSV.
+                {selectedAccount ? (
+                  <>
+                    Nenhuma transação pendente para <strong className="font-semibold text-slate-600">{selectedAccount.name}</strong>. Importe um extrato em <span className="font-semibold text-indigo-600">Importar Extrato</span>.
+                  </>
+                ) : (
+                  <>
+                    Não há transações pendentes de conciliação no momento. Importe um novo extrato OFX/CSV.
+                  </>
+                )}
               </p>
             </div>
           ) : (
