@@ -500,6 +500,199 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
     }
   };
 
+  const undoReconciliation = async (
+    bankTxId: string,
+    userId?: string,
+    currentAgencyId?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!supabase || !bankTxId) return { success: false, error: 'Supabase ou ID ausente' };
+
+    try {
+      const { data: tx, error: fetchErr } = await supabase
+        .from('bank_transactions')
+        .select('*')
+        .eq('id', bankTxId)
+        .single();
+
+      if (fetchErr || !tx) {
+        return { success: false, error: 'Transação bancária não encontrada' };
+      }
+
+      if (tx.status !== 'reconciled' && tx.status !== 'RECONCILED' && tx.status !== 'matched' && tx.status !== 'MATCHED') {
+        return { success: false, error: 'Esta transação não está conciliada' };
+      }
+
+      const matchId = tx.match_id;
+      const matchType = tx.match_type;
+
+      // Unlink broker split or rent installment if present
+      if (matchId && matchType) {
+        if (matchType === 'broker_split') {
+          try {
+            await supabase
+              .from('broker_splits')
+              .update({
+                status: 'pending',
+                payment_date: null,
+                method: null,
+                receipt_data: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', matchId);
+          } catch (e) {
+            console.warn('Could not reset broker_splits:', e);
+          }
+        } else if (matchType === 'rent') {
+          try {
+            await supabase
+              .from('rent_installments')
+              .update({
+                status: 'pending',
+                received_amount: null,
+                received_at: null,
+                bank_tx_id: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', matchId);
+          } catch (e) {
+            console.warn('Could not reset rent_installments:', e);
+          }
+        }
+      }
+
+      // Reset bank transaction to pending
+      const { error: updateErr } = await supabase
+        .from('bank_transactions')
+        .update({
+          status: 'pending',
+          match_id: null,
+          match_type: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', bankTxId);
+
+      if (updateErr) throw updateErr;
+
+      // Log in audit_log
+      try {
+        await supabase.from('audit_log').insert([{
+          action: 'undo_reconciliation',
+          entity_type: 'bank_transactions',
+          entity_id: bankTxId,
+          user_id: userId || null,
+          agency_id: currentAgencyId || agencyId || null,
+          details: {
+            match_type: matchType || null,
+            match_id: matchId || null,
+            description: tx.description,
+            amount: tx.amount,
+            timestamp: new Date().toISOString()
+          }
+        }]);
+      } catch (auditErr) {
+        console.warn('Could not record audit_log for undo_reconciliation:', auditErr);
+      }
+
+      await fetchTransactions();
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error undoing reconciliation:', err);
+      return { success: false, error: err.message || 'Erro ao desfazer conciliação' };
+    }
+  };
+
+  const deleteBankTransaction = async (
+    bankTxId: string,
+    userId?: string,
+    currentAgencyId?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!supabase || !bankTxId) return { success: false, error: 'Supabase ou ID ausente' };
+
+    try {
+      const { data: tx, error: fetchErr } = await supabase
+        .from('bank_transactions')
+        .select('*')
+        .eq('id', bankTxId)
+        .single();
+
+      if (fetchErr || !tx) {
+        return { success: false, error: 'Transação bancária não encontrada' };
+      }
+
+      const matchId = tx.match_id;
+      const matchType = tx.match_type;
+
+      // Unlink broker split or rent installment if present
+      if (matchId && matchType) {
+        if (matchType === 'broker_split') {
+          try {
+            await supabase
+              .from('broker_splits')
+              .update({
+                status: 'pending',
+                payment_date: null,
+                method: null,
+                receipt_data: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', matchId);
+          } catch (e) {
+            console.warn('Could not reset broker_splits:', e);
+          }
+        } else if (matchType === 'rent') {
+          try {
+            await supabase
+              .from('rent_installments')
+              .update({
+                status: 'pending',
+                received_amount: null,
+                received_at: null,
+                bank_tx_id: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', matchId);
+          } catch (e) {
+            console.warn('Could not reset rent_installments:', e);
+          }
+        }
+      }
+
+      // Delete bank transaction
+      const { error: deleteErr } = await supabase
+        .from('bank_transactions')
+        .delete()
+        .eq('id', bankTxId);
+
+      if (deleteErr) throw deleteErr;
+
+      // Log in audit_log
+      try {
+        await supabase.from('audit_log').insert([{
+          action: 'delete_bank_transaction',
+          entity_type: 'bank_transactions',
+          entity_id: bankTxId,
+          user_id: userId || null,
+          agency_id: currentAgencyId || agencyId || null,
+          details: {
+            match_type: matchType || null,
+            match_id: matchId || null,
+            description: tx.description,
+            amount: tx.amount,
+            timestamp: new Date().toISOString()
+          }
+        }]);
+      } catch (auditErr) {
+        console.warn('Could not record audit_log for delete_bank_transaction:', auditErr);
+      }
+
+      await fetchTransactions();
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error deleting bank transaction:', err);
+      return { success: false, error: err.message || 'Erro ao excluir transação bancária' };
+    }
+  };
+
   return {
     bankTransactions,
     loading,
@@ -514,5 +707,7 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
     matchTransaction,
     ignoreTransaction,
     reconcileTransaction,
+    undoReconciliation,
+    deleteBankTransaction,
   };
 }

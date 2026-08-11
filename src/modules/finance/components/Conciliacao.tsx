@@ -12,7 +12,9 @@ import {
   CheckCircle2, 
   Search, 
   Filter,
-  DollarSign
+  DollarSign,
+  RotateCcw,
+  Trash2
 } from 'lucide-react';
 import { FinancialAccount, User, FinancialTransaction } from '../../../../types';
 import { useBankTransactions, BankTransaction } from '../../../hooks/useBankTransactions';
@@ -90,7 +92,13 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
     matchTransaction,
     ignoreTransaction,
     reconcileTransaction,
+    undoReconciliation,
+    deleteBankTransaction,
   } = useBankTransactions(currentUser.agencyId, selectedAccountId);
+
+  const [activeBankTab, setActiveBankTab] = useState<'pending' | 'reconciled'>('pending');
+  const [undoTargetTx, setUndoTargetTx] = useState<BankTransaction | null>(null);
+  const [deleteTargetTx, setDeleteTargetTx] = useState<BankTransaction | null>(null);
 
   const [rentInstallments, setRentInstallments] = useState<RentInstallmentItem[]>([]);
   const [brokerSplits, setBrokerSplits] = useState<BrokerSplitItem[]>([]);
@@ -312,6 +320,70 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
       return true;
     });
   }, [bankTransactions, selectedAccountId]);
+
+  // Filter bank transactions that are reconciled / matched
+  const reconciledBankTxs = useMemo(() => {
+    return bankTransactions.filter(tx => {
+      const st = (tx.status || '').toLowerCase();
+      if (st !== 'reconciled' && st !== 'matched') return false;
+      if (selectedAccountId && selectedAccountId !== 'ALL') {
+        return tx.account_id === selectedAccountId;
+      }
+      return true;
+    });
+  }, [bankTransactions, selectedAccountId]);
+
+  const getMatchLabel = (tx: BankTransaction) => {
+    if (!tx.match_id && !tx.match_type) {
+      return 'Sem vínculo direto (Reconciliação simples)';
+    }
+    if (tx.match_type === 'rent') {
+      const inst = rentInstallments.find(i => i.id === tx.match_id);
+      if (inst) {
+        return `Aluguel: ${inst.tenant_name} (R$ ${inst.expected_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`;
+      }
+      return `Aluguel (ID: ${tx.match_id?.slice(0, 8)}...)`;
+    }
+    if (tx.match_type === 'broker_split') {
+      const split = brokerSplits.find(s => s.id === tx.match_id);
+      if (split) {
+        return `Comissão: ${split.broker_name}${split.buyer_name ? ` - Cliente: ${split.buyer_name}` : ''} (R$ ${split.calculated_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`;
+      }
+      return `Comissão Corretor (ID: ${tx.match_id?.slice(0, 8)}...)`;
+    }
+    if (tx.match_type === 'expense') {
+      return 'Lançamento Manual / Despesa';
+    }
+    return `${tx.match_type || 'Vínculo'} (${tx.match_id ? tx.match_id.slice(0, 8) + '...' : ''})`;
+  };
+
+  const handleUndoConfirm = async () => {
+    if (!undoTargetTx) return;
+    const targetTx = undoTargetTx;
+    setUndoTargetTx(null);
+
+    const res = await undoReconciliation(targetTx.id, currentUser.id, currentUser.agencyId);
+    if (res.success) {
+      if (showToast) showToast('Conciliação desfeita com sucesso!', 'success');
+      loadPendingItems();
+    } else {
+      if (showToast) showToast(res.error || 'Erro ao desfazer conciliação.', 'error');
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTargetTx) return;
+    const targetTx = deleteTargetTx;
+    setDeleteTargetTx(null);
+
+    const res = await deleteBankTransaction(targetTx.id, currentUser.id, currentUser.agencyId);
+    if (res.success) {
+      if (showToast) showToast('Transação excluída com sucesso!', 'success');
+      loadPendingItems();
+    } else {
+      if (showToast) showToast(res.error || 'Erro ao excluir transação.', 'error');
+    }
+  };
 
   // Auto-match calculation:
   // For each pending bank_tx, check if there's an exact match in amount and due_date ± 3 days
@@ -628,12 +700,40 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
         <div className="lg:col-span-7 bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
-              <h3 className="font-bold text-slate-800 text-sm">Extrato Bancário Pendente</h3>
-              <span className="px-2 py-0.5 bg-amber-50 text-amber-700 font-bold text-xs rounded-full border border-amber-200/60">
-                {pendingBankTxs.length} para conciliar
-              </span>
+              <button
+                onClick={() => setActiveBankTab('pending')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                  activeBankTab === 'pending'
+                    ? 'bg-amber-500 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>Pendentes</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                  activeBankTab === 'pending' ? 'bg-amber-600 text-white' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {pendingBankTxs.length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setActiveBankTab('reconciled')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                  activeBankTab === 'reconciled'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>Conciliadas</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                  activeBankTab === 'reconciled' ? 'bg-emerald-700 text-white' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {reconciledBankTxs.length}
+                </span>
+              </button>
             </div>
-            {suggestedMatches.size > 0 && (
+
+            {activeBankTab === 'pending' && suggestedMatches.size > 0 && (
               <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-lg flex items-center gap-1 animate-pulse">
                 <Sparkles size={13} />
                 {suggestedMatches.size} sugestões automáticas
@@ -645,134 +745,220 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
             <div className="p-8 text-center text-slate-400 text-xs font-medium">
               Carregando transações do banco...
             </div>
-          ) : pendingBankTxs.length === 0 ? (
-            <div className="p-10 text-center space-y-2">
-              <CheckCircle2 size={36} className="text-emerald-500 mx-auto" />
-              <p className="text-sm font-bold text-slate-700">Tudo Conciliado!</p>
-              <p className="text-xs text-slate-400">
-                {selectedAccount ? (
-                  <>
-                    Nenhuma transação pendente para <strong className="font-semibold text-slate-600">{selectedAccount.name}</strong>. Importe um extrato em <span className="font-semibold text-indigo-600">Importar Extrato</span>.
-                  </>
-                ) : (
-                  <>
-                    Não há transações pendentes de conciliação no momento. Importe um novo extrato OFX/CSV.
-                  </>
-                )}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {pendingBankTxs.map((tx) => {
-                const suggested = suggestedMatches.get(tx.id);
-                const isTransfer = Boolean(tx.transfer_id);
+          ) : activeBankTab === 'pending' ? (
+            /* Tab: Pendentes */
+            pendingBankTxs.length === 0 ? (
+              <div className="p-10 text-center space-y-2">
+                <CheckCircle2 size={36} className="text-emerald-500 mx-auto" />
+                <p className="text-sm font-bold text-slate-700">Tudo Conciliado!</p>
+                <p className="text-xs text-slate-400">
+                  {selectedAccount ? (
+                    <>
+                      Nenhuma transação pendente para <strong className="font-semibold text-slate-600">{selectedAccount.name}</strong>. Importe um extrato em <span className="font-semibold text-indigo-600">Importar Extrato</span>.
+                    </>
+                  ) : (
+                    <>
+                      Não há transações pendentes de conciliação no momento. Importe um novo extrato OFX/CSV.
+                    </>
+                  )}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {pendingBankTxs.map((tx) => {
+                  const suggested = suggestedMatches.get(tx.id);
+                  const isTransfer = Boolean(tx.transfer_id);
 
-                return (
-                  <div
-                    key={tx.id}
-                    className={`p-3.5 rounded-xl border transition-all space-y-2.5 ${
-                      isTransfer
-                        ? 'bg-slate-50/80 border-slate-200 opacity-90'
-                        : suggested
-                        ? 'bg-amber-50/40 border-amber-200/80 shadow-2xs'
-                        : 'bg-white border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-mono text-slate-500 font-semibold">{tx.date}</span>
-                          <span
-                            className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full border ${
-                              isCreditTransaction(tx)
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : 'bg-slate-100 text-slate-700 border-slate-200'
-                            }`}
-                          >
-                            {isCreditTransaction(tx) ? 'Crédito' : 'Débito'}
-                          </span>
-                          <TransferBadge transferId={tx.transfer_id} />
-                          {tx.ofx_fitid?.startsWith('MANUAL-') && (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-amber-100 text-amber-800 border border-amber-300/60 inline-flex items-center gap-1">
-                              ✎ Lançamento manual
+                  return (
+                    <div
+                      key={tx.id}
+                      className={`p-3.5 rounded-xl border transition-all space-y-2.5 ${
+                        isTransfer
+                          ? 'bg-slate-50/80 border-slate-200 opacity-90'
+                          : suggested
+                          ? 'bg-amber-50/40 border-amber-200/80 shadow-2xs'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-mono text-slate-500 font-semibold">{tx.date}</span>
+                            <span
+                              className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full border ${
+                                isCreditTransaction(tx)
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : 'bg-slate-100 text-slate-700 border-slate-200'
+                              }`}
+                            >
+                              {isCreditTransaction(tx) ? 'Crédito' : 'Débito'}
                             </span>
-                          )}
+                            <TransferBadge transferId={tx.transfer_id} />
+                            {tx.ofx_fitid?.startsWith('MANUAL-') && (
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase bg-amber-100 text-amber-800 border border-amber-300/60 inline-flex items-center gap-1">
+                                ✎ Lançamento manual
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm font-bold text-slate-800 mt-1 leading-snug">{tx.description}</p>
                         </div>
-                        <p className="text-sm font-bold text-slate-800 mt-1 leading-snug">{tx.description}</p>
-                      </div>
 
-                      <div className="text-right shrink-0">
-                        <span
-                          className={`text-base font-bold ${getTransactionValueColor(tx)}`}
-                        >
-                          {tx.transfer_id ? '' : isCreditTransaction(tx) ? '+' : '-'} R${' '}
-                          {tx.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Auto-match highlight badge */}
-                    {suggested && !isTransfer && (
-                      <div className="p-2 bg-amber-100/70 border border-amber-300/60 rounded-lg text-xs text-amber-900 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <Sparkles size={14} className="text-amber-600 shrink-0" />
-                          <span className="font-semibold text-[11px] truncate">{suggested.label}</span>
+                        <div className="text-right shrink-0">
+                          <span
+                            className={`text-base font-bold ${getTransactionValueColor(tx)}`}
+                          >
+                            {tx.transfer_id ? '' : isCreditTransaction(tx) ? '+' : '-'} R${' '}
+                            {tx.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </span>
                         </div>
-                        <button
-                          onClick={() => handleLinkClick(tx)}
-                          className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-md transition-all shrink-0 cursor-pointer"
-                        >
-                          Confirmar Match
-                        </button>
                       </div>
-                    )}
 
-                    {/* Action buttons */}
-                    <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100/80">
-                      {!isTransfer ? (
-                        <>
+                      {/* Auto-match highlight badge */}
+                      {suggested && !isTransfer && (
+                        <div className="p-2 bg-amber-100/70 border border-amber-300/60 rounded-lg text-xs text-amber-900 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <Sparkles size={14} className="text-amber-600 shrink-0" />
+                            <span className="font-semibold text-[11px] truncate">{suggested.label}</span>
+                          </div>
                           <button
                             onClick={() => handleLinkClick(tx)}
-                            className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-md transition-all shrink-0 cursor-pointer"
                           >
-                            <Link2 size={13} />
-                            Vincular
+                            Confirmar Match
                           </button>
+                        </div>
+                      )}
 
-                          <button
-                            onClick={() => setReconcileTargetTx(tx)}
-                            className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-                            title="Marcar como conciliado. A transação sai da lista de pendentes mas NÃO cria lançamento no extrato. Use quando a transação já está registrada em outro sistema (ex: contabilidade externa) ou é irrelevante."
-                          >
-                            <Check size={13} />
-                            Reconciliar
-                          </button>
-
-                          {onOpenNewExpenseModal && (
+                      {/* Action buttons */}
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100/80">
+                        {!isTransfer ? (
+                          <>
                             <button
-                              onClick={() => handleLancarFromBankTx(tx)}
-                              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                              onClick={() => handleLinkClick(tx)}
+                              className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
                             >
-                              <PlusCircle size={13} />
-                              Lançar
+                              <Link2 size={13} />
+                              Vincular
                             </button>
-                          )}
-                        </>
-                      ) : null}
 
-                      <button
-                        onClick={() => handleIgnore(tx.id)}
-                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-                        title="Transferência entre contas, sem impacto em receita/despesa"
-                      >
-                        <XCircle size={14} />
-                        Ignorar
-                      </button>
+                            <button
+                              onClick={() => setReconcileTargetTx(tx)}
+                              className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                              title="Marcar como conciliado. A transação sai da lista de pendentes mas NÃO cria lançamento no extrato."
+                            >
+                              <Check size={13} />
+                              Reconciliar
+                            </button>
+
+                            {onOpenNewExpenseModal && (
+                              <button
+                                onClick={() => handleLancarFromBankTx(tx)}
+                                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                              >
+                                <PlusCircle size={13} />
+                                Lançar
+                              </button>
+                            )}
+                          </>
+                        ) : null}
+
+                        <button
+                          onClick={() => handleIgnore(tx.id)}
+                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 font-bold text-xs rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                          title="Transferência entre contas, sem impacto em receita/despesa"
+                        >
+                          <XCircle size={14} />
+                          Ignorar
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )
+          ) : (
+            /* Tab: Conciliadas */
+            reconciledBankTxs.length === 0 ? (
+              <div className="p-10 text-center space-y-2">
+                <AlertCircle size={36} className="text-slate-300 mx-auto" />
+                <p className="text-sm font-bold text-slate-700">Nenhuma transação conciliada</p>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  As transações que você conciliar ou vincular nesta conta aparecerão aqui para acompanhamento e auditoria.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {reconciledBankTxs.map((tx) => {
+                  const matchLabel = getMatchLabel(tx);
+
+                  return (
+                    <div
+                      key={tx.id}
+                      className="p-3.5 rounded-xl border border-slate-200 bg-emerald-50/20 hover:border-slate-300 transition-all space-y-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-mono text-slate-500 font-semibold">{tx.date}</span>
+                            <span
+                              className={`px-2.5 py-0.5 text-[11px] font-semibold rounded-full border ${
+                                isCreditTransaction(tx)
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                  : 'bg-slate-100 text-slate-700 border-slate-200'
+                              }`}
+                            >
+                              {isCreditTransaction(tx) ? 'Crédito' : 'Débito'}
+                            </span>
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                              <CheckCircle2 size={12} /> Conciliada
+                            </span>
+                          </div>
+                          <p className="text-sm font-bold text-slate-800 mt-1 leading-snug">{tx.description}</p>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span
+                            className={`text-base font-bold ${getTransactionValueColor(tx)}`}
+                          >
+                            {isCreditTransaction(tx) ? '+' : '-'} R${' '}
+                            {tx.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Vinculação Info */}
+                      <div className="p-2.5 bg-indigo-50/70 border border-indigo-100 rounded-lg text-xs text-indigo-900 flex items-center gap-2">
+                        <Link2 size={14} className="text-indigo-600 shrink-0" />
+                        <span className="font-medium text-[11px]">
+                          <strong>Vinculada a:</strong> {matchLabel}
+                        </span>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100">
+                        <button
+                          onClick={() => setUndoTargetTx(tx)}
+                          className="px-3 py-1.5 bg-slate-100 hover:bg-amber-50 text-slate-700 hover:text-amber-800 border border-slate-200 hover:border-amber-300 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                          title="Desfazer conciliação e retornar a transação para o status pendente"
+                        >
+                          <RotateCcw size={13} />
+                          <span>Desfazer</span>
+                        </button>
+
+                        <button
+                          onClick={() => setDeleteTargetTx(tx)}
+                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200/80 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                          title="Excluir esta transação bancária permanentemente"
+                        >
+                          <Trash2 size={13} />
+                          <span>Excluir tx</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
           )}
         </div>
 
@@ -1241,6 +1427,54 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
         confirmText="Marcar como Conciliado"
         cancelText="Cancelar"
         variant="info"
+      />
+
+      {/* Confirm Modal for Desfazer Conciliação */}
+      <ConfirmModal
+        isOpen={!!undoTargetTx}
+        onClose={() => setUndoTargetTx(null)}
+        onConfirm={handleUndoConfirm}
+        title="Desfazer conciliação?"
+        description={
+          undoTargetTx ? (
+            <div className="space-y-2 text-xs text-slate-600">
+              <p>
+                A transação <strong className="text-slate-800">"{undoTargetTx.description}"</strong> voltará para o status <strong>Pendente</strong> na aba de pendentes.
+              </p>
+              <p className="text-slate-500">
+                Se houver vínculo com aluguel ou comissão, o lançamento correspondente também retornará para pendente.
+              </p>
+            </div>
+          ) : undefined
+        }
+        confirmText="Desfazer Conciliação"
+        cancelText="Cancelar"
+        variant="warning"
+      />
+
+      {/* Confirm Modal for Excluir Transação */}
+      <ConfirmModal
+        isOpen={!!deleteTargetTx}
+        onClose={() => setDeleteTargetTx(null)}
+        onConfirm={handleDeleteConfirm}
+        title="Excluir transação bancária?"
+        description={
+          deleteTargetTx ? (
+            <div className="space-y-2 text-xs text-slate-600">
+              <p>
+                Tem certeza que deseja <strong className="text-rose-700">excluir permanentemente</strong> a transação <strong className="text-slate-800">"{deleteTargetTx.description}"</strong> (R$ {deleteTargetTx.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})?
+              </p>
+              {deleteTargetTx.match_id && (
+                <p className="p-2 bg-amber-50 rounded-lg border border-amber-200 text-amber-900">
+                  ⚠️ A vinculação com este lançamento também será desfeita, retornando-o para pendente.
+                </p>
+              )}
+            </div>
+          ) : undefined
+        }
+        confirmText="Excluir Transação"
+        cancelText="Cancelar"
+        variant="danger"
       />
     </div>
   );
