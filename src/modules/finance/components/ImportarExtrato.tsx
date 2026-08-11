@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, ArrowRight, X } from 'lucide-react';
 import { FinancialAccount } from '../../../../types';
 import { parseOFX, parseCSV, ParsedBankTransaction } from '../../../utils/ofxParser';
 import { useBankTransactions } from '../../../hooks/useBankTransactions';
@@ -11,22 +11,75 @@ interface ImportarExtratoProps {
   showToast?: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
 }
 
+export const BANK_OPTIONS = [
+  { code: 'sicoob', name: 'Sicoob' },
+  { code: 'cresol', name: 'Cresol' },
+  { code: 'inter', name: 'Inter' },
+  { code: 'sicredi', name: 'Sicredi' },
+  { code: 'bradesco', name: 'Bradesco' },
+  { code: 'itau', name: 'Itaú' },
+  { code: 'bb', name: 'Banco do Brasil' },
+  { code: 'caixa', name: 'Caixa Econômica' },
+  { code: 'santander', name: 'Santander' },
+  { code: 'nubank', name: 'Nubank' },
+  { code: 'c6', name: 'C6 Bank' },
+  { code: 'outros', name: 'Outro' },
+];
+
+export const getAccountBankCode = (account: FinancialAccount): string => {
+  const code = (account as any).bank_code;
+  if (code) return String(code).toLowerCase();
+  const nameLower = (account.name || '').toLowerCase();
+  if (nameLower.includes('sicoob')) return 'sicoob';
+  if (nameLower.includes('cresol')) return 'cresol';
+  if (nameLower.includes('inter')) return 'inter';
+  if (nameLower.includes('sicredi')) return 'sicredi';
+  if (nameLower.includes('bradesco')) return 'bradesco';
+  if (nameLower.includes('itaú') || nameLower.includes('itau')) return 'itau';
+  if (nameLower.includes('brasil') || nameLower.includes(' bb')) return 'bb';
+  if (nameLower.includes('caixa')) return 'caixa';
+  if (nameLower.includes('santander')) return 'santander';
+  if (nameLower.includes('nubank')) return 'nubank';
+  if (nameLower.includes('c6')) return 'c6';
+  return 'outros';
+};
+
 export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
   accounts,
   agencyId,
   onImportDone,
   showToast,
 }) => {
-  const [selectedAccountId, setSelectedAccountId] = useState<string>(
-    accounts.length > 0 ? accounts[0].id : ''
-  );
+  // FIX 1: Set default bank and account synchronously from first/default account
+  const [selectedBank, setSelectedBank] = useState<string>(() => {
+    if (accounts.length > 0) {
+      const def = accounts.find((a) => a.is_default) || accounts[0];
+      return getAccountBankCode(def);
+    }
+    return 'sicoob';
+  });
 
-  React.useEffect(() => {
-    if (!selectedAccountId && accounts.length > 0) {
-      setSelectedAccountId(accounts[0].id);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>(() => {
+    if (accounts.length > 0) {
+      const def = accounts.find((a) => a.is_default) || accounts[0];
+      return def.id;
+    }
+    return '';
+  });
+
+  // Sync selectedBank & selectedAccountId if accounts list updates
+  useEffect(() => {
+    if (accounts.length > 0) {
+      const currentAccExists = accounts.some((a) => a.id === selectedAccountId);
+      if (!currentAccExists) {
+        const def = accounts.find((a) => a.is_default) || accounts[0];
+        const defBank = getAccountBankCode(def);
+        setSelectedBank(defBank);
+        setSelectedAccountId(def.id);
+      }
     }
   }, [accounts, selectedAccountId]);
-  const [selectedBank, setSelectedBank] = useState<string>('Sicoob');
+
   const [file, setFile] = useState<File | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
   const [parsedPreview, setParsedPreview] = useState<ParsedBankTransaction[]>([]);
@@ -34,7 +87,47 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
   const [isImporting, setIsImporting] = useState(false);
   const [fileType, setFileType] = useState<'ofx' | 'csv' | null>(null);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const { importFromOFX, importFromCSV } = useBankTransactions(agencyId, selectedAccountId);
+
+  // FIX 2: Filter accounts by selected bank
+  const filteredAccounts = useMemo(() => {
+    return accounts.filter((acc) => getAccountBankCode(acc) === selectedBank);
+  }, [accounts, selectedBank]);
+
+  const selectedBankObj = BANK_OPTIONS.find((b) => b.code === selectedBank);
+  const selectedBankName = selectedBankObj ? selectedBankObj.name : selectedBank;
+
+  const handleBankChange = (newBankCode: string) => {
+    setSelectedBank(newBankCode);
+
+    // Auto-select first account of the newly selected bank
+    const matchingAccounts = accounts.filter((acc) => getAccountBankCode(acc) === newBankCode);
+    if (matchingAccounts.length > 0) {
+      setSelectedAccountId(matchingAccounts[0].id);
+    } else {
+      setSelectedAccountId('');
+    }
+
+    // Reset file and preview when bank changes
+    setFile(null);
+    setFileContent('');
+    setParsedPreview([]);
+  };
+
+  // FIX 3: Beforeunload warning during import
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isImporting) {
+        e.preventDefault();
+        e.returnValue = 'Tem uma importação em andamento. Tem certeza que deseja sair?';
+        return e.returnValue;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isImporting]);
 
   const handleFileChange = async (selectedFile: File) => {
     setFile(selectedFile);
@@ -61,7 +154,7 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
         // Attach bank_name to raw_data of each transaction for tracking
         transactions = transactions.map((t) => ({
           ...t,
-          raw_data: { ...t.raw_data, bank_name: selectedBank },
+          raw_data: { ...t.raw_data, bank_name: selectedBankName },
         }));
         setParsedPreview(transactions);
       } catch (err) {
@@ -85,23 +178,60 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
     e.preventDefault();
   };
 
+  const handleCancelImport = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsImporting(false);
+    setFile(null);
+    setFileContent('');
+    setParsedPreview([]);
+    if (showToast) showToast('Importação cancelada', 'info');
+  };
+
   const handleConfirmImport = async () => {
     if (!selectedAccountId) {
-      if (showToast) showToast('Selecione uma conta bancária.', 'warning');
+      if (showToast) showToast('Selecione uma conta bancária de destino.', 'warning');
       return;
     }
+
+    // FIX 2d: Validate that selected account belongs to selected bank
+    const selectedAcc = accounts.find((a) => a.id === selectedAccountId);
+    if (selectedAcc) {
+      const accBankCode = getAccountBankCode(selectedAcc);
+      if (accBankCode !== selectedBank) {
+        if (showToast) {
+          showToast(`A conta selecionada não pertence ao banco ${selectedBankName}.`, 'error');
+        }
+        return;
+      }
+    }
+
     if (!fileContent || !parsedPreview.length) {
       if (showToast) showToast('Nenhuma transação para importar.', 'warning');
       return;
     }
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     setIsImporting(true);
+
     try {
       let result = { inserted: 0, skipped: 0 };
       if (fileType === 'ofx') {
-        result = await importFromOFX(fileContent, selectedAccountId, agencyId);
+        result = await importFromOFX(fileContent, selectedAccountId, agencyId, {
+          signal: controller.signal,
+        });
       } else {
-        result = await importFromCSV(fileContent, selectedAccountId, agencyId);
+        result = await importFromCSV(fileContent, selectedAccountId, agencyId, {
+          signal: controller.signal,
+        });
+      }
+
+      if (controller.signal.aborted) {
+        if (showToast) showToast('Importação cancelada', 'info');
+        return;
       }
 
       if (showToast) {
@@ -113,10 +243,15 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
 
       onImportDone();
     } catch (err: any) {
-      console.error('Error importing file:', err);
-      if (showToast) showToast('Erro ao salvar no banco de dados.', 'error');
+      if (controller.signal.aborted || err.name === 'AbortError') {
+        if (showToast) showToast('Importação cancelada', 'info');
+      } else {
+        console.error('Error importing file:', err);
+        if (showToast) showToast('Erro ao salvar no banco de dados.', 'error');
+      }
     } finally {
       setIsImporting(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -142,18 +277,19 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
           </label>
           <select
             value={selectedBank}
-            onChange={(e) => setSelectedBank(e.target.value)}
+            onChange={(e) => handleBankChange(e.target.value)}
             className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 bg-white font-medium"
           >
-            <option value="Sicoob">Sicoob</option>
-            <option value="Cresol">Cresol</option>
-            <option value="Inter">Inter</option>
-            <option value="Outro">Outro</option>
+            {BANK_OPTIONS.map((b) => (
+              <option key={b.code} value={b.code}>
+                {b.name}
+              </option>
+            ))}
           </select>
           <p className="text-[11px] text-slate-500 mt-1">
-            {selectedBank === 'Sicoob'
+            {selectedBank === 'sicoob'
               ? 'Sicoob: aceita arquivos .OFX direto do Internet Banking.'
-              : `${selectedBank}: aceita arquivos .OFX ou .CSV.`}
+              : `${selectedBankName}: aceita arquivos .OFX ou .CSV.`}
           </p>
         </div>
 
@@ -167,8 +303,10 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
             onChange={(e) => setSelectedAccountId(e.target.value)}
             className="w-full h-11 px-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-indigo-500 bg-white font-medium"
           >
-            {accounts.length === 0 && <option value="">Nenhuma conta cadastrada</option>}
-            {accounts.map((acc) => (
+            {filteredAccounts.length === 0 && (
+              <option value="">Nenhuma conta cadastrada para {selectedBankName}</option>
+            )}
+            {filteredAccounts.map((acc) => (
               <option key={acc.id} value={acc.id}>
                 {acc.name} ({acc.type || 'Corrente'})
               </option>
@@ -181,7 +319,7 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
       <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl text-xs text-indigo-900 leading-relaxed flex items-center justify-between">
         <div className="flex items-center gap-2">
           <CheckCircle2 size={16} className="text-indigo-600 shrink-0" />
-          <span className="font-bold">Importando extrato do {selectedBank}</span>
+          <span className="font-bold">Importando extrato do {selectedBankName}</span>
         </div>
         <span className="text-[11px] text-indigo-700">OFX / CSV suportados</span>
       </div>
@@ -259,26 +397,36 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
           </div>
 
           <div className="flex justify-end pt-3">
-            <button
-              onClick={handleConfirmImport}
-              disabled={isImporting || !selectedAccountId}
-              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl transition-all shadow-sm flex items-center gap-2 disabled:opacity-50 cursor-pointer"
-            >
-              {isImporting ? (
-                <>
-                  <Loader2 className="animate-spin" size={16} />
+            {isImporting ? (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 text-indigo-600 text-xs font-semibold">
+                  <Loader2 className="animate-spin" size={18} />
                   <span>Importando para o Supabase...</span>
-                </>
-              ) : (
-                <>
-                  <span>Importar {parsedPreview.length} Transações</span>
-                  <ArrowRight size={16} />
-                </>
-              )}
-            </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCancelImport}
+                  className="px-5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-sm rounded-xl border border-rose-200 transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+                >
+                  <X size={16} />
+                  <span>Cancelar Importação</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleConfirmImport}
+                disabled={!selectedAccountId || filteredAccounts.length === 0}
+                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl transition-all shadow-sm flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+              >
+                <span>Importar {parsedPreview.length} Transações</span>
+                <ArrowRight size={16} />
+              </button>
+            )}
           </div>
         </div>
       )}
     </div>
   );
 };
+

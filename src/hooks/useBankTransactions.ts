@@ -59,7 +59,8 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
   const saveParsedTransactions = async (
     parsedList: ParsedBankTransaction[],
     accountId: string,
-    currentAgencyId: string
+    currentAgencyId: string,
+    options?: { signal?: AbortSignal }
   ): Promise<{ inserted: number; skipped: number }> => {
     if (!supabase) throw new Error('Supabase client não configurado');
     if (!parsedList.length) return { inserted: 0, skipped: 0 };
@@ -68,6 +69,10 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
     let skipped = 0;
 
     for (const item of parsedList) {
+      if (options?.signal?.aborted) {
+        console.log('Import operation aborted by user signal');
+        break;
+      }
       const payload = {
         agency_id: currentAgencyId,
         account_id: accountId,
@@ -103,19 +108,21 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
   const importFromOFX = async (
     fileContent: string,
     accountId: string,
-    currentAgencyId: string
+    currentAgencyId: string,
+    options?: { signal?: AbortSignal }
   ): Promise<{ inserted: number; skipped: number }> => {
     const parsed = await parseOFX(fileContent);
-    return saveParsedTransactions(parsed, accountId, currentAgencyId);
+    return saveParsedTransactions(parsed, accountId, currentAgencyId, options);
   };
 
   const importFromCSV = async (
     fileContent: string,
     accountId: string,
-    currentAgencyId: string
+    currentAgencyId: string,
+    options?: { signal?: AbortSignal }
   ): Promise<{ inserted: number; skipped: number }> => {
     const parsed = parseCSV(fileContent, accountId);
-    return saveParsedTransactions(parsed, accountId, currentAgencyId);
+    return saveParsedTransactions(parsed, accountId, currentAgencyId, options);
   };
 
   const listUnmatched = (accId?: string) => {
