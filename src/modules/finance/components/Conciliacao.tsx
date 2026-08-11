@@ -26,6 +26,15 @@ import { isCreditTransaction, getTransactionValueColor } from '../utils/currency
 import { formatDateBR } from '../utils/dates';
 import { ConfirmModal } from '../../../components/ui/ConfirmModal';
 
+const formatCpf = (doc?: string | null) => {
+  if (!doc) return '';
+  const clean = doc.replace(/\D/g, '');
+  if (clean.length === 11) {
+    return clean.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  }
+  return doc;
+};
+
 interface RentInstallmentItem {
   id: string;
   contract_id: string;
@@ -45,7 +54,7 @@ interface BrokerSplitItem {
   due_date?: string;
   status: string;
   buyer_name?: string;
-  buyer_document?: string;
+  buyer_cpf?: string;
   property_address?: string;
 }
 
@@ -261,9 +270,9 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
             broker_name,
             sales (
               buyer_name,
-              buyer_document,
+              buyer_cpf,
               property_address,
-              code
+              id
             )
           `);
 
@@ -278,7 +287,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
             due_date: item.forecast_date || item.payment_date || new Date().toISOString().split('T')[0],
             status: item.status,
             buyer_name: item.sales?.buyer_name || null,
-            buyer_document: item.sales?.buyer_document || null,
+            buyer_cpf: item.sales?.buyer_cpf || null,
             property_address: item.sales?.property_address || null,
           }));
           setBrokerSplits(formattedSplits);
@@ -1456,7 +1465,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                                   {split.property_address && <p className="font-medium text-slate-700 truncate">Imóvel: {split.property_address}</p>}
                                   <p className="text-slate-600">
                                     Cliente: <strong className="font-semibold text-slate-800">{split.buyer_name || 'Não informado'}</strong>
-                                    {split.buyer_document ? ` (${split.buyer_document})` : ''}
+                                    {split.buyer_cpf ? ` (CPF: ${formatCpf(split.buyer_cpf)})` : ''}
                                   </p>
                                   <p className="text-slate-400 text-[10px]">Previsão: {split.due_date || 'N/A'}</p>
                                 </div>
