@@ -3,6 +3,7 @@ import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, ArrowRight, X } f
 import { FinancialAccount, User } from '../../../../types';
 import { parseOFX, parseCSV, ParsedBankTransaction } from '../../../utils/ofxParser';
 import { useBankTransactions } from '../../../hooks/useBankTransactions';
+import { BankLogo, getNormalizedBankCode } from '../../../components/BankLogo';
 import { ImportHistoryList } from './ImportHistoryList';
 
 interface ImportarExtratoProps {
