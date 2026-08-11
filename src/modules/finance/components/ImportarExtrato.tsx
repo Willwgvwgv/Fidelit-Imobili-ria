@@ -253,20 +253,32 @@ export const ImportarExtrato: React.FC<ImportarExtratoProps> = ({
         return;
       }
 
-      if (showToast) {
-        showToast(
-          `Importado com sucesso! ${result.inserted} transações novas (${result.skipped} duplicadas/ignoradas).`,
-          'success'
-        );
+      if (result.inserted > 0) {
+        if (showToast) {
+          showToast(
+            `Importado com sucesso! ${result.inserted} transações novas (${result.skipped} duplicadas/ignoradas).`,
+            'success'
+          );
+        }
+        onImportDone();
+      } else if (result.skipped > 0) {
+        if (showToast) {
+          showToast(
+            `Nenhuma transação nova importada. Todas as ${result.skipped} transações do arquivo já foram importadas anteriormente.`,
+            'warning'
+          );
+        }
+        onImportDone();
+      } else {
+        if (showToast) showToast('Nenhuma transação válida encontrada no arquivo.', 'warning');
       }
-
-      onImportDone();
     } catch (err: any) {
       if (controller.signal.aborted || err.name === 'AbortError') {
         if (showToast) showToast('Importação cancelada', 'info');
       } else {
         console.error('Error importing file:', err);
-        if (showToast) showToast('Erro ao salvar no banco de dados.', 'error');
+        const errMsg = err?.message || String(err) || 'Erro desconhecido ao salvar';
+        if (showToast) showToast(`Erro ao salvar no banco de dados: ${errMsg}`, 'error');
       }
     } finally {
       setIsImporting(false);

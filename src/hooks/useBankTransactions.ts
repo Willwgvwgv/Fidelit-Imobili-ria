@@ -81,70 +81,85 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
     options?: { signal?: AbortSignal }
   ): Promise<{ inserted: number; skipped: number; batchId?: string }> => {
     if (!supabase) throw new Error('Supabase client não configurado');
-    if (!parsedList.length) return { inserted: 0, skipped: 0 };
+    if (!parsedList || !parsedList.length) return { inserted: 0, skipped: 0 };
 
-    const activeBatchId = batchId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `batch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
+    const activeBatchId =
+      batchId ||
+      (typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `batch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
 
-    let inserted = 0;
-    let skipped = 0;
-
-    // Check existing fitids to preserve original import_batch_id on re-import
+    // 1. Query existing fitids for this account to prevent duplicate inserts
     const fitids = parsedList.map(p => p.ofx_fitid).filter(Boolean);
-    const existingBatchMap = new Map<string, string>();
+    const existingFitidsSet = new Set<string>();
+
     if (fitids.length > 0) {
       try {
-        const { data: existingData } = await supabase
+        const { data: existingData, error: checkErr } = await supabase
           .from('bank_transactions')
-          .select('ofx_fitid, import_batch_id')
+          .select('ofx_fitid')
           .eq('account_id', accountId)
           .in('ofx_fitid', fitids);
-        if (existingData) {
+
+        if (checkErr) {
+          console.warn('Could not query existing fitids:', checkErr);
+        } else if (existingData) {
           existingData.forEach((row: any) => {
-            if (row.ofx_fitid && row.import_batch_id) {
-              existingBatchMap.set(row.ofx_fitid, row.import_batch_id);
+            if (row.ofx_fitid) {
+              existingFitidsSet.add(row.ofx_fitid);
             }
           });
         }
       } catch (e) {
-        console.warn('Could not query existing fitids import_batch_id:', e);
+        console.warn('Error querying existing fitids:', e);
       }
     }
 
-    for (const item of parsedList) {
-      if (options?.signal?.aborted) {
-        console.log('Import operation aborted by user signal');
-        break;
+    // 2. Filter list into new items to insert vs skipped duplicates
+    const itemsToInsert: any[] = [];
+    let skipped = 0;
+
+    parsedList.forEach((item, index) => {
+      if (options?.signal?.aborted) return;
+
+      if (item.ofx_fitid && existingFitidsSet.has(item.ofx_fitid)) {
+        skipped++;
+      } else {
+        const fitid = item.ofx_fitid || `${activeBatchId}-${index}-${Date.now()}`;
+        itemsToInsert.push({
+          agency_id: currentAgencyId || null,
+          account_id: accountId,
+          date: item.date,
+          amount: item.amount,
+          description: item.description,
+          type: item.type,
+          ofx_fitid: fitid,
+          status: 'pending',
+          raw_data: item.raw_data || {},
+          import_batch_id: activeBatchId,
+        });
       }
+    });
 
-      const finalBatchId = (item.ofx_fitid && existingBatchMap.get(item.ofx_fitid)) || activeBatchId;
+    if (options?.signal?.aborted) {
+      return { inserted: 0, skipped, batchId: activeBatchId };
+    }
 
-      const payload = {
-        agency_id: currentAgencyId,
-        account_id: accountId,
-        date: item.date,
-        amount: item.amount,
-        description: item.description,
-        type: item.type,
-        ofx_fitid: item.ofx_fitid,
-        status: 'pending',
-        raw_data: item.raw_data || {},
-        import_batch_id: finalBatchId,
-      };
+    let inserted = 0;
 
-      const { error: insertErr } = await supabase
+    // 3. Bulk insert new items
+    if (itemsToInsert.length > 0) {
+      const { data: insertedData, error: insertErr } = await supabase
         .from('bank_transactions')
-        .upsert(payload, { onConflict: 'ofx_fitid' });
+        .insert(itemsToInsert)
+        .select();
 
       if (insertErr) {
-        if (insertErr.code === '23505') {
-          skipped++;
-        } else {
-          console.warn('Upsert warning for fitid:', item.ofx_fitid, insertErr);
-          skipped++;
-        }
-      } else {
-        inserted++;
+        console.error('CRITICAL: Bulk insert error in saveParsedTransactions:', insertErr);
+        throw new Error(insertErr.message || 'Erro ao salvar transações no Supabase');
       }
+
+      inserted = insertedData ? insertedData.length : itemsToInsert.length;
     }
 
     await fetchTransactions(accountId);
