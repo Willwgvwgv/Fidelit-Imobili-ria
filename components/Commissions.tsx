@@ -23,7 +23,10 @@ import {
   RotateCcw,
   Sparkles,
   Loader2,
-  Tag
+  Tag,
+  Building2,
+  Users,
+  AlertCircle
 } from 'lucide-react';
 import { Sale, User, UserRole, CommissionStatus } from '../types';
 import BrokerStatement from './BrokerStatement';
@@ -99,6 +102,31 @@ const Commissions: React.FC<CommissionsProps> = ({
   // Estados para estorno de pagamento
   const [confirmEstornarSplit, setConfirmEstornarSplit] = useState<any | null>(null);
   const [isEstornandoSplit, setIsEstornandoSplit] = useState<boolean>(false);
+
+  // Estados para o fluxo de comissões relacionadas em aberto
+  const [isRelatedCommsPromptOpen, setIsRelatedCommsPromptOpen] = useState<boolean>(false);
+  const [isBatchForecastModalOpen, setIsBatchForecastModalOpen] = useState<boolean>(false);
+  const [relatedCommsData, setRelatedCommsData] = useState<{
+    matchedSplit: {
+      id: string;
+      saleId: string;
+      propertyAddress?: string;
+      clientName?: string;
+      brokerName?: string;
+      value?: number;
+    };
+    relatedSplits: Array<{
+      id: string;
+      saleId: string;
+      brokerName: string;
+      value: number;
+      forecastDate?: string;
+      status: string;
+    }>;
+  } | null>(null);
+  const [selectedRelatedSplitIds, setSelectedRelatedSplitIds] = useState<Set<string>>(new Set());
+  const [batchForecastDate, setBatchForecastDate] = useState<string>('');
+  const [isSavingBatchForecast, setIsSavingBatchForecast] = useState<boolean>(false);
 
   const [statementBroker, setStatementBroker] = useState<User | null>(null);
   const [openStatusMenu, setOpenStatusMenu] = useState<string | null>(null);
@@ -571,6 +599,7 @@ const Commissions: React.FC<CommissionsProps> = ({
         });
 
         if (result.success) {
+          const currentPaidSplit = selectedPayment;
           setIsPaymentModalOpen(false);
           setSelectedPayment(null);
           setPaymentReceipt(null);
@@ -588,7 +617,36 @@ const Commissions: React.FC<CommissionsProps> = ({
           if (onRefresh) {
             onRefresh();
           } else if (onUpdateStatus) {
-            onUpdateStatus(selectedPayment.saleId, selectedPayment.brokerId, CommissionStatus.PAID, paymentReceipt || undefined, paymentDate);
+            onUpdateStatus(currentPaidSplit.saleId, currentPaidSplit.brokerId, CommissionStatus.PAID, paymentReceipt || undefined, paymentDate);
+          }
+
+          // Verificar se existem outras comissões em aberto relacionadas ao mesmo negócio/imóvel/contrato
+          const targetSale = sales.find(s => s.id === currentPaidSplit.saleId);
+          const otherOpenSplits = targetSale?.splits.filter(sp => 
+            sp.id !== currentPaidSplit.id && 
+            sp.status !== CommissionStatus.PAID
+          ) || [];
+
+          if (otherOpenSplits.length > 0) {
+            setRelatedCommsData({
+              matchedSplit: {
+                id: currentPaidSplit.id,
+                saleId: currentPaidSplit.saleId,
+                propertyAddress: currentPaidSplit.propertyAddress || targetSale?.propertyAddress,
+                clientName: currentPaidSplit.clientName || targetSale?.buyerName,
+                brokerName: currentPaidSplit.brokerName,
+                value: currentPaidSplit.value
+              },
+              relatedSplits: otherOpenSplits.map(sp => ({
+                id: sp.id,
+                saleId: currentPaidSplit.saleId,
+                brokerName: team.find(b => b.id === sp.brokerId)?.name || sp.brokerName || 'Corretor',
+                value: sp.value,
+                forecastDate: sp.forecastDate,
+                status: sp.status
+              }))
+            });
+            setIsRelatedCommsPromptOpen(true);
           }
         } else {
           triggerToast(result.message || "Erro ao registrar o pagamento.", "error");
@@ -606,6 +664,92 @@ const Commissions: React.FC<CommissionsProps> = ({
       triggerToast(err?.message || "Erro ao processar pagamento.", "error");
     } finally {
       setIsSubmittingPayment(false);
+    }
+  };
+
+  const handleRelatedPromptNo = () => {
+    setIsRelatedCommsPromptOpen(false);
+    setRelatedCommsData(null);
+  };
+
+  const handleRelatedPromptYes = () => {
+    if (!relatedCommsData) return;
+    setIsRelatedCommsPromptOpen(false);
+    // Por padrão, todas as comissões relacionadas que estiverem em aberto devem aparecer selecionadas
+    setSelectedRelatedSplitIds(new Set(relatedCommsData.relatedSplits.map(s => s.id)));
+    setBatchForecastDate('');
+    setIsBatchForecastModalOpen(true);
+  };
+
+  const handleToggleRelatedSplit = (splitId: string) => {
+    setSelectedRelatedSplitIds(prev => {
+      const next = new Set(prev);
+      if (next.has(splitId)) {
+        next.delete(splitId);
+      } else {
+        next.add(splitId);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleAllRelatedSplits = () => {
+    if (!relatedCommsData) return;
+    if (selectedRelatedSplitIds.size === relatedCommsData.relatedSplits.length) {
+      setSelectedRelatedSplitIds(new Set());
+    } else {
+      setSelectedRelatedSplitIds(new Set(relatedCommsData.relatedSplits.map(s => s.id)));
+    }
+  };
+
+  const handleCancelBatchForecast = () => {
+    setIsBatchForecastModalOpen(false);
+    setRelatedCommsData(null);
+    setSelectedRelatedSplitIds(new Set());
+    setBatchForecastDate('');
+  };
+
+  const handleConfirmBatchForecast = async () => {
+    if (!relatedCommsData) return;
+
+    if (selectedRelatedSplitIds.size === 0) {
+      triggerToast('Selecione pelo menos uma comissão para alterar a previsão.', 'warning');
+      return;
+    }
+
+    if (!batchForecastDate) {
+      triggerToast('Por favor, informe a nova data de previsão de pagamento.', 'warning');
+      return;
+    }
+
+    setIsSavingBatchForecast(true);
+    try {
+      const idsToUpdate = Array.from(selectedRelatedSplitIds);
+      const { error: updateErr } = await supabase
+        .from('broker_splits')
+        .update({ forecast_date: batchForecastDate })
+        .in('id', idsToUpdate);
+
+      if (updateErr) {
+        console.error('Erro ao atualizar previsão de comissões relacionadas:', updateErr);
+        triggerToast(`Erro ao atualizar previsões: ${updateErr.message}`, 'error');
+        return;
+      }
+
+      triggerToast(
+        `Previsão de pagamento atualizada para ${idsToUpdate.length} comissão(ões) com sucesso!`,
+        'success'
+      );
+      setIsBatchForecastModalOpen(false);
+      setRelatedCommsData(null);
+      setSelectedRelatedSplitIds(new Set());
+      setBatchForecastDate('');
+      if (onRefresh) onRefresh();
+    } catch (err: any) {
+      console.error('Erro ao atualizar previsões:', err);
+      triggerToast('Erro ao atualizar previsões de pagamento.', 'error');
+    } finally {
+      setIsSavingBatchForecast(false);
     }
   };
 
@@ -2042,6 +2186,201 @@ const Commissions: React.FC<CommissionsProps> = ({
         onConfirm={() => setWarningPaidSplitModal(false)}
         onCancel={() => setWarningPaidSplitModal(false)}
       />
+
+      {/* Modal 1: Pergunta sobre outras comissões em aberto relacionadas */}
+      {isRelatedCommsPromptOpen && relatedCommsData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="p-6 space-y-4">
+              <div className="flex items-start gap-3.5">
+                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl shrink-0 mt-0.5 border border-indigo-100">
+                  <Calendar size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 leading-snug">
+                    Comissões Relacionadas em Aberto
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    Existem outras comissões em aberto relacionadas a esta comissão. Deseja alterar também a previsão de pagamento delas?
+                  </p>
+                </div>
+              </div>
+
+              {/* Informações do Negócio / Imóvel */}
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs space-y-1.5">
+                {relatedCommsData.matchedSplit.propertyAddress && (
+                  <div className="flex items-center gap-1.5 text-slate-700 font-medium truncate">
+                    <Building2 size={14} className="text-slate-400 shrink-0" />
+                    <span className="truncate">{relatedCommsData.matchedSplit.propertyAddress}</span>
+                  </div>
+                )}
+                {relatedCommsData.matchedSplit.clientName && (
+                  <div className="flex items-center gap-1.5 text-slate-600">
+                    <Users size={14} className="text-slate-400 shrink-0" />
+                    <span>Cliente: <strong className="text-slate-800 font-semibold">{relatedCommsData.matchedSplit.clientName}</strong></span>
+                  </div>
+                )}
+                <div className="text-[11px] text-indigo-600 font-semibold pt-1 border-t border-slate-200/60">
+                  {relatedCommsData.relatedSplits.length} outra(s) comissão(ões) em aberto encontrada(s)
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleRelatedPromptNo}
+                className="px-4 py-2.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition-all shadow-2xs cursor-pointer"
+              >
+                NÃO
+              </button>
+              <button
+                type="button"
+                onClick={handleRelatedPromptYes}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-xs inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                SIM, ALTERAR PREVISÕES
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2: Seleção e alteração em lote da nova previsão das comissões em aberto */}
+      {isBatchForecastModalOpen && relatedCommsData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Comissões relacionadas em aberto
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {relatedCommsData.matchedSplit.propertyAddress || relatedCommsData.matchedSplit.clientName || 'Negócio vinculado'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancelBatchForecast}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-5 overflow-y-auto space-y-4 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-slate-700">Selecione as comissões para alterar:</span>
+                <button
+                  type="button"
+                  onClick={handleToggleAllRelatedSplits}
+                  className="text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer"
+                >
+                  {selectedRelatedSplitIds.size === relatedCommsData.relatedSplits.length ? 'Desmarcar todas' : 'Marcar todas'}
+                </button>
+              </div>
+
+              {/* Lista de comissões */}
+              <div className="space-y-2.5">
+                {relatedCommsData.relatedSplits.map((split) => {
+                  const isChecked = selectedRelatedSplitIds.has(split.id);
+                  let formattedDate = 'Não informada';
+                  if (split.forecastDate) {
+                    const [y, m, d] = split.forecastDate.split('-');
+                    if (y && m && d) formattedDate = `${d}/${m}/${y}`;
+                  }
+                  return (
+                    <label
+                      key={split.id}
+                      className={`flex items-start gap-3 p-3.5 rounded-xl border transition-all cursor-pointer select-none ${
+                        isChecked
+                          ? 'bg-indigo-50/60 border-indigo-300 ring-1 ring-indigo-200'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => handleToggleRelatedSplit(split.id)}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-slate-800 truncate">
+                            {split.brokerName || 'Corretor'}
+                          </span>
+                          <span className="font-bold text-slate-900 shrink-0">
+                            R$ {split.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1">
+                          <span>
+                            Previsão atual: <strong className="font-semibold text-slate-700">{formattedDate}</strong>
+                          </span>
+                          <span className="text-slate-300">•</span>
+                          <span className="uppercase text-[10px] font-semibold text-amber-600">
+                            Em aberto
+                          </span>
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {/* Campo Nova Previsão */}
+              <div className="pt-3 border-t border-slate-100 space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800">
+                  Nova previsão de pagamento:
+                </label>
+                <input
+                  type="date"
+                  value={batchForecastDate}
+                  onChange={(e) => setBatchForecastDate(e.target.value)}
+                  className="w-full h-10 px-3 border border-slate-300 rounded-xl text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition-all cursor-pointer"
+                />
+              </div>
+
+              {/* Mensagem de Segurança */}
+              <div className="p-3 bg-amber-50/80 border border-amber-200/80 rounded-xl text-[11px] text-amber-800 leading-relaxed flex items-start gap-2">
+                <AlertCircle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Somente a previsão de pagamento das comissões selecionadas será alterada. Os demais dados permanecerão inalterados.
+                </span>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 px-5 py-4 bg-slate-50 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleCancelBatchForecast}
+                disabled={isSavingBatchForecast}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmBatchForecast}
+                disabled={isSavingBatchForecast || selectedRelatedSplitIds.size === 0 || !batchForecastDate}
+                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all shadow-xs disabled:opacity-50 inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                {isSavingBatchForecast ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" />
+                    Atualizando...
+                  </>
+                ) : (
+                  'Atualizar previsões'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Notification Toast */}
       {toast && (

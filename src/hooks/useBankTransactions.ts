@@ -449,6 +449,21 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
         }
       }
 
+      // If matching with a broker split (comissão), update split status to 'PAID'
+      if (cleanMatchType === 'broker_split' && cleanMatchId) {
+        try {
+          await supabase
+            .from('broker_splits')
+            .update({
+              status: 'PAID',
+              payment_date: new Date().toISOString().split('T')[0],
+            })
+            .eq('id', cleanMatchId);
+        } catch (splitErr) {
+          console.warn('Could not update broker_splits:', splitErr);
+        }
+      }
+
       await fetchTransactions();
       return true;
     } catch (err) {
