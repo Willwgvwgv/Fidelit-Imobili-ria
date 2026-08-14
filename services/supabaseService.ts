@@ -508,6 +508,171 @@ export const supabaseService = {
     return true;
   },
 
+  // Registrar pagamento de comissão (cheio ou parcial)
+  async payCommissionSplit(params: {
+    splitId: string;
+    saleId?: string;
+    paidAmount: number;
+    fullAmount: number;
+    paymentDate: string;
+    paymentMethod?: string;
+    notes?: string;
+    receiptData?: string;
+    remainingForecastDate?: string;
+    userEmail?: string;
+    agencyId?: string;
+  }): Promise<{ success: boolean; isPartial: boolean; message?: string }> {
+    if (!supabase) return { success: false, isPartial: false, message: 'Banco de dados não disponível' };
+
+    try {
+      // 1. Obter dados atuais do rateio
+      const { data: currentSplit, error: fetchErr } = await supabase
+        .from('broker_splits')
+        .select('*')
+        .eq('id', params.splitId)
+        .single();
+
+      if (fetchErr || !currentSplit) {
+        console.error('Error fetching split for payment:', fetchErr);
+        return { success: false, isPartial: false, message: 'Rateio não encontrado no banco de dados.' };
+      }
+
+      const fullVal = Number(params.fullAmount) || Number(currentSplit.calculated_value) || 0;
+      const paidVal = Number(params.paidAmount);
+      const isPartial = paidVal < (fullVal - 0.009);
+
+      if (!isPartial) {
+        // Pagamento Total / Quitação
+        const updateData: any = {
+          status: 'PAID',
+          calculated_value: fullVal,
+          payment_date: params.paymentDate,
+          payment_method: params.paymentMethod || 'PIX',
+          receipt_data: params.receiptData || null
+        };
+        if (params.notes) {
+          updateData.notes = params.notes;
+        }
+
+        const { error: updateErr } = await supabase
+          .from('broker_splits')
+          .update(updateData)
+          .eq('id', params.splitId);
+
+        if (updateErr) {
+          console.error('Error updating split to PAID:', updateErr);
+          return { success: false, isPartial: false, message: updateErr.message };
+        }
+
+        // Tentar inserir log de auditoria se tabela existir
+        try {
+          await supabase.from('audit_log').insert([{
+            table_name: 'broker_splits',
+            record_id: params.splitId,
+            action: 'PAYMENT_FULL',
+            user_email: params.userEmail || '',
+            agency_id: params.agencyId || null,
+            changed_fields: JSON.stringify({
+              status: 'PAID',
+              paid_amount: fullVal,
+              payment_date: params.paymentDate,
+              payment_method: params.paymentMethod || 'PIX'
+            })
+          }]);
+        } catch {
+          // silenciar erro em audit_log opcional
+        }
+
+        return { success: true, isPartial: false };
+      } else {
+        // Pagamento Parcial
+        const remainingVal = Number((fullVal - paidVal).toFixed(2));
+        const currentInstallment = currentSplit.installment_number ?? 1;
+        const totalInstallments = Math.max((currentSplit.total_installments ?? 1), currentInstallment + 1);
+
+        // Proporção de percentual
+        const originalPercentage = Number(currentSplit.percentage) || 0;
+        const paidPercentage = fullVal > 0 ? Number(((originalPercentage * paidVal) / fullVal).toFixed(4)) : 0;
+        const remainingPercentage = Number((originalPercentage - paidPercentage).toFixed(4));
+
+        const partialNote = params.notes
+          ? `${params.notes} (Pagamento Parcial de R$ ${paidVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`
+          : `Pagamento Parcial (R$ ${paidVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`;
+
+        // 1. Atualiza o rateio atual para PAGO com o valor parcial
+        const updateData: any = {
+          status: 'PAID',
+          calculated_value: paidVal,
+          percentage: paidPercentage,
+          payment_date: params.paymentDate,
+          payment_method: params.paymentMethod || 'PIX',
+          receipt_data: params.receiptData || null,
+          notes: partialNote,
+          installment_number: currentInstallment,
+          total_installments: totalInstallments
+        };
+
+        const { error: updateErr } = await supabase
+          .from('broker_splits')
+          .update(updateData)
+          .eq('id', params.splitId);
+
+        if (updateErr) {
+          console.error('Error updating current split for partial payment:', updateErr);
+          return { success: false, isPartial: true, message: updateErr.message };
+        }
+
+        // 2. Insere novo rateio com o saldo restante pendente
+        const remainingSplitData: any = {
+          sale_id: currentSplit.sale_id || params.saleId,
+          broker_id: currentSplit.broker_id || null,
+          broker_name: currentSplit.broker_name,
+          percentage: remainingPercentage,
+          calculated_value: remainingVal,
+          status: 'PENDING',
+          role: currentSplit.role || 'BROKER',
+          forecast_date: params.remainingForecastDate || null,
+          installment_number: currentInstallment + 1,
+          total_installments: totalInstallments,
+          notes: `Saldo restante de pagamento parcial (${currentInstallment + 1}/${totalInstallments})`
+        };
+
+        const { error: insertErr } = await supabase
+          .from('broker_splits')
+          .insert(remainingSplitData);
+
+        if (insertErr) {
+          console.error('Error inserting remaining split for partial payment:', insertErr);
+          return { success: false, isPartial: true, message: `Erro ao agendar saldo restante: ${insertErr.message}` };
+        }
+
+        // Log de auditoria
+        try {
+          await supabase.from('audit_log').insert([{
+            table_name: 'broker_splits',
+            record_id: params.splitId,
+            action: 'PAYMENT_PARTIAL',
+            user_email: params.userEmail || '',
+            agency_id: params.agencyId || null,
+            changed_fields: JSON.stringify({
+              status: 'PARTIAL',
+              paid_amount: paidVal,
+              remaining_amount: remainingVal,
+              remaining_forecast_date: params.remainingForecastDate
+            })
+          }]);
+        } catch {
+          // silenciar erro em audit_log opcional
+        }
+
+        return { success: true, isPartial: true };
+      }
+    } catch (err: any) {
+      console.error('Unexpected error in payCommissionSplit:', err);
+      return { success: false, isPartial: false, message: err?.message || 'Erro ao processar pagamento.' };
+    }
+  },
+
   // Financial Methods
   async getFinancialAccounts(): Promise<FinancialAccount[]> {
     if (!supabase) return [];

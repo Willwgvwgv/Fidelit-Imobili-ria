@@ -20,7 +20,10 @@ import {
   Check,
   TrendingUp,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  Sparkles,
+  Loader2,
+  Tag
 } from 'lucide-react';
 import { Sale, User, UserRole, CommissionStatus } from '../types';
 import BrokerStatement from './BrokerStatement';
@@ -74,11 +77,16 @@ const Commissions: React.FC<CommissionsProps> = ({
   const [selectedComm, setSelectedComm] = useState<{saleId: string, brokerId: string, property: string, forecastDate?: string} | null>(null);
   const [tempForecastDate, setTempForecastDate] = useState('');
 
-  // Estados para modal de pagamento
+  // Estados para modal de pagamento (quitação total e parcial)
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<any | null>(null);
-  const [paymentReceipt, setPaymentReceipt] = useState<string | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState<string>('');
   const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [remainingForecastDate, setRemainingForecastDate] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<string>('Pagamento de Repasse (Padrão)');
+  const [paymentNotes, setPaymentNotes] = useState<string>('');
+  const [paymentReceipt, setPaymentReceipt] = useState<string | null>(null);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState<boolean>(false);
 
   // Estados para visualização de comprovante
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
@@ -473,8 +481,19 @@ const Commissions: React.FC<CommissionsProps> = ({
 
   const handleOpenPaymentModal = (comm: any) => {
     setSelectedPayment(comm);
-    setPaymentReceipt(null);
+    const totalVal = comm.value || 0;
+    setPaymentAmount(totalVal ? totalVal.toFixed(2) : '');
     setPaymentDate(comm.paymentDate || new Date().toISOString().split('T')[0]);
+    
+    // Sugere a data do saldo restante para 30 dias à frente (ou início do próximo mês)
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 30);
+    setRemainingForecastDate(futureDate.toISOString().split('T')[0]);
+    
+    setPaymentMethod(comm.paymentMethod || 'Pagamento de Repasse (Padrão)');
+    setPaymentNotes('');
+    setPaymentReceipt(null);
+    setIsSubmittingPayment(false);
     setIsPaymentModalOpen(true);
   };
 
@@ -489,17 +508,87 @@ const Commissions: React.FC<CommissionsProps> = ({
     }
   };
 
-  const handleConfirmPayment = () => {
+  const handleConfirmPayment = async () => {
+    if (!selectedPayment) return;
+
+    const numAmount = parseFloat(paymentAmount.toString().replace(',', '.')) || 0;
+    const totalVal = selectedPayment.value || 0;
+
+    if (numAmount <= 0) {
+      triggerToast("Por favor, informe um valor de pagamento válido maior que zero.", "warning");
+      return;
+    }
+
+    if (numAmount > totalVal + 0.01) {
+      triggerToast(`O valor do pagamento (R$ ${numAmount.toFixed(2)}) não pode ser superior ao saldo a pagar (R$ ${totalVal.toFixed(2)}).`, "warning");
+      return;
+    }
+
     if (!paymentDate) {
       triggerToast("Por favor, selecione a data do pagamento.", "warning");
       return;
     }
-    if (selectedPayment) {
-      onUpdateStatus(selectedPayment.saleId, selectedPayment.brokerId, CommissionStatus.PAID, paymentReceipt || undefined, paymentDate);
-      setIsPaymentModalOpen(false);
-      setSelectedPayment(null);
-      setPaymentReceipt(null);
-      triggerToast("Pagamento registrado com sucesso!", "success");
+
+    const isPartial = numAmount < (totalVal - 0.009);
+
+    if (isPartial && !remainingForecastDate) {
+      triggerToast("Para pagamentos parciais, por favor informe a data de previsão do saldo restante.", "warning");
+      return;
+    }
+
+    setIsSubmittingPayment(true);
+    try {
+      if (selectedPayment.id) {
+        const result = await supabaseService.payCommissionSplit({
+          splitId: selectedPayment.id,
+          saleId: selectedPayment.saleId,
+          paidAmount: numAmount,
+          fullAmount: totalVal,
+          paymentDate: paymentDate,
+          paymentMethod: paymentMethod,
+          notes: paymentNotes || undefined,
+          receiptData: paymentReceipt || undefined,
+          remainingForecastDate: isPartial ? remainingForecastDate : undefined,
+          userEmail: currentUser?.email,
+          agencyId: currentUser?.agencyId
+        });
+
+        if (result.success) {
+          setIsPaymentModalOpen(false);
+          setSelectedPayment(null);
+          setPaymentReceipt(null);
+
+          const remainingVal = Math.max(0, totalVal - numAmount);
+          if (result.isPartial) {
+            triggerToast(
+              `Pagamento parcial de ${formatCurrency(numAmount)} registrado! Saldo restante de ${formatCurrency(remainingVal)} agendado com sucesso.`,
+              "success"
+            );
+          } else {
+            triggerToast(`Pagamento total de ${formatCurrency(numAmount)} registrado com sucesso!`, "success");
+          }
+
+          if (onRefresh) {
+            onRefresh();
+          } else if (onUpdateStatus) {
+            onUpdateStatus(selectedPayment.saleId, selectedPayment.brokerId, CommissionStatus.PAID, paymentReceipt || undefined, paymentDate);
+          }
+        } else {
+          triggerToast(result.message || "Erro ao registrar o pagamento.", "error");
+        }
+      } else {
+        // Fallback caso não tenha split.id no momento
+        onUpdateStatus(selectedPayment.saleId, selectedPayment.brokerId, CommissionStatus.PAID, paymentReceipt || undefined, paymentDate);
+        setIsPaymentModalOpen(false);
+        setSelectedPayment(null);
+        setPaymentReceipt(null);
+        triggerToast("Pagamento registrado com sucesso!", "success");
+      }
+    } catch (err: any) {
+      console.error("Erro ao registrar pagamento:", err);
+      triggerToast(err?.message || "Erro ao processar pagamento.", "error");
+    } finally {
+      setIsSubmittingPayment(false);
     }
   };
 
@@ -1552,95 +1641,307 @@ const Commissions: React.FC<CommissionsProps> = ({
         </div>
       )}
 
-      {/* Modal de Concretizar Pagamento */}
-      {isPaymentModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-md rounded-xl border border-gray-200 shadow-xl overflow-hidden animate-in zoom-in duration-200">
-            <div className="p-5 border-b border-gray-200 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-gray-900">Concretizar Pagamento</h3>
-                <p className="text-xs text-gray-500">Anexe o comprovante para finalizar.</p>
-              </div>
-              <button 
-                onClick={() => setIsPaymentModalOpen(false)} 
-                className="bg-gray-50 p-1.5 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X size={16} />
-              </button>
-            </div>
+      {/* Modal de Concretizar / Registrar Pagamento (Cheio ou Parcial) */}
+      {isPaymentModalOpen && (() => {
+        const numAmount = parseFloat(paymentAmount.toString().replace(',', '.')) || 0;
+        const totalVal = selectedPayment?.value || 0;
+        const isPartial = numAmount > 0 && numAmount < (totalVal - 0.009);
+        const remainingVal = Math.max(0, totalVal - numAmount);
+        const isFiftyPercent = Math.abs(numAmount - (totalVal * 0.5)) < 0.01;
+        const isHundredPercent = Math.abs(numAmount - totalVal) < 0.01;
 
-            <div className="p-6 space-y-4">
-              <div className="bg-emerald-50/50 p-4 rounded-lg border border-emerald-100">
-                 <div className="flex justify-between items-start mb-2">
-                    <p className="text-[10px] font-bold text-emerald-650 uppercase tracking-widest">Valor a Pagar</p>
-                    <div className="bg-emerald-100 p-1 rounded-full text-emerald-650">
-                       <Check size={14} />
-                    </div>
-                 </div>
-                 <p className="text-2xl font-bold text-gray-900">{formatCurrency(selectedPayment?.value)}</p>
-                 <p className="text-xs text-slate-500 mt-1 font-medium">Beneficiário: <span className="text-slate-700 font-bold">{selectedPayment?.brokerName}</span></p>
+        const setQuickRemainingDate = (days: number) => {
+          const d = new Date();
+          d.setDate(d.getDate() + days);
+          setRemainingForecastDate(d.toISOString().split('T')[0]);
+        };
+
+        const setNextMonthRemainingDate = () => {
+          const d = new Date();
+          d.setMonth(d.getMonth() + 1);
+          d.setDate(10);
+          setRemainingForecastDate(d.toISOString().split('T')[0]);
+        };
+
+        return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white w-full max-w-lg rounded-2xl border border-gray-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+              {/* Header */}
+              <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-white shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center shadow-xs">
+                    <Wallet size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900 leading-tight">Registrar Pagamento de Repasse</h3>
+                    <p className="text-xs text-gray-500">Lançamento financeiro e quitação para a equipe</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsPaymentModalOpen(false)} 
+                  className="bg-gray-100 hover:bg-gray-200 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 transition-colors"
+                >
+                  <X size={16} />
+                </button>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1 flex items-center gap-1">
-                  <CalendarDays size={12} /> Data do Pagamento
-                </label>
-                <input 
-                  type="date"
-                  required
-                  value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                  className="w-full px-4 h-[38px] bg-white border border-gray-200 rounded-lg outline-none text-sm font-semibold text-gray-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
-                />
-              </div>
+              {/* Body */}
+              <div className="p-5 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+                {/* Beneficiary Card */}
+                <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-3.5 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-black text-sm flex items-center justify-center shrink-0 shadow-sm">
+                      {(selectedPayment?.brokerName || 'U').charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-sm font-bold text-slate-800 truncate">{selectedPayment?.brokerName}</span>
+                        <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-blue-100/70 text-blue-700 border border-blue-200">
+                          {selectedPayment?.role || 'CORRETOR'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Total rateio: <span className="font-semibold text-slate-700">{formatCurrency(selectedPayment?.value)}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Saldo a Pagar</p>
+                    <p className="text-lg font-black text-slate-900">{formatCurrency(selectedPayment?.value)}</p>
+                  </div>
+                </div>
 
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-gray-400 uppercase ml-1 flex items-center gap-1">
-                  <Upload size={12} /> Comprovante de Pagamento
-                </label>
-                
-                {!paymentReceipt ? (
-                  <label className="flex flex-col items-center justify-center w-full h-28 border-2 border-dashed border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-all group">
-                    <div className="flex flex-col items-center justify-center pt-2">
-                      <FileText className="text-gray-300 group-hover:text-emerald-500 transition-colors mb-1.5" size={24} />
-                      <p className="text-xs font-semibold text-gray-500">Clique para anexar comprovante</p>
-                    </div>
-                    <input type="file" className="hidden" accept="image/*,.pdf" onChange={handleFileChange} />
-                  </label>
-                ) : (
-                  <div className="relative bg-gray-50 p-3 rounded-lg border border-gray-200 flex items-center gap-3">
-                    <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center">
-                      <CheckCircle2 size={20} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-gray-950 truncate">Comprovante Anexado</p>
-                      <p className="text-[9px] text-gray-400 uppercase font-bold tracking-widest">Pronto para salvar</p>
-                    </div>
-                    <button onClick={() => setPaymentReceipt(null)} className="text-gray-400 hover:text-red-500 transition-colors">
-                      <X size={16} />
+                {/* Quick Shortcuts */}
+                <div className="flex items-center justify-between gap-2 pt-0.5">
+                  <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                    <Sparkles size={13} className="text-amber-500" /> Atalho rápido:
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button 
+                      type="button"
+                      onClick={() => setPaymentAmount(totalVal ? totalVal.toFixed(2) : '0')}
+                      className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
+                        isHundredPercent 
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs' 
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      Quitar Saldo ({formatCurrency(totalVal)})
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => setPaymentAmount((totalVal * 0.5).toFixed(2))}
+                      className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
+                        isFiftyPercent 
+                          ? 'bg-amber-600 text-white border-amber-600 shadow-xs' 
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      50% ({formatCurrency(totalVal * 0.5)})
                     </button>
                   </div>
+                </div>
+
+                {/* Form Inputs Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  {/* Valor do Pagamento */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-bold text-gray-600 uppercase flex items-center gap-1">
+                        <DollarSign size={13} className="text-emerald-600" /> Valor do Pagamento (R$) *
+                      </label>
+                      {isPartial ? (
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 uppercase tracking-tight">
+                          Parcial
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 uppercase tracking-tight">
+                          Total
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">R$</span>
+                      <input 
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        max={totalVal}
+                        required
+                        value={paymentAmount}
+                        onChange={(e) => setPaymentAmount(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full pl-9 pr-3 h-[38px] bg-white border border-gray-200 rounded-lg outline-none text-sm font-bold text-gray-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Data do Pagamento */}
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold text-gray-600 uppercase flex items-center gap-1">
+                      <CalendarDays size={13} className="text-blue-600" /> Data do Pagamento *
+                    </label>
+                    <input 
+                      type="date"
+                      required
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                      className="w-full px-3 h-[38px] bg-white border border-gray-200 rounded-lg outline-none text-sm font-semibold text-gray-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Se for Pagamento Parcial, exibe bloco com restante e escolha da data do restante */}
+                {isPartial && (
+                  <div className="bg-amber-50/90 border border-amber-200/90 rounded-xl p-3.5 space-y-2.5 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
+                        <TrendingUp size={15} className="text-amber-600" /> Pagamento Parcial Selecionado
+                      </div>
+                      <div className="text-xs font-black text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                        Restante: {formatCurrency(remainingVal)}
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-amber-800 leading-relaxed">
+                      Será gerado automaticamente um novo lançamento pendente no valor de <strong>{formatCurrency(remainingVal)}</strong> com a previsão de pagamento abaixo.
+                    </p>
+                    
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-amber-900 flex items-center gap-1">
+                          <Calendar size={12} className="text-amber-600" /> Data de Pagamento do Restante *
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <button 
+                            type="button" 
+                            onClick={() => setQuickRemainingDate(15)}
+                            className="text-[10px] font-bold text-amber-800 bg-amber-100/80 hover:bg-amber-200 px-1.5 py-0.5 rounded transition-colors cursor-pointer"
+                          >
+                            +15 dias
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={() => setQuickRemainingDate(30)}
+                            className="text-[10px] font-bold text-amber-800 bg-amber-100/80 hover:bg-amber-200 px-1.5 py-0.5 rounded transition-colors cursor-pointer"
+                          >
+                            +30 dias
+                          </button>
+                          <button 
+                            type="button" 
+                            onClick={setNextMonthRemainingDate}
+                            className="text-[10px] font-bold text-amber-800 bg-amber-100/80 hover:bg-amber-200 px-1.5 py-0.5 rounded transition-colors cursor-pointer"
+                          >
+                            Próx. mês
+                          </button>
+                        </div>
+                      </div>
+                      <input 
+                        type="date"
+                        required
+                        value={remainingForecastDate}
+                        onChange={(e) => setRemainingForecastDate(e.target.value)}
+                        className="w-full px-3 h-[38px] bg-white border border-amber-300 rounded-lg outline-none text-sm font-bold text-gray-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all shadow-2xs"
+                      />
+                    </div>
+                  </div>
                 )}
+
+                {/* Tipo de Operação */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-gray-600 uppercase flex items-center gap-1">
+                    <Tag size={13} className="text-slate-500" /> Tipo de Operação / Método
+                  </label>
+                  <select
+                    value={paymentMethod}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                    className="w-full px-3 h-[38px] bg-white border border-gray-200 rounded-lg outline-none text-sm font-semibold text-gray-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
+                  >
+                    <option value="Pagamento de Repasse (Padrão)">Pagamento de Repasse (Padrão)</option>
+                    <option value="PIX">PIX</option>
+                    <option value="Transferência Bancária (TED/DOC)">Transferência Bancária (TED/DOC)</option>
+                    <option value="Dinheiro">Dinheiro em Espécie</option>
+                    <option value="Depósito em Conta">Depósito em Conta</option>
+                    <option value="Outro">Outro</option>
+                  </select>
+                </div>
+
+                {/* Comprovante / Anotação PIX */}
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold text-gray-600 uppercase flex items-center gap-1">
+                    <FileText size={13} className="text-slate-500" /> Comprovante / Anotação PIX (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={paymentNotes}
+                    onChange={(e) => setPaymentNotes(e.target.value)}
+                    placeholder="Ex: Chave PIX Nubank, código de transação ou nota"
+                    className="w-full px-3 h-[38px] bg-white border border-gray-200 rounded-lg outline-none text-sm font-medium text-gray-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all placeholder:text-gray-400"
+                  />
+                </div>
+
+                {/* Anexo de Arquivo de Comprovante */}
+                <div className="space-y-1.5">
+                  {!paymentReceipt ? (
+                    <label className="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50/80 hover:border-emerald-300 transition-all group">
+                      <div className="flex items-center gap-2 text-gray-400 group-hover:text-emerald-600 transition-colors">
+                        <Upload size={18} />
+                        <span className="text-xs font-semibold">Anexar comprovante de pagamento (imagem ou PDF)</span>
+                      </div>
+                      <input type="file" className="hidden" accept="image/*,.pdf" onChange={handleFileChange} />
+                    </label>
+                  ) : (
+                    <div className="relative bg-emerald-50/50 p-3 rounded-xl border border-emerald-100 flex items-center gap-3">
+                      <div className="w-9 h-9 bg-emerald-100 text-emerald-600 rounded-lg flex items-center justify-center shrink-0">
+                        <CheckCircle2 size={18} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-gray-900 truncate">Comprovante Anexado</p>
+                        <p className="text-[10px] text-emerald-700 font-semibold">Pronto para salvar no registro</p>
+                      </div>
+                      <button 
+                        type="button"
+                        onClick={() => setPaymentReceipt(null)} 
+                        className="text-gray-400 hover:text-red-500 p-1 transition-colors cursor-pointer"
+                        title="Remover anexo"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-gray-50 border-t border-gray-200 flex gap-3 shrink-0">
+                <button 
+                  type="button"
+                  onClick={() => setIsPaymentModalOpen(false)}
+                  disabled={isSubmittingPayment}
+                  className="flex-1 h-[40px] bg-white border border-gray-200 hover:bg-gray-100 text-gray-600 font-bold rounded-xl transition-colors text-sm cursor-pointer disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="button"
+                  onClick={handleConfirmPayment}
+                  disabled={isSubmittingPayment}
+                  className="flex-1 h-[40px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-all text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  {isSubmittingPayment ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" /> Processando...
+                    </>
+                  ) : (
+                    <>
+                      <Check size={16} /> Confirmar Pagamento
+                    </>
+                  )}
+                </button>
               </div>
             </div>
-
-            <div className="p-4 bg-gray-50 border-t border-gray-200 flex gap-3">
-              <button 
-                onClick={() => setIsPaymentModalOpen(false)}
-                className="flex-1 h-[38px] text-gray-500 font-semibold hover:text-gray-700 transition-colors text-sm"
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={handleConfirmPayment}
-                className="flex-1 h-[38px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold transition-all text-sm flex items-center justify-center gap-2"
-              >
-                Confirmar Pagamento
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Modal de Visualização do Comprovante */}
       {viewingReceipt && (
