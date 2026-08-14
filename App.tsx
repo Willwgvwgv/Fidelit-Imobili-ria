@@ -28,8 +28,10 @@ const App: React.FC = () => {
   const [dbStatus, setDbStatus] = useState<'connected' | 'error' | 'disconnected'>('disconnected');
 
   // Supabase Data Fetching
-  const loadData = async () => {
-    setIsLoading(true);
+  const loadData = async (showLoading: boolean = false) => {
+    if (showLoading) {
+      setIsLoading(true);
+    }
     try {
       const fetchedUsers = await supabaseService.getUsers();
       const fetchedSales = await supabaseService.getSales();
@@ -48,7 +50,9 @@ const App: React.FC = () => {
       setDbStatus('error');
       setIsDemoData(true);
     } finally {
-      setIsLoading(false);
+      if (showLoading) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -59,7 +63,7 @@ const App: React.FC = () => {
       const result = await supabaseService.seedDefaultData();
       if (result.success) {
         setSeedMessage('Sucesso! Dados inseridos com êxito no Supabase.');
-        await loadData();
+        await loadData(true);
       } else {
         setSeedMessage('Ocorreu um erro ao popular: ' + result.message);
       }
@@ -81,7 +85,7 @@ const App: React.FC = () => {
 
     const bootstrap = async () => {
       // 1. Carregar dados primeiro (usuários, vendas)
-      await loadData();
+      await loadData(true);
 
       // 2. Só depois verificar a sessão atual
       const { data: { session } } = await supabase.auth.getSession();
@@ -108,7 +112,7 @@ const App: React.FC = () => {
 
           // Se não encontrou (primeiro login após OAuth redirect), recarregar dados
           if (!userProfile) {
-            await loadData();
+            await loadData(false);
             userProfile = teamRef.current.find(u =>
               u.email?.toLowerCase() === newSession.user.email?.toLowerCase()
             );
@@ -142,10 +146,27 @@ const App: React.FC = () => {
         receipt: receiptData
       } : undefined;
 
+      // Optimistic update locally
+      setSales(prevSales => prevSales.map(s => {
+        if (s.id !== saleId) return s;
+        return {
+          ...s,
+          splits: s.splits.map(sp => {
+            if (sp.brokerId !== brokerId) return sp;
+            return {
+              ...sp,
+              status: newStatus,
+              paymentDate: paymentDate || (newStatus === CommissionStatus.PAID ? new Date().toISOString().split('T')[0] : sp.paymentDate),
+              receiptData: receiptData || sp.receiptData
+            };
+          })
+        };
+      }));
+
       const success = await supabaseService.updateSplitStatus(split.id, newStatus, paymentData);
       if (success) {
-        // Optimistic update or refetch
-        loadData();
+        // Silent refresh in background
+        loadData(false);
       }
     }
   };
@@ -155,17 +176,38 @@ const App: React.FC = () => {
     const split = sale?.splits.find(sp => sp.brokerId === brokerId);
 
     if (split?.id) {
+      // Optimistic update locally
+      setSales(prevSales => prevSales.map(s => {
+        if (s.id !== saleId) return s;
+        return {
+          ...s,
+          splits: s.splits.map(sp => {
+            if (sp.brokerId !== brokerId) return sp;
+            return {
+              ...sp,
+              forecastDate: newForecastDate
+            };
+          })
+        };
+      }));
+
       const success = await supabaseService.updateForecastDate(split.id, newForecastDate);
       if (success) {
-        loadData();
+        loadData(false);
       }
     }
   };
 
   const handleDeleteSplit = async (splitId: string) => {
+    // Optimistic update locally
+    setSales(prevSales => prevSales.map(s => ({
+      ...s,
+      splits: s.splits.filter(sp => sp.id !== splitId)
+    })));
+
     const success = await supabaseService.deleteSplit(splitId);
     if (success) {
-      loadData();
+      loadData(false);
     }
     return success;
   };
