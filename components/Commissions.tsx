@@ -139,6 +139,8 @@ const Commissions: React.FC<CommissionsProps> = ({
             saleId: sale.id,
             saleCode: (sale as any).code || sale.id.substring(0, 8).toUpperCase(),
             buyerName: sale.buyerName || (sale as any).buyer_name || null,
+            sellerName: sale.sellerName || (sale as any).seller_name || null,
+            buyerCpf: (sale as any).buyer_cpf || (sale as any).buyer_document || null,
             brokerId: split.brokerId,
             brokerName: split.brokerName,
             property: sale.propertyAddress,
@@ -163,63 +165,69 @@ const Commissions: React.FC<CommissionsProps> = ({
     });
   }, [sales, currentUser, isAdmin, sortDateDir]);
 
-  const filteredCommissions = commissionList.filter(c => {
-    const matchesStatus = statusFilter === 'ALL' || c.status === statusFilter;
-    const matchesSearch = c.property.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                         c.brokerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (c.buyerName && c.buyerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-                         (c.saleCode && c.saleCode.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesBroker = brokerFilter === 'ALL' || c.brokerId === brokerFilter;
-    
-    const matchesDate = (() => {
-      if (!startDate && !endDate) return true;
-      // Se não tem forecastDate, usa a data da venda como fallback
-      const dateStr = c.forecastDate || c.date || '';
-      if (!dateStr) return true; // sem data nenhuma, sempre exibe
-      const txDate = new Date(dateStr + 'T00:00:00');
-      if (isNaN(txDate.getTime())) return true;
-      const start = startDate ? new Date(startDate + 'T00:00:00') : null;
-      const end = endDate ? new Date(endDate + 'T23:59:59') : null;
-      if (start && txDate < start) return false;
-      if (end && txDate > end) return false;
-      return true;
-    })();
-
-    const matchesPeriod = (() => {
-      if (period === 'all') return true;
-      const dateStr = c.forecastDate || c.date || '';
-      if (!dateStr) return true;
-      const d = new Date(dateStr + 'T00:00:00');
-      if (isNaN(d.getTime())) return true;
-      const now = new Date();
+  const filteredCommissions = useMemo(() => {
+    const term = (searchTerm || '').trim().toLowerCase();
+    return commissionList.filter(c => {
+      const matchesStatus = statusFilter === 'ALL' || c.status === statusFilter;
+      const matchesSearch = !term || 
+                           (c.property && c.property.toLowerCase().includes(term)) || 
+                           (c.brokerName && c.brokerName.toLowerCase().includes(term)) ||
+                           (c.buyerName && c.buyerName.toLowerCase().includes(term)) ||
+                           (c.sellerName && c.sellerName.toLowerCase().includes(term)) ||
+                           (c.buyerCpf && c.buyerCpf.toLowerCase().includes(term)) ||
+                           (c.saleCode && c.saleCode.toLowerCase().includes(term));
+      const matchesBroker = brokerFilter === 'ALL' || c.brokerId === brokerFilter;
       
-      if (period === 'month') {
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-      }
-      if (period === 'prev_month') {
-        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        return d.getMonth() === prev.getMonth() && d.getFullYear() === prev.getFullYear();
-      }
-      if (period === 'quarter') {
-        const currentQ = Math.floor(now.getMonth() / 3);
-        return Math.floor(d.getMonth() / 3) === currentQ && d.getFullYear() === now.getFullYear();
-      }
-      if (period === 'year') {
-        return d.getFullYear() === now.getFullYear();
-      }
-      if (period === 'custom') {
+      const matchesDate = (() => {
         if (!startDate && !endDate) return true;
+        // Se não tem forecastDate, usa a data da venda como fallback
+        const dateStr = c.forecastDate || c.date || '';
+        if (!dateStr) return true; // sem data nenhuma, sempre exibe
+        const txDate = new Date(dateStr + 'T00:00:00');
+        if (isNaN(txDate.getTime())) return true;
         const start = startDate ? new Date(startDate + 'T00:00:00') : null;
         const end = endDate ? new Date(endDate + 'T23:59:59') : null;
-        if (start && d < start) return false;
-        if (end && d > end) return false;
+        if (start && txDate < start) return false;
+        if (end && txDate > end) return false;
         return true;
-      }
-      return true;
-    })();
+      })();
 
-    return matchesStatus && matchesSearch && matchesBroker && matchesDate && matchesPeriod;
-  });
+      const matchesPeriod = (() => {
+        if (period === 'all') return true;
+        const dateStr = c.forecastDate || c.date || '';
+        if (!dateStr) return true;
+        const d = new Date(dateStr + 'T00:00:00');
+        if (isNaN(d.getTime())) return true;
+        const now = new Date();
+        
+        if (period === 'month') {
+          return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        }
+        if (period === 'prev_month') {
+          const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          return d.getMonth() === prev.getMonth() && d.getFullYear() === prev.getFullYear();
+        }
+        if (period === 'quarter') {
+          const currentQ = Math.floor(now.getMonth() / 3);
+          return Math.floor(d.getMonth() / 3) === currentQ && d.getFullYear() === now.getFullYear();
+        }
+        if (period === 'year') {
+          return d.getFullYear() === now.getFullYear();
+        }
+        if (period === 'custom') {
+          if (!startDate && !endDate) return true;
+          const start = startDate ? new Date(startDate + 'T00:00:00') : null;
+          const end = endDate ? new Date(endDate + 'T23:59:59') : null;
+          if (start && d < start) return false;
+          if (end && d > end) return false;
+          return true;
+        }
+        return true;
+      })();
+
+      return matchesStatus && matchesSearch && matchesBroker && matchesDate && matchesPeriod;
+    });
+  }, [commissionList, statusFilter, searchTerm, brokerFilter, startDate, endDate, period]);
 
   const kpis = useMemo(() => {
     const total = filteredCommissions.reduce((acc, c) => acc + (c.value || 0), 0);
@@ -250,6 +258,8 @@ const Commissions: React.FC<CommissionsProps> = ({
       saleId: string;
       saleCode?: string;
       buyerName?: string;
+      sellerName?: string;
+      buyerCpf?: string;
       brokerId?: string;
       brokerName: string;
       property: string;
@@ -270,6 +280,8 @@ const Commissions: React.FC<CommissionsProps> = ({
           saleId: comm.saleId,
           saleCode: comm.saleCode,
           buyerName: comm.buyerName,
+          sellerName: comm.sellerName,
+          buyerCpf: comm.buyerCpf,
           brokerId: comm.brokerId,
           brokerName: comm.brokerName,
           property: comm.property,
@@ -303,11 +315,16 @@ const Commissions: React.FC<CommissionsProps> = ({
   }, [commissionList]);
 
   const filteredGroups = useMemo(() => {
+    const term = (searchTerm || '').trim().toLowerCase();
     return groupedCommissions.filter(group => {
       const matchesStatus = statusFilter === 'ALL' || group.groupStatus === statusFilter;
-      const matchesSearch =
-        group.property.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        group.brokerName.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesSearch = !term ||
+        (group.property && group.property.toLowerCase().includes(term)) ||
+        (group.brokerName && group.brokerName.toLowerCase().includes(term)) ||
+        (group.buyerName && group.buyerName.toLowerCase().includes(term)) ||
+        (group.sellerName && group.sellerName.toLowerCase().includes(term)) ||
+        (group.buyerCpf && group.buyerCpf.toLowerCase().includes(term)) ||
+        (group.saleCode && group.saleCode.toLowerCase().includes(term));
       const matchesBroker = brokerFilter === 'ALL' || group.brokerId === brokerFilter;
       const matchesPeriod = (() => {
         if (period === 'all') return true;
@@ -1261,7 +1278,7 @@ const Commissions: React.FC<CommissionsProps> = ({
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
               <input
                 type="text"
-                placeholder="Buscar comissão..."
+                placeholder="Buscar por cliente, imóvel, corretor..."
                 className="w-full h-[38px] pl-9 pr-4 text-sm bg-white border border-gray-200 rounded-lg outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 transition-colors"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
