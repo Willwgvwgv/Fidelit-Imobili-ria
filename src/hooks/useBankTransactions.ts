@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '../../supabase';
 import { parseOFX, parseCSV, ParsedBankTransaction } from '../utils/ofxParser';
+import { logAuditEvent } from '../utils/auditLogger';
 
 export interface BankTransaction {
   id: string;
@@ -240,23 +241,19 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
       if (deleteErr) throw deleteErr;
 
       // Register audit log
-      try {
-        await supabase.from('audit_log').insert([{
-          action: 'remove_import',
-          entity_type: 'bank_transactions',
-          entity_id: batchId,
-          user_id: userId || null,
-          agency_id: currentAgencyId || agencyId || null,
-          details: {
-            batch_id: batchId,
-            account_id: targetAccountId,
-            removed_count: count,
-            timestamp: new Date().toISOString()
-          }
-        }]);
-      } catch (auditErr) {
-        console.warn('Could not record audit_log for remove_import:', auditErr);
-      }
+      await logAuditEvent({
+        action: 'remove_import',
+        entity_type: 'bank_transactions',
+        entity_id: batchId,
+        user_id: userId || null,
+        agency_id: currentAgencyId || agencyId || null,
+        details: {
+          batch_id: batchId,
+          account_id: targetAccountId,
+          removed_count: count,
+          timestamp: new Date().toISOString()
+        }
+      });
 
       await fetchTransactions(targetAccountId || selectedAccountId);
       return { success: true, count };
@@ -604,24 +601,20 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
       if (updateErr) throw updateErr;
 
       // Log in audit_log
-      try {
-        await supabase.from('audit_log').insert([{
-          action: 'undo_reconciliation',
-          entity_type: 'bank_transactions',
-          entity_id: bankTxId,
-          user_id: userId || null,
-          agency_id: currentAgencyId || agencyId || null,
-          details: {
-            match_type: matchType || null,
-            match_id: matchId || null,
-            description: tx.description,
-            amount: tx.amount,
-            timestamp: new Date().toISOString()
-          }
-        }]);
-      } catch (auditErr) {
-        console.warn('Could not record audit_log for undo_reconciliation:', auditErr);
-      }
+      await logAuditEvent({
+        action: 'undo_reconciliation',
+        entity_type: 'bank_transactions',
+        entity_id: bankTxId,
+        user_id: userId || null,
+        agency_id: currentAgencyId || agencyId || null,
+        details: {
+          match_type: matchType || null,
+          match_id: matchId || null,
+          description: tx.description,
+          amount: tx.amount,
+          timestamp: new Date().toISOString()
+        }
+      });
 
       await fetchTransactions();
       return { success: true };
@@ -696,24 +689,20 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
       if (deleteErr) throw deleteErr;
 
       // Log in audit_log
-      try {
-        await supabase.from('audit_log').insert([{
-          action: 'delete_bank_transaction',
-          entity_type: 'bank_transactions',
-          entity_id: bankTxId,
-          user_id: userId || null,
-          agency_id: currentAgencyId || agencyId || null,
-          details: {
-            match_type: matchType || null,
-            match_id: matchId || null,
-            description: tx.description,
-            amount: tx.amount,
-            timestamp: new Date().toISOString()
-          }
-        }]);
-      } catch (auditErr) {
-        console.warn('Could not record audit_log for delete_bank_transaction:', auditErr);
-      }
+      await logAuditEvent({
+        action: 'delete_bank_transaction',
+        entity_type: 'bank_transactions',
+        entity_id: bankTxId,
+        user_id: userId || null,
+        agency_id: currentAgencyId || agencyId || null,
+        details: {
+          match_type: matchType || null,
+          match_id: matchId || null,
+          description: tx.description,
+          amount: tx.amount,
+          timestamp: new Date().toISOString()
+        }
+      });
 
       await fetchTransactions();
       return { success: true };
@@ -794,22 +783,18 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
       if (updateErr) throw updateErr;
 
       // 3. Insert audit log
-      try {
-        await supabase.from('audit_log').insert([{
-          action: 'bulk_ignore',
-          entity_type: 'bank_transactions',
-          entity_id: bankTxIds.join(','),
-          user_id: userId || null,
-          agency_id: currentAgencyId || agencyId || null,
-          details: {
-            count: bankTxIds.length,
-            tx_ids: bankTxIds,
-            timestamp: new Date().toISOString(),
-          }
-        }]);
-      } catch (auditErr) {
-        console.warn('Could not record audit_log for bulk_ignore:', auditErr);
-      }
+      await logAuditEvent({
+        action: 'bulk_ignore',
+        entity_type: 'bank_transactions',
+        entity_id: bankTxIds.length === 1 ? bankTxIds[0] : null,
+        user_id: userId || null,
+        agency_id: currentAgencyId || agencyId || null,
+        details: {
+          count: bankTxIds.length,
+          tx_ids: bankTxIds,
+          timestamp: new Date().toISOString(),
+        }
+      });
 
       await fetchTransactions();
       return { success: true, count: bankTxIds.length };
@@ -885,22 +870,18 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
       if (deleteErr) throw deleteErr;
 
       // 3. Insert audit log
-      try {
-        await supabase.from('audit_log').insert([{
-          action: 'bulk_delete',
-          entity_type: 'bank_transactions',
-          entity_id: bankTxIds.join(','),
-          user_id: userId || null,
-          agency_id: currentAgencyId || agencyId || null,
-          details: {
-            count: bankTxIds.length,
-            tx_ids: bankTxIds,
-            timestamp: new Date().toISOString(),
-          }
-        }]);
-      } catch (auditErr) {
-        console.warn('Could not record audit_log for bulk_delete:', auditErr);
-      }
+      await logAuditEvent({
+        action: 'bulk_delete',
+        entity_type: 'bank_transactions',
+        entity_id: bankTxIds.length === 1 ? bankTxIds[0] : null,
+        user_id: userId || null,
+        agency_id: currentAgencyId || agencyId || null,
+        details: {
+          count: bankTxIds.length,
+          tx_ids: bankTxIds,
+          timestamp: new Date().toISOString(),
+        }
+      });
 
       await fetchTransactions();
       return { success: true, count: bankTxIds.length };

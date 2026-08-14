@@ -2,6 +2,7 @@
 import { supabase } from '../supabase';
 import { Sale, User, BrokerSplit, CommissionStatus, SplitRole, FinancialAccount, FinancialCategory, FinancialTransaction, TransactionStatus, BrokerEntry } from '../types';
 import { rateLimiter, RATE_LIMIT_PROFILES } from '../utils/rateLimiter';
+import { logAuditEvent } from '../src/utils/auditLogger';
 
 export interface FinancialAccountInsert {
   agency_id: string;
@@ -564,24 +565,20 @@ export const supabaseService = {
           return { success: false, isPartial: false, message: updateErr.message };
         }
 
-        // Tentar inserir log de auditoria se tabela existir
-        try {
-          await supabase.from('audit_log').insert([{
-            table_name: 'broker_splits',
-            record_id: params.splitId,
-            action: 'PAYMENT_FULL',
-            user_email: params.userEmail || '',
-            agency_id: params.agencyId || null,
-            changed_fields: JSON.stringify({
-              status: 'PAID',
-              paid_amount: fullVal,
-              payment_date: params.paymentDate,
-              payment_method: params.paymentMethod || 'PIX'
-            })
-          }]);
-        } catch {
-          // silenciar erro em audit_log opcional
-        }
+        // Inserir log de auditoria estruturado
+        await logAuditEvent({
+          action: 'PAYMENT_FULL',
+          entity_type: 'broker_splits',
+          entity_id: params.splitId,
+          user_email: params.userEmail || '',
+          agency_id: params.agencyId || null,
+          details: {
+            status: 'PAID',
+            paid_amount: fullVal,
+            payment_date: params.paymentDate,
+            payment_method: params.paymentMethod || 'PIX'
+          }
+        });
 
         return { success: true, isPartial: false };
       } else {
@@ -646,24 +643,20 @@ export const supabaseService = {
           return { success: false, isPartial: true, message: `Erro ao agendar saldo restante: ${insertErr.message}` };
         }
 
-        // Log de auditoria
-        try {
-          await supabase.from('audit_log').insert([{
-            table_name: 'broker_splits',
-            record_id: params.splitId,
-            action: 'PAYMENT_PARTIAL',
-            user_email: params.userEmail || '',
-            agency_id: params.agencyId || null,
-            changed_fields: JSON.stringify({
-              status: 'PARTIAL',
-              paid_amount: paidVal,
-              remaining_amount: remainingVal,
-              remaining_forecast_date: params.remainingForecastDate
-            })
-          }]);
-        } catch {
-          // silenciar erro em audit_log opcional
-        }
+        // Log de auditoria estruturado
+        await logAuditEvent({
+          action: 'PAYMENT_PARTIAL',
+          entity_type: 'broker_splits',
+          entity_id: params.splitId,
+          user_email: params.userEmail || '',
+          agency_id: params.agencyId || null,
+          details: {
+            status: 'PARTIAL',
+            paid_amount: paidVal,
+            remaining_amount: remainingVal,
+            remaining_forecast_date: params.remainingForecastDate
+          }
+        });
 
         return { success: true, isPartial: true };
       }

@@ -33,6 +33,7 @@ import BrokerStatement from './BrokerStatement';
 import { supabaseService } from '../services/supabaseService';
 import { supabase } from '../supabase';
 import { ConfirmModal } from './ui/ConfirmModal';
+import { logAuditEvent } from '../src/utils/auditLogger';
 
 interface CommissionsProps {
   sales: Sale[];
@@ -830,35 +831,27 @@ const Commissions: React.FC<CommissionsProps> = ({
       const success = await supabaseService.updateSplitStatus(splitId, CommissionStatus.PENDING, null);
 
       if (success) {
-        if (supabase) {
-          try {
-            const newData = {
-              ...(oldData || {}),
-              status: 'PENDING',
-              payment_date: null,
-              payment_method: null,
-              receipt_data: null,
-            };
+        const newData = {
+          ...(oldData || {}),
+          status: 'PENDING',
+          payment_date: null,
+          payment_method: null,
+          receipt_data: null,
+        };
 
-            await supabase.from('audit_log').insert([{
-              table_name: 'broker_splits',
-              record_id: splitId,
-              action: 'UPDATE',
-              user_email: currentUser?.email || '',
-              agency_id: currentUser?.agencyId || null,
-              changed_fields: JSON.stringify({
-                status: "PAGO→PENDENTE",
-                payment_date: "limpo",
-                payment_method: "limpo",
-                receipt_data: "limpo"
-              }),
-              old_data: oldData ? JSON.stringify(oldData) : null,
-              new_data: JSON.stringify(newData)
-            }]);
-          } catch (auditErr) {
-            console.warn('Error inserting into audit_log:', auditErr);
+        await logAuditEvent({
+          action: 'ESTORNO',
+          entity_type: 'broker_splits',
+          entity_id: splitId,
+          user_id: currentUser?.id,
+          user_email: currentUser?.email || '',
+          agency_id: currentUser?.agencyId || null,
+          details: {
+            reason: 'Estorno de pagamento de comissão (PAGO -> PENDENTE)',
+            old_data: oldData || null,
+            new_data: newData
           }
-        }
+        });
 
         // Close modal immediately and stop loading state
         setConfirmEstornarSplit(null);
