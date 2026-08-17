@@ -1,6 +1,6 @@
 
 import { supabase } from '../supabase';
-import { Sale, User, BrokerSplit, CommissionStatus, SplitRole, FinancialAccount, FinancialCategory, FinancialTransaction, TransactionStatus, BrokerEntry } from '../types';
+import { Sale, User, BrokerSplit, CommissionStatus, SplitRole, FinancialAccount, FinancialCategory, FinancialTransaction, TransactionStatus, TransactionType, BrokerEntry } from '../types';
 import { rateLimiter, RATE_LIMIT_PROFILES } from '../utils/rateLimiter';
 import { logAuditEvent } from '../src/utils/auditLogger';
 
@@ -232,6 +232,8 @@ export const supabaseService = {
         notes: sale.notes,
         status: sale.status || 'ACTIVE',
         buyer_cpf: sale.buyer_cpf,
+        buyer_document: sale.buyer_document || sale.buyer_cpf,
+        buyer_type: sale.buyer_type,
         seller_cpf: sale.seller_cpf,
         external_broker_id: sale.external_broker_id,
         external_broker_name: sale.external_broker_name,
@@ -312,6 +314,8 @@ export const supabaseService = {
         notes: sale.notes,
         status: sale.status,
         buyer_cpf: sale.buyer_cpf,
+        buyer_document: sale.buyer_document || sale.buyer_cpf,
+        buyer_type: sale.buyer_type,
         seller_cpf: sale.seller_cpf,
         external_broker_id: sale.external_broker_id,
         external_broker_name: sale.external_broker_name,
@@ -470,6 +474,20 @@ export const supabaseService = {
   ): Promise<boolean> {
     if (!supabase) return false;
 
+    // Buscar usuário autenticado do Supabase
+    let sessionUser: any = null;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      sessionUser = user;
+    } catch (e) {
+      console.warn('Could not retrieve authenticated user in updateSplitStatus:', e);
+    }
+
+    // Trava de segurança: Estorno direto para PENDING via updateSplitStatus exige admin/gerente e deve preferir estornarCommissionSplit
+    if (status === CommissionStatus.PENDING) {
+      console.warn('Prefer use estornarCommissionSplit with mandatory justification.');
+    }
+
     const updateData: any = { status };
     if (paymentData) {
       if (paymentData.date) updateData.payment_date = paymentData.date;
@@ -479,6 +497,7 @@ export const supabaseService = {
       updateData.payment_date = null;
       updateData.payment_method = null;
       updateData.receipt_data = null;
+      updateData.settled_by_transaction_id = null;
     }
 
     const { error } = await supabase
@@ -491,6 +510,134 @@ export const supabaseService = {
       return false;
     }
     return true;
+  },
+
+  // Estornar pagamento de comissão com justificativa obrigatória e gravação server-side audit_log
+  async estornarCommissionSplit(params: {
+    splitId: string;
+    reason: string;
+    agencyId?: string;
+  }): Promise<{ success: boolean; message?: string }> {
+    if (!supabase) return { success: false, message: 'Banco de dados não disponível' };
+
+    if (!params.reason || params.reason.trim().length < 3) {
+      return { success: false, message: 'O motivo do estorno é obrigatório (mínimo 3 caracteres).' };
+    }
+
+    try {
+      // 1. Obter usuário autenticado da sessão atual
+      const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser();
+      if (authErr || !authUser) {
+        return { success: false, message: 'Usuário não autenticado. Faça login novamente.' };
+      }
+
+      // 2. Obter dados atuais do rateio antes do estorno
+      const { data: currentSplit, error: fetchErr } = await supabase
+        .from('broker_splits')
+        .select('*')
+        .eq('id', params.splitId)
+        .single();
+
+      if (fetchErr || !currentSplit) {
+        return { success: false, message: 'Rateio de comissão não encontrado.' };
+      }
+
+      const previousStatus = currentSplit.status;
+      const previousSettledTxId = currentSplit.settled_by_transaction_id || null;
+
+      // 3. Atualizar o rateio para PENDING e limpar dados de pagamento
+      const { error: updateErr } = await supabase
+        .from('broker_splits')
+        .update({
+          status: 'PENDING',
+          payment_date: null,
+          payment_method: null,
+          receipt_data: null,
+          settled_by_transaction_id: null
+        })
+        .eq('id', params.splitId);
+
+      if (updateErr) {
+        console.error('Error updating split status for estorno:', updateErr);
+        return { success: false, message: updateErr.message };
+      }
+
+      // 4. Gravar log de auditoria com usuário autenticado e justificativa obrigatória
+      await logAuditEvent({
+        action: 'ESTORNO',
+        entity_type: 'broker_splits',
+        entity_id: params.splitId,
+        user_id: authUser.id,
+        user_email: authUser.email || '',
+        agency_id: params.agencyId || currentSplit.agency_id || null,
+        details: {
+          action: 'ESTORNO_PAGAMENTO',
+          status_anterior: previousStatus,
+          status_novo: 'PENDING',
+          motivo_estorno: params.reason.trim(),
+          user_id: authUser.id,
+          user_email: authUser.email,
+          previous_settled_by_transaction_id: previousSettledTxId,
+          previous_payment_date: currentSplit.payment_date,
+          previous_payment_method: currentSplit.payment_method,
+          calculated_value: currentSplit.calculated_value
+        }
+      });
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Unexpected error in estornarCommissionSplit:', err);
+      return { success: false, message: err?.message || 'Erro ao estornar comissão.' };
+    }
+  },
+
+  // Buscar transações financeiras candidatas para vínculo na conciliação da comissão
+  async findCandidateFinancialTransactions(params: {
+    targetAmount: number;
+    paymentDate: string;
+    agencyId?: string;
+    toleranceDays?: number;
+    toleranceAmount?: number;
+  }): Promise<FinancialTransaction[]> {
+    if (!supabase) return [];
+
+    try {
+      const toleranceDays = params.toleranceDays ?? 15;
+      const toleranceAmount = params.toleranceAmount ?? 5.0;
+
+      const dateObj = new Date(params.paymentDate || new Date().toISOString().split('T')[0]);
+      const minDateObj = new Date(dateObj);
+      minDateObj.setDate(minDateObj.getDate() - toleranceDays);
+      const maxDateObj = new Date(dateObj);
+      maxDateObj.setDate(maxDateObj.getDate() + toleranceDays);
+
+      const minDate = minDateObj.toISOString().split('T')[0];
+      const maxDate = maxDateObj.toISOString().split('T')[0];
+
+      const minAmount = Math.max(0.01, params.targetAmount - toleranceAmount);
+      const maxAmount = params.targetAmount + toleranceAmount;
+
+      let query = supabase
+        .from('financial_transactions')
+        .select('*')
+        .eq('type', TransactionType.EXPENSE)
+        .gte('amount', minAmount)
+        .lte('amount', maxAmount)
+        .gte('due_date', minDate)
+        .lte('due_date', maxDate)
+        .order('due_date', { ascending: false })
+        .limit(20);
+
+      const { data, error } = await query;
+      if (error) {
+        console.error('Error finding candidate transactions:', error);
+        return [];
+      }
+      return (data || []) as FinancialTransaction[];
+    } catch (e) {
+      console.error('Unexpected error in findCandidateFinancialTransactions:', e);
+      return [];
+    }
   },
 
   // Update forecast date
@@ -509,7 +656,7 @@ export const supabaseService = {
     return true;
   },
 
-  // Registrar pagamento de comissão (cheio ou parcial)
+  // Registrar pagamento de comissão (cheio ou parcial) com vínculo OBRIGATÓRIO à transação financeira
   async payCommissionSplit(params: {
     splitId: string;
     saleId?: string;
@@ -522,11 +669,23 @@ export const supabaseService = {
     remainingForecastDate?: string;
     userEmail?: string;
     agencyId?: string;
-  }): Promise<{ success: boolean; isPartial: boolean; message?: string }> {
+    // Vínculo obrigatório com financial_transaction:
+    transactionId?: string; // ID de transação financeira existente selecionada
+    newTransactionData?: { // Ou dados para criar a nova transação financeira na hora
+      accountId?: string;
+      categoryId?: string;
+      description?: string;
+    };
+  }): Promise<{ success: boolean; isPartial: boolean; message?: string; transactionId?: string }> {
     if (!supabase) return { success: false, isPartial: false, message: 'Banco de dados não disponível' };
 
     try {
-      // 1. Obter dados atuais do rateio
+      // 1. Obter usuário autenticado da sessão
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const authenticatedUserId = authUser?.id;
+      const authenticatedUserEmail = authUser?.email || params.userEmail || '';
+
+      // 2. Obter dados atuais do rateio
       const { data: currentSplit, error: fetchErr } = await supabase
         .from('broker_splits')
         .select('*')
@@ -542,6 +701,76 @@ export const supabaseService = {
       const paidVal = Number(params.paidAmount);
       const isPartial = paidVal < (fullVal - 0.009);
 
+      const rawRole = currentSplit.role ? String(currentSplit.role).trim().toUpperCase() : '';
+      
+      // Validação estrita de segurança: Impede pagamentos se a role for nula, vazia ou inválida
+      const validRoles = ['BROKER', 'CAPTURER', 'MANAGER', 'PARTNER', 'AGENCY', 'CORRETOR', 'CAPTADOR', 'GERENTE', 'SÓCIO', 'SOCIO', 'AGÊNCIA', 'AGENCIA'];
+      if (!rawRole || !validRoles.includes(rawRole)) {
+        return {
+          success: false,
+          isPartial,
+          message: "Este rateio possui role indefinido ou inválido no banco de dados. Corrija o campo 'role' antes de registrar o pagamento."
+        };
+      }
+
+      const isInternalHouseRole = rawRole === 'PARTNER' || rawRole === 'AGENCY' || rawRole === 'SÓCIO' || rawRole === 'SOCIO' || rawRole === 'AGÊNCIA' || rawRole === 'AGENCIA';
+      const splitRole = rawRole;
+
+      // 3. Validação de conciliação financeira: Permitida e Obrigatória APENAS para SÓCIO ou AGÊNCIA
+      let resolvedTransactionId: string | null = null;
+
+      if (isInternalHouseRole) {
+        if (params.transactionId && String(params.transactionId).trim() !== '') {
+          resolvedTransactionId = String(params.transactionId).trim();
+        } else {
+          if (!params.newTransactionData || !params.newTransactionData.accountId || !params.newTransactionData.categoryId) {
+            return {
+              success: false,
+              isPartial,
+              message: 'Validação de segurança: Para rateios de Sócio ou Agência, é obrigatório vincular uma transação existente ou selecionar conta/categoria para criar o lançamento financeiro.'
+            };
+          }
+
+          // Criar a nova transação financeira de despesa vinculada
+          const splitBrokerName = currentSplit.broker_name || 'Sócio/Agência';
+          const defaultDesc = params.newTransactionData.description && params.newTransactionData.description.trim() !== ''
+            ? params.newTransactionData.description.trim()
+            : `Repasse ${splitRole === 'PARTNER' ? 'Sócio' : 'Agência'} - ${splitBrokerName} (${params.paymentMethod || 'Repasse'})`;
+
+          const newTxPayload = {
+            agency_id: params.agencyId || currentSplit.agency_id,
+            description: defaultDesc,
+            amount: paidVal,
+            type: TransactionType.EXPENSE,
+            category_id: params.newTransactionData.categoryId || null,
+            account_id: params.newTransactionData.accountId || null,
+            status: TransactionStatus.PAID,
+            due_date: params.paymentDate,
+            payment_date: params.paymentDate,
+            notes: params.notes || `Pagamento de comissão vinculado ao rateio ${params.splitId}`,
+            contact_name: splitBrokerName,
+            affects_dre: true // Despesa operacional real da imobiliária
+          };
+
+          const { data: createdTx, error: createTxErr } = await supabase
+            .from('financial_transactions')
+            .insert(newTxPayload)
+            .select('id')
+            .single();
+
+          if (createTxErr || !createdTx?.id) {
+            console.error('Error creating linked financial transaction:', createTxErr);
+            return {
+              success: false,
+              isPartial,
+              message: `Erro ao criar o lançamento financeiro de despesa: ${createTxErr?.message || 'Falha ao inserir transação'}`
+            };
+          }
+
+          resolvedTransactionId = String(createdTx.id);
+        }
+      }
+
       if (!isPartial) {
         // Pagamento Total / Quitação
         const updateData: any = {
@@ -549,7 +778,8 @@ export const supabaseService = {
           calculated_value: fullVal,
           payment_date: params.paymentDate,
           payment_method: params.paymentMethod || 'PIX',
-          receipt_data: params.receiptData || null
+          receipt_data: params.receiptData || null,
+          settled_by_transaction_id: resolvedTransactionId
         };
         if (params.notes) {
           updateData.notes = params.notes;
@@ -570,17 +800,23 @@ export const supabaseService = {
           action: 'PAYMENT_FULL',
           entity_type: 'broker_splits',
           entity_id: params.splitId,
-          user_email: params.userEmail || '',
+          user_id: authenticatedUserId,
+          user_email: authenticatedUserEmail,
           agency_id: params.agencyId || null,
           details: {
-            status: 'PAID',
+            action: 'PAYMENT_FULL',
+            status_anterior: currentSplit.status,
+            status_novo: 'PAID',
             paid_amount: fullVal,
             payment_date: params.paymentDate,
-            payment_method: params.paymentMethod || 'PIX'
+            payment_method: params.paymentMethod || 'PIX',
+            settled_by_transaction_id: resolvedTransactionId,
+            user_id: authenticatedUserId,
+            user_email: authenticatedUserEmail
           }
         });
 
-        return { success: true, isPartial: false };
+        return { success: true, isPartial: false, transactionId: resolvedTransactionId };
       } else {
         // Pagamento Parcial
         const remainingVal = Number((fullVal - paidVal).toFixed(2));
@@ -596,7 +832,7 @@ export const supabaseService = {
           ? `${params.notes} (Pagamento Parcial de R$ ${paidVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`
           : `Pagamento Parcial (R$ ${paidVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`;
 
-        // 1. Atualiza o rateio atual para PAGO com o valor parcial
+        // 1. Atualiza o rateio atual para PAGO com o valor parcial e o vínculo da transação
         const updateData: any = {
           status: 'PAID',
           calculated_value: paidVal,
@@ -606,7 +842,8 @@ export const supabaseService = {
           receipt_data: params.receiptData || null,
           notes: partialNote,
           installment_number: currentInstallment,
-          total_installments: totalInstallments
+          total_installments: totalInstallments,
+          settled_by_transaction_id: resolvedTransactionId
         };
 
         const { error: updateErr } = await supabase
@@ -648,17 +885,23 @@ export const supabaseService = {
           action: 'PAYMENT_PARTIAL',
           entity_type: 'broker_splits',
           entity_id: params.splitId,
-          user_email: params.userEmail || '',
+          user_id: authenticatedUserId,
+          user_email: authenticatedUserEmail,
           agency_id: params.agencyId || null,
           details: {
-            status: 'PARTIAL',
+            action: 'PAYMENT_PARTIAL',
+            status_anterior: currentSplit.status,
+            status_novo: 'PARTIAL',
             paid_amount: paidVal,
             remaining_amount: remainingVal,
-            remaining_forecast_date: params.remainingForecastDate
+            remaining_forecast_date: params.remainingForecastDate,
+            settled_by_transaction_id: resolvedTransactionId,
+            user_id: authenticatedUserId,
+            user_email: authenticatedUserEmail
           }
         });
 
-        return { success: true, isPartial: true };
+        return { success: true, isPartial: true, transactionId: resolvedTransactionId };
       }
     } catch (err: any) {
       console.error('Unexpected error in payCommissionSplit:', err);

@@ -298,7 +298,7 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
 
         let firstDate = txs[0].date;
         let lastDate = txs[0].date;
-        let importedAt = txs[0].created_at || (txs[0] as any).imported_at || new Date().toISOString();
+        let importedAt = (txs[0] as any).created_at || (txs[0] as any).imported_at || new Date().toISOString();
 
         for (const tx of txs) {
           const amt = Number(tx.amount) || 0;

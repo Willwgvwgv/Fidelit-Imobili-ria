@@ -46,6 +46,7 @@ export interface BrokerSplit {
   total_installments?: number;
   notes?: string;
   discount_value?: number;
+  settled_by_transaction_id?: string | null;
 }
 
 export interface Sale {

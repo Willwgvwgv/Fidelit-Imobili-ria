@@ -26,9 +26,12 @@ import {
   Tag,
   Building2,
   Users,
-  AlertCircle
+  AlertCircle,
+  Lock,
+  Link2,
+  PlusCircle
 } from 'lucide-react';
-import { Sale, User, UserRole, CommissionStatus } from '../types';
+import { Sale, User, UserRole, CommissionStatus, FinancialAccount, FinancialCategory, FinancialTransaction } from '../types';
 import BrokerStatement from './BrokerStatement';
 import { supabaseService } from '../services/supabaseService';
 import { supabase } from '../supabase';
@@ -92,6 +95,17 @@ const Commissions: React.FC<CommissionsProps> = ({
   const [paymentReceipt, setPaymentReceipt] = useState<string | null>(null);
   const [isSubmittingPayment, setIsSubmittingPayment] = useState<boolean>(false);
 
+  // Estados de conciliação financeira obrigatória no pagamento
+  const [financeAccounts, setFinanceAccounts] = useState<FinancialAccount[]>([]);
+  const [financeCategories, setFinanceCategories] = useState<FinancialCategory[]>([]);
+  const [reconciliationMode, setReconciliationMode] = useState<'create' | 'link'>('create');
+  const [candidateTransactions, setCandidateTransactions] = useState<FinancialTransaction[]>([]);
+  const [isLoadingCandidates, setIsLoadingCandidates] = useState<boolean>(false);
+  const [selectedCandidateTxId, setSelectedCandidateTxId] = useState<string>('');
+  const [newTxAccountId, setNewTxAccountId] = useState<string>('');
+  const [newTxCategoryId, setNewTxCategoryId] = useState<string>('');
+  const [newTxDescription, setNewTxDescription] = useState<string>('');
+
   // Estados para visualização de comprovante
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
 
@@ -100,8 +114,9 @@ const Commissions: React.FC<CommissionsProps> = ({
   const [warningPaidSplitModal, setWarningPaidSplitModal] = useState<boolean>(false);
   const [isDeletingSplit, setIsDeletingSplit] = useState<boolean>(false);
 
-  // Estados para estorno de pagamento
+  // Estados para estorno de pagamento (com justificativa obrigatória)
   const [confirmEstornarSplit, setConfirmEstornarSplit] = useState<any | null>(null);
+  const [estornoMotivo, setEstornoMotivo] = useState<string>('');
   const [isEstornandoSplit, setIsEstornandoSplit] = useState<boolean>(false);
 
   // Estados para o fluxo de comissões relacionadas em aberto
@@ -390,16 +405,23 @@ const Commissions: React.FC<CommissionsProps> = ({
   };
 
   const renderStatusBadge = (comm: any) => {
-    const key = `${comm.saleId}-${comm.brokerId}`;
+    const key = `${comm.saleId}-${comm.brokerId || comm.id}`;
     const isOpen = openStatusMenu === key;
     const isPaid = comm.status === CommissionStatus.PAID;
+
+    const formattedPaymentDate = comm.paymentDate ? new Date(comm.paymentDate + 'T12:00:00').toLocaleDateString('pt-BR') : '';
 
     const badgeContent = () => {
       switch (comm.status) {
         case CommissionStatus.PAID:
           return (
-            <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-emerald-100">
-              <CheckCircle2 size={14} /> PAGO
+            <span 
+              className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-emerald-200 select-none shadow-2xs"
+              title={formattedPaymentDate ? `Pago em ${formattedPaymentDate} (Trava de segurança: status bloqueado para edição direta)` : 'Pago (Trava de segurança: status bloqueado para edição direta)'}
+            >
+              <CheckCircle2 size={13} className="text-emerald-600" /> 
+              <span>PAGO</span>
+              <Lock size={11} className="text-emerald-500/80 ml-0.5" />
             </span>
           );
         case CommissionStatus.PENDING:
@@ -419,9 +441,13 @@ const Commissions: React.FC<CommissionsProps> = ({
       }
     };
 
-    // Comissão PAGA: badge estático sem interação
+    // Trava de segurança: Se for PAID ou se não for Admin, não permite menu de edição direta de status
     if (isPaid || !isAdmin) {
-      return badgeContent();
+      return (
+        <div className="inline-flex items-center">
+          {badgeContent()}
+        </div>
+      );
     }
 
     // Não pago + admin: badge clicável com dropdown de ações
@@ -493,12 +519,35 @@ const Commissions: React.FC<CommissionsProps> = ({
     );
   };
 
-  const renderGroupStatusBadge = (groupStatus: string) => {
+  const renderGroupStatusBadge = (groupStatus: string, group?: any) => {
+    const singlePaidComm = group?.installments?.find((c: any) => c.status === CommissionStatus.PAID);
+    const formattedPaymentDate = singlePaidComm?.paymentDate 
+      ? new Date(singlePaidComm.paymentDate + 'T12:00:00').toLocaleDateString('pt-BR') 
+      : '';
+
     switch (groupStatus) {
       case CommissionStatus.PAID:
-        return <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-emerald-100"><CheckCircle2 size={14} /> PAGO</span>;
+        return (
+          <span 
+            className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-emerald-200 shadow-2xs select-none"
+            title={formattedPaymentDate ? `Quitado em ${formattedPaymentDate} (Trava: edição direta bloqueada)` : 'Quitado (Trava: edição direta bloqueada)'}
+          >
+            <CheckCircle2 size={13} className="text-emerald-600" /> 
+            <span>PAGO</span>
+            <Lock size={11} className="text-emerald-500/80 ml-0.5" />
+          </span>
+        );
       case 'PARTIAL':
-        return <span className="bg-amber-50 text-amber-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-amber-100"><TrendingUp size={14} /> PARCIAL</span>;
+        return (
+          <span 
+            className="bg-amber-50 text-amber-800 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-amber-200 shadow-2xs select-none"
+            title="Pagamento Parcial (Trava: parcelas pagas estão protegidas contra edição direta)"
+          >
+            <TrendingUp size={13} className="text-amber-600" /> 
+            <span>PARCIAL</span>
+            <Lock size={11} className="text-amber-600/80 ml-0.5" />
+          </span>
+        );
       case CommissionStatus.OVERDUE:
         return <span className="bg-red-50 text-red-600 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-red-100"><AlertTriangle size={14} /> ATRASADO</span>;
       default:
@@ -525,11 +574,12 @@ const Commissions: React.FC<CommissionsProps> = ({
     }
   };
 
-  const handleOpenPaymentModal = (comm: any) => {
+  const handleOpenPaymentModal = async (comm: any) => {
     setSelectedPayment(comm);
     const totalVal = comm.value || 0;
     setPaymentAmount(totalVal ? totalVal.toFixed(2) : '');
-    setPaymentDate(comm.paymentDate || new Date().toISOString().split('T')[0]);
+    const defaultDate = comm.paymentDate || new Date().toISOString().split('T')[0];
+    setPaymentDate(defaultDate);
     
     // Sugere a data do saldo restante para 30 dias à frente (ou início do próximo mês)
     const futureDate = new Date();
@@ -539,8 +589,49 @@ const Commissions: React.FC<CommissionsProps> = ({
     setPaymentMethod(comm.paymentMethod || 'Pagamento de Repasse (Padrão)');
     setPaymentNotes('');
     setPaymentReceipt(null);
+    setReconciliationMode('create');
+    setSelectedCandidateTxId('');
+    setNewTxDescription(`Comissão Corretor - ${comm.brokerName || 'Corretor'} (${comm.property || 'Imóvel'})`);
     setIsSubmittingPayment(false);
     setIsPaymentModalOpen(true);
+
+    // Carregar contas e categorias financeiras para conciliação obrigatória
+    try {
+      const [accs, cats] = await Promise.all([
+        supabaseService.getFinancialAccounts(),
+        supabaseService.getFinancialCategories()
+      ]);
+      setFinanceAccounts(accs || []);
+      setFinanceCategories(cats || []);
+
+      if (accs && accs.length > 0) {
+        const defaultAcc = accs.find(a => a.is_default) || accs[0];
+        setNewTxAccountId(defaultAcc.id);
+      }
+
+      if (cats && cats.length > 0) {
+        const commCat = cats.find(c => c.name.toLowerCase().includes('comiss') && c.type === 'EXPENSE') 
+          || cats.find(c => c.type === 'EXPENSE')
+          || cats[0];
+        if (commCat) setNewTxCategoryId(commCat.id);
+      }
+
+      // Buscar transações financeiras candidatas
+      setIsLoadingCandidates(true);
+      const candidates = await supabaseService.findCandidateFinancialTransactions({
+        targetAmount: totalVal,
+        paymentDate: defaultDate,
+        agencyId: currentUser?.agencyId
+      });
+      setCandidateTransactions(candidates || []);
+      if (candidates && candidates.length > 0) {
+        setSelectedCandidateTxId(candidates[0].id);
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar dados financeiros para conciliação:', e);
+    } finally {
+      setIsLoadingCandidates(false);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -582,10 +673,39 @@ const Commissions: React.FC<CommissionsProps> = ({
       return;
     }
 
+    const paymentRoleStr = selectedPayment?.role ? String(selectedPayment.role).trim().toUpperCase() : '';
+    const validRoles = ['BROKER', 'CAPTURER', 'MANAGER', 'PARTNER', 'AGENCY', 'CORRETOR', 'CAPTADOR', 'GERENTE', 'SÓCIO', 'SOCIO', 'AGÊNCIA', 'AGENCIA'];
+
+    if (!paymentRoleStr || !validRoles.includes(paymentRoleStr)) {
+      triggerToast("Este rateio possui role indefinido ou inválido no banco de dados. Corrija o campo 'role' antes de registrar o pagamento.", "error");
+      return;
+    }
+
+    const isInternalHousePayment = paymentRoleStr === 'PARTNER' || paymentRoleStr === 'AGENCY' || paymentRoleStr === 'SÓCIO' || paymentRoleStr === 'SOCIO' || paymentRoleStr === 'AGÊNCIA' || paymentRoleStr === 'AGENCIA';
+
+    // Validação obrigatória da etapa de conciliação financeira APENAS para SÓCIO ou AGÊNCIA
+    if (isInternalHousePayment) {
+      if (reconciliationMode === 'link' && !selectedCandidateTxId) {
+        triggerToast("Por favor, selecione uma transação financeira existente para vincular ou mude para 'Criar novo lançamento'.", "warning");
+        return;
+      }
+
+      if (reconciliationMode === 'create') {
+        if (!newTxAccountId) {
+          triggerToast("Por favor, selecione a conta bancária para o lançamento da despesa.", "warning");
+          return;
+        }
+        if (!newTxCategoryId) {
+          triggerToast("Por favor, selecione a categoria financeira da despesa.", "warning");
+          return;
+        }
+      }
+    }
+
     setIsSubmittingPayment(true);
     try {
       if (selectedPayment.id) {
-        const result = await supabaseService.payCommissionSplit({
+        const paymentPayload: any = {
           splitId: selectedPayment.id,
           saleId: selectedPayment.saleId,
           paidAmount: numAmount,
@@ -597,7 +717,21 @@ const Commissions: React.FC<CommissionsProps> = ({
           remainingForecastDate: isPartial ? remainingForecastDate : undefined,
           userEmail: currentUser?.email,
           agencyId: currentUser?.agencyId
-        });
+        };
+
+        if (isInternalHousePayment) {
+          if (reconciliationMode === 'link' && selectedCandidateTxId) {
+            paymentPayload.transactionId = selectedCandidateTxId;
+          } else {
+            paymentPayload.newTransactionData = {
+              accountId: newTxAccountId,
+              categoryId: newTxCategoryId,
+              description: newTxDescription || `Repasse ${selectedPayment.role || 'Sócio/Agência'} - ${selectedPayment.brokerName || ''}`
+            };
+          }
+        }
+
+        const result = await supabaseService.payCommissionSplit(paymentPayload);
 
         if (result.success) {
           const currentPaidSplit = selectedPayment;
@@ -608,11 +742,11 @@ const Commissions: React.FC<CommissionsProps> = ({
           const remainingVal = Math.max(0, totalVal - numAmount);
           if (result.isPartial) {
             triggerToast(
-              `Pagamento parcial de ${formatCurrency(numAmount)} registrado! Saldo restante de ${formatCurrency(remainingVal)} agendado com sucesso.`,
+              `Pagamento parcial de ${formatCurrency(numAmount)} conciliado e registrado! Saldo restante de ${formatCurrency(remainingVal)} agendado com sucesso.`,
               "success"
             );
           } else {
-            triggerToast(`Pagamento total de ${formatCurrency(numAmount)} registrado com sucesso!`, "success");
+            triggerToast(`Pagamento total de ${formatCurrency(numAmount)} conciliado e registrado com sucesso!`, "success");
           }
 
           if (onRefresh) {
@@ -803,62 +937,33 @@ const Commissions: React.FC<CommissionsProps> = ({
 
   const handleOpenEstornarModal = (comm: any) => {
     setConfirmEstornarSplit(comm);
+    setEstornoMotivo('');
   };
 
   const executeEstornarSplit = async () => {
     if (!confirmEstornarSplit?.id) return;
 
+    if (!estornoMotivo || estornoMotivo.trim().length < 3) {
+      triggerToast("O motivo do estorno é obrigatório (mínimo 3 caracteres).", "warning");
+      return;
+    }
+
     const commToEstornar = confirmEstornarSplit;
     setIsEstornandoSplit(true);
 
     try {
-      const splitId = commToEstornar.id;
+      const result = await supabaseService.estornarCommissionSplit({
+        splitId: commToEstornar.id,
+        reason: estornoMotivo.trim(),
+        agencyId: currentUser?.agencyId
+      });
 
-      let oldData: any = null;
-      if (supabase) {
-        try {
-          const { data } = await supabase
-            .from('broker_splits')
-            .select('*')
-            .eq('id', splitId)
-            .single();
-          oldData = data;
-        } catch (e) {
-          console.warn('Could not fetch old split data for audit log:', e);
-        }
-      }
-
-      const success = await supabaseService.updateSplitStatus(splitId, CommissionStatus.PENDING, null);
-
-      if (success) {
-        const newData = {
-          ...(oldData || {}),
-          status: 'PENDING',
-          payment_date: null,
-          payment_method: null,
-          receipt_data: null,
-        };
-
-        await logAuditEvent({
-          action: 'ESTORNO',
-          entity_type: 'broker_splits',
-          entity_id: splitId,
-          user_id: currentUser?.id,
-          user_email: currentUser?.email || '',
-          agency_id: currentUser?.agencyId || null,
-          details: {
-            reason: 'Estorno de pagamento de comissão (PAGO -> PENDENTE)',
-            old_data: oldData || null,
-            new_data: newData
-          }
-        });
-
-        // Close modal immediately and stop loading state
+      if (result.success) {
         setConfirmEstornarSplit(null);
+        setEstornoMotivo('');
         setIsEstornandoSplit(false);
 
-        // Show styled toast notification
-        triggerToast("Pagamento estornado. Agora você pode deletar se for duplicata.", "success");
+        triggerToast("Pagamento estornado com sucesso e registrado no log de auditoria.", "success");
 
         if (onRefresh) {
           onRefresh();
@@ -866,18 +971,15 @@ const Commissions: React.FC<CommissionsProps> = ({
           onUpdateStatus(commToEstornar.saleId, commToEstornar.brokerId, CommissionStatus.PENDING);
         }
       } else {
-        setConfirmEstornarSplit(null);
         setIsEstornandoSplit(false);
-        triggerToast("Erro ao estornar o pagamento.", "error");
+        triggerToast(result.message || "Erro ao estornar o pagamento.", "error");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Erro ao estornar pagamento:", err);
-      setConfirmEstornarSplit(null);
       setIsEstornandoSplit(false);
-      triggerToast("Erro ao estornar o pagamento.", "error");
+      triggerToast(err?.message || "Erro ao estornar o pagamento.", "error");
     } finally {
       setIsEstornandoSplit(false);
-      setConfirmEstornarSplit(null);
     }
   };
 
@@ -1589,7 +1691,7 @@ const Commissions: React.FC<CommissionsProps> = ({
                       className={`hover:bg-gray-50/50 transition-colors ${isMulti ? 'cursor-pointer select-none' : ''}`}
                       onClick={() => isMulti && toggleExpand(group.key)}
                     >
-                      <td className="px-5 py-4">{renderGroupStatusBadge(group.groupStatus)}</td>
+                      <td className="px-5 py-4">{renderGroupStatusBadge(group.groupStatus, group)}</td>
                       <td className="px-5 py-4">
                         <div className="flex flex-col">
                           <span className="text-sm font-semibold text-gray-950">{group.property}</span>
@@ -2019,6 +2121,140 @@ const Commissions: React.FC<CommissionsProps> = ({
                   </select>
                 </div>
 
+                {/* Bloco de Conciliação Financeira (Apenas para SÓCIO ou AGÊNCIA) */}
+                {(() => {
+                  const pRole = selectedPayment?.role ? String(selectedPayment.role).toUpperCase() : 'BROKER';
+                  const isInternal = pRole === 'PARTNER' || pRole === 'AGENCY' || pRole === 'SÓCIO' || pRole === 'SOCIO' || pRole === 'AGÊNCIA' || pRole === 'AGENCIA';
+                  if (!isInternal) return null;
+
+                  return (
+                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                          <Building2 size={15} className="text-indigo-600" /> Conciliação Financeira *
+                        </div>
+                        <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-200 text-[11px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setReconciliationMode('create')}
+                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                              reconciliationMode === 'create'
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            <PlusCircle size={12} /> Criar Lançamento
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReconciliationMode('link')}
+                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                              reconciliationMode === 'link'
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            <Link2 size={12} /> Vincular Existente
+                          </button>
+                        </div>
+                      </div>
+
+                      {reconciliationMode === 'create' ? (
+                        <div className="space-y-2.5 animate-in fade-in duration-150">
+                          <p className="text-[11px] text-slate-500 leading-tight">
+                            Cria automaticamente uma despesa de comissão no módulo financeiro vinculada a este rateio interno de sócio/agência.
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                                Conta Bancária *
+                              </label>
+                              <select
+                                value={newTxAccountId}
+                                onChange={(e) => setNewTxAccountId(e.target.value)}
+                                className="w-full px-2.5 h-[34px] bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-indigo-500"
+                              >
+                                <option value="">Selecione uma conta...</option>
+                                {financeAccounts.map((acc) => (
+                                  <option key={acc.id} value={acc.id}>
+                                    {acc.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                                Categoria da Despesa *
+                              </label>
+                              <select
+                                value={newTxCategoryId}
+                                onChange={(e) => setNewTxCategoryId(e.target.value)}
+                                className="w-full px-2.5 h-[34px] bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-indigo-500"
+                              >
+                                <option value="">Selecione uma categoria...</option>
+                                {financeCategories
+                                  .filter((c) => c.type === 'EXPENSE')
+                                  .map((cat) => (
+                                    <option key={cat.id} value={cat.id}>
+                                      {cat.name}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 animate-in fade-in duration-150">
+                          <p className="text-[11px] text-slate-500 leading-tight">
+                            Selecione a transação bancária/despesa já lançada no extrato para vincular e quitar este rateio interno.
+                          </p>
+                          {isLoadingCandidates ? (
+                            <div className="p-3 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                              <Loader2 size={14} className="animate-spin text-indigo-600" /> Buscando transações...
+                            </div>
+                          ) : candidateTransactions.length > 0 ? (
+                            <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                              {candidateTransactions.map((tx) => (
+                                <label
+                                  key={tx.id}
+                                  className={`p-2 rounded-lg border text-xs flex items-center justify-between cursor-pointer transition-all ${
+                                    selectedCandidateTxId === tx.id
+                                      ? 'bg-indigo-50/80 border-indigo-300 text-indigo-950 font-semibold shadow-2xs'
+                                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <input
+                                      type="radio"
+                                      name="candidate_tx"
+                                      checked={selectedCandidateTxId === tx.id}
+                                      onChange={() => setSelectedCandidateTxId(tx.id)}
+                                      className="text-indigo-600 focus:ring-indigo-500"
+                                    />
+                                    <div className="truncate">
+                                      <p className="truncate font-medium">{tx.description}</p>
+                                      <p className="text-[10px] text-slate-400">
+                                        Vencimento: {new Date(tx.due_date + 'T12:00:00').toLocaleDateString('pt-BR')}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="font-bold text-red-600 shrink-0 ml-2">
+                                    -{formatCurrency(tx.amount)}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-800">
+                              Nenhum lançamento similar encontrado no extrato para este valor/período. Recomendamos selecionar <strong>Criar Lançamento</strong>.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {/* Comprovante / Anotação PIX */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-gray-600 uppercase flex items-center gap-1">
@@ -2138,18 +2374,84 @@ const Commissions: React.FC<CommissionsProps> = ({
         </div>
       )}
 
-      {/* Modal de Confirmação de Estorno de Pagamento */}
-      <ConfirmModal
-        open={!!confirmEstornarSplit}
-        title="Estornar pagamento?"
-        message="Este rateio voltará para status Pendente. O pagamento registrado será removido mas o histórico fica no audit log. Depois você poderá deletar se for duplicata."
-        variant="warning"
-        confirmText="Estornar"
-        cancelText="Cancelar"
-        isLoading={isEstornandoSplit}
-        onConfirm={executeEstornarSplit}
-        onCancel={() => setConfirmEstornarSplit(null)}
-      />
+      {/* Modal de Confirmação de Estorno de Pagamento com Justificativa Obrigatória */}
+      {confirmEstornarSplit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+            <div className="p-6 space-y-4">
+              <div className="flex items-start gap-3.5">
+                <div className="p-2.5 bg-amber-50 text-amber-600 rounded-xl shrink-0 mt-0.5 border border-amber-100">
+                  <RotateCcw size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 leading-snug">
+                    Estornar Pagamento de Comissão
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    O rateio voltará ao status <strong>Pendente</strong> e o vínculo de quitação será desfeito. O evento será registrado com auditoria completa.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl text-xs space-y-1">
+                <div className="flex justify-between text-slate-700">
+                  <span>Corretor:</span>
+                  <strong className="text-slate-900">{confirmEstornarSplit.brokerName || 'Corretor'}</strong>
+                </div>
+                <div className="flex justify-between text-slate-700">
+                  <span>Valor:</span>
+                  <strong className="text-emerald-700">{formatCurrency(confirmEstornarSplit.value || 0)}</strong>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                  <span>Motivo do Estorno *</span>
+                  <span className="text-[10px] text-slate-400 font-normal">Obrigatório</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={estornoMotivo}
+                  onChange={(e) => setEstornoMotivo(e.target.value)}
+                  placeholder="Explique o motivo do estorno (ex: duplicidade de lançamento, cancelamento de contrato, etc.)"
+                  className="w-full p-2.5 bg-white border border-slate-200 rounded-xl outline-none text-xs font-medium text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all resize-none placeholder:text-slate-400"
+                />
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex gap-2.5 justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmEstornarSplit(null);
+                  setEstornoMotivo('');
+                }}
+                disabled={isEstornandoSplit}
+                className="px-4 h-[38px] bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={executeEstornarSplit}
+                disabled={isEstornandoSplit || !estornoMotivo.trim()}
+                className="px-5 h-[38px] bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                {isEstornandoSplit ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Estornando...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw size={14} /> Confirmar Estorno
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Confirmação de Exclusão de Rateio */}
       <ConfirmModal

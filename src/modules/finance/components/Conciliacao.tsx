@@ -440,7 +440,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
 
   const handleConfirmBulkIgnore = async () => {
     if (selectedIds.size === 0) return;
-    const ids = Array.from(selectedIds);
+    const ids: string[] = Array.from(selectedIds);
     setIsBulkIgnoreOpen(false);
 
     const res = await bulkIgnoreTransactions(ids, currentUser.id, currentUser.agencyId);
@@ -455,7 +455,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
 
   const handleConfirmBulkDelete = async () => {
     if (selectedIds.size === 0) return;
-    const ids = Array.from(selectedIds);
+    const ids: string[] = Array.from(selectedIds);
     setIsBulkDeleteOpen(false);
 
     const res = await bulkDeleteTransactions(ids, currentUser.id, currentUser.agencyId);
