@@ -212,33 +212,37 @@ export const supabaseService = {
       return null;
     }
 
+    const cleanExtBrokerId = (sale.external_broker_id && sale.external_broker_id !== 'AGENCY' && sale.external_broker_id.trim() !== '') 
+      ? sale.external_broker_id 
+      : null;
+
     const { data: saleData, error: saleError } = await supabase
       .from('sales')
       .insert({
         agency_id: sale.agencyId,
         sale_date: sale.saleDate,
         property_address: sale.propertyAddress,
-        property_city: sale.propertyCity,
-        property_cep: sale.propertyCep,
-        property_uf: sale.propertyUf,
-        property_type: sale.propertyType,
+        property_city: sale.propertyCity || '',
+        property_cep: sale.propertyCep || '',
+        property_uf: sale.propertyUf || 'GO',
+        property_type: sale.propertyType || 'urbano',
         buyer_name: sale.buyerName,
         seller_name: sale.sellerName,
         vgv: sale.vgv,
         commission_percentage: sale.commissionPercentage,
         total_commission_value: sale.totalCommissionValue,
-        invoice_issued: sale.invoiceIssued,
-        invoice_number: sale.invoiceNumber,
-        notes: sale.notes,
+        invoice_issued: sale.invoiceIssued || false,
+        invoice_number: sale.invoiceNumber || '',
+        notes: sale.notes || '',
         status: sale.status || 'ACTIVE',
-        buyer_cpf: sale.buyer_cpf,
-        buyer_document: sale.buyer_document || sale.buyer_cpf,
-        buyer_type: sale.buyer_type,
-        seller_cpf: sale.seller_cpf,
-        external_broker_id: sale.external_broker_id,
-        external_broker_name: sale.external_broker_name,
-        is_installment: sale.is_installment,
-        installments: sale.installments
+        buyer_cpf: sale.buyer_cpf || null,
+        buyer_document: sale.buyer_document || sale.buyer_cpf || null,
+        buyer_type: sale.buyer_type || 'cpf',
+        seller_cpf: sale.seller_cpf || null,
+        external_broker_id: cleanExtBrokerId,
+        external_broker_name: sale.external_broker_name || null,
+        is_installment: Boolean(sale.is_installment),
+        installments: sale.is_installment ? (sale.installments || null) : null
       })
       .select()
       .single();
@@ -294,38 +298,63 @@ export const supabaseService = {
       return false;
     }
 
+    const cleanExtBrokerId = (sale.external_broker_id && sale.external_broker_id !== 'AGENCY' && sale.external_broker_id.trim() !== '') 
+      ? sale.external_broker_id 
+      : null;
+
+    const vgvNum = typeof sale.vgv === 'number' ? sale.vgv : (Number(sale.vgv) || 0);
+    const commPercNum = typeof sale.commissionPercentage === 'number' ? sale.commissionPercentage : (Number(sale.commissionPercentage) || 0);
+    const totalCommNum = typeof sale.totalCommissionValue === 'number' ? sale.totalCommissionValue : (Number(sale.totalCommissionValue) || 0);
+
+    const updatePayload = {
+      sale_date: sale.saleDate || new Date().toISOString().split('T')[0],
+      property_address: sale.propertyAddress || '',
+      property_city: sale.propertyCity || '',
+      property_cep: sale.propertyCep || '',
+      property_uf: sale.propertyUf || 'GO',
+      property_type: sale.propertyType || 'urbano',
+      buyer_name: sale.buyerName || '',
+      seller_name: sale.sellerName || '',
+      vgv: vgvNum,
+      commission_percentage: commPercNum,
+      total_commission_value: totalCommNum,
+      invoice_issued: sale.invoiceIssued || false,
+      invoice_number: sale.invoiceNumber || '',
+      notes: sale.notes || '',
+      status: sale.status || 'ACTIVE',
+      buyer_cpf: sale.buyer_cpf || null,
+      buyer_document: sale.buyer_document || sale.buyer_cpf || null,
+      buyer_type: sale.buyer_type || 'cpf',
+      seller_cpf: sale.seller_cpf || null,
+      external_broker_id: cleanExtBrokerId,
+      external_broker_name: sale.external_broker_name || null,
+      is_installment: Boolean(sale.is_installment),
+      installments: sale.is_installment ? (sale.installments || null) : null
+    };
+
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[DEBUG_UPDATE_SALE] Payload to update:', {
+        saleId,
+        updatePayload,
+        splitsCount: splits?.length,
+        splits
+      });
+    }
+
     // Update sale main fields
     const { error: saleError } = await supabase
       .from('sales')
-      .update({
-        sale_date: sale.saleDate,
-        property_address: sale.propertyAddress,
-        property_city: sale.propertyCity,
-        property_cep: sale.propertyCep,
-        property_uf: sale.propertyUf,
-        property_type: sale.propertyType,
-        buyer_name: sale.buyerName,
-        seller_name: sale.sellerName,
-        vgv: sale.vgv,
-        commission_percentage: sale.commissionPercentage,
-        total_commission_value: sale.totalCommissionValue,
-        invoice_issued: sale.invoiceIssued,
-        invoice_number: sale.invoiceNumber,
-        notes: sale.notes,
-        status: sale.status,
-        buyer_cpf: sale.buyer_cpf,
-        buyer_document: sale.buyer_document || sale.buyer_cpf,
-        buyer_type: sale.buyer_type,
-        seller_cpf: sale.seller_cpf,
-        external_broker_id: sale.external_broker_id,
-        external_broker_name: sale.external_broker_name,
-        is_installment: sale.is_installment,
-        installments: sale.installments
-      })
+      .update(updatePayload)
       .eq('id', saleId);
 
     if (saleError) {
-      console.error('Error updating sale:', saleError);
+      console.error('[SUPABASE_UPDATE_SALE_ERROR]', {
+        message: saleError.message,
+        details: saleError.details,
+        hint: saleError.hint,
+        code: saleError.code,
+        payloadSent: updatePayload
+      });
       return false;
     }
 
@@ -336,7 +365,12 @@ export const supabaseService = {
       .eq('sale_id', saleId);
 
     if (fetchError) {
-      console.error('Error fetching existing splits during update:', fetchError);
+      console.error('[SUPABASE_FETCH_SPLITS_ERROR] Error fetching existing splits during update:', {
+        message: fetchError.message,
+        details: fetchError.details,
+        hint: fetchError.hint,
+        code: fetchError.code
+      });
       return false;
     }
 
@@ -347,17 +381,20 @@ export const supabaseService = {
     const retainedSplitIds = new Set<string>();
 
     for (const s of splits as any[]) {
+      const calcVal = typeof s.calculatedValue === 'number' ? s.calculatedValue : (Number(s.calculatedValue) || 0);
+      const percVal = typeof s.percentage === 'number' ? s.percentage : (Number(s.percentage) || 0);
+
       const dbData: any = {
         sale_id: saleId,
         broker_id: (s.brokerId === 'AGENCY' || !s.brokerId) ? null : s.brokerId,
         broker_name: s.brokerName,
-        percentage: s.percentage,
-        calculated_value: s.calculatedValue,
+        percentage: percVal,
+        calculated_value: calcVal,
         status: s.status || 'PENDING',
         role: mapUiRoleToDbRole(s.role || ''),
-        forecast_date: s.forecastDate || null,
-        installment_number: s.installment_number ?? 1,
-        total_installments: s.total_installments ?? 1,
+        forecast_date: s.forecastDate || sale.saleDate || null,
+        installment_number: Number(s.installment_number) || 1,
+        total_installments: Number(s.total_installments) || 1,
         payment_date: s.paymentDate || null,
         payment_method: s.paymentMethod || null,
         receipt_data: s.receiptData || null
@@ -372,7 +409,14 @@ export const supabaseService = {
           .eq('id', s.id);
 
         if (updateError) {
-          console.error('Error updating split:', updateError);
+          console.error('[SUPABASE_UPDATE_SPLIT_ERROR]', {
+            message: updateError.message,
+            details: updateError.details,
+            hint: updateError.hint,
+            code: updateError.code,
+            splitId: s.id,
+            dbData
+          });
           return false;
         }
       } else {
@@ -384,7 +428,13 @@ export const supabaseService = {
           .single();
 
         if (insertError) {
-          console.error('Error inserting new split:', insertError);
+          console.error('[SUPABASE_INSERT_SPLIT_ERROR]', {
+            message: insertError.message,
+            details: insertError.details,
+            hint: insertError.hint,
+            code: insertError.code,
+            dbData
+          });
           return false;
         }
         if (insertedSplit?.id) {
@@ -393,14 +443,15 @@ export const supabaseService = {
       }
     }
 
-    // Helper: verificar se o rateio foi pago ou possui histórico de pagamento
+    // Helper: verificar se o rateio foi pago ou possui histórico de pagamento / conciliação
     const isPaidOrHasPayment = (s: any) => {
       return s.status === 'PAID' || 
-             (s.payment_date !== null && s.payment_date !== undefined && s.payment_date !== '');
+             (s.payment_date !== null && s.payment_date !== undefined && s.payment_date !== '') ||
+             Boolean(s.settled_by_transaction_id);
     };
 
     // Deleções reais da UI: deletar APENAS splits que existem no banco MAS NÃO estão no array splits
-    // e que NÃO possuem payment_date preenchido E status != 'PAID'
+    // e que NÃO possuem payment_date preenchido, status != 'PAID' e não estão conciliados
     const splitsToDelete = existingSplits.filter((s: any) => 
       !retainedSplitIds.has(s.id) && !isPaidOrHasPayment(s)
     );
@@ -413,7 +464,13 @@ export const supabaseService = {
         .in('id', deleteIds);
 
       if (deleteError) {
-        console.error('Error deleting removed splits:', deleteError);
+        console.error('[SUPABASE_DELETE_SPLITS_ERROR] Error deleting removed splits:', {
+          message: deleteError.message,
+          details: deleteError.details,
+          hint: deleteError.hint,
+          code: deleteError.code,
+          deleteIds
+        });
         return false;
       }
     }
@@ -656,7 +713,7 @@ export const supabaseService = {
     return true;
   },
 
-  // Registrar pagamento de comissão (cheio ou parcial) com vínculo OBRIGATÓRIO à transação financeira
+  // Registrar pagamento de comissão (cheio ou parcial) com vínculo OPCIONAL à transação financeira
   async payCommissionSplit(params: {
     splitId: string;
     saleId?: string;
@@ -669,7 +726,8 @@ export const supabaseService = {
     remainingForecastDate?: string;
     userEmail?: string;
     agencyId?: string;
-    // Vínculo obrigatório com financial_transaction:
+    skipFinancialLaunch?: boolean; // Se true, apenas concilia o rateio sem criar nem exigir lançamento financeiro
+    // Vínculo opcional com financial_transaction:
     transactionId?: string; // ID de transação financeira existente selecionada
     newTransactionData?: { // Ou dados para criar a nova transação financeira na hora
       accountId?: string;
@@ -713,29 +771,20 @@ export const supabaseService = {
         };
       }
 
-      const isInternalHouseRole = rawRole === 'PARTNER' || rawRole === 'AGENCY' || rawRole === 'SÓCIO' || rawRole === 'SOCIO' || rawRole === 'AGÊNCIA' || rawRole === 'AGENCIA';
       const splitRole = rawRole;
 
-      // 3. Validação de conciliação financeira: Permitida e Obrigatória APENAS para SÓCIO ou AGÊNCIA
+      // 3. Validação de conciliação financeira: Opcional conforme escolha do usuário
       let resolvedTransactionId: string | null = null;
 
-      if (isInternalHouseRole) {
+      if (!params.skipFinancialLaunch) {
         if (params.transactionId && String(params.transactionId).trim() !== '') {
           resolvedTransactionId = String(params.transactionId).trim();
-        } else {
-          if (!params.newTransactionData || !params.newTransactionData.accountId || !params.newTransactionData.categoryId) {
-            return {
-              success: false,
-              isPartial,
-              message: 'Validação de segurança: Para rateios de Sócio ou Agência, é obrigatório vincular uma transação existente ou selecionar conta/categoria para criar o lançamento financeiro.'
-            };
-          }
-
+        } else if (params.newTransactionData && params.newTransactionData.accountId && params.newTransactionData.categoryId) {
           // Criar a nova transação financeira de despesa vinculada
-          const splitBrokerName = currentSplit.broker_name || 'Sócio/Agência';
+          const splitBrokerName = currentSplit.broker_name || 'Comissão / Repasse';
           const defaultDesc = params.newTransactionData.description && params.newTransactionData.description.trim() !== ''
             ? params.newTransactionData.description.trim()
-            : `Repasse ${splitRole === 'PARTNER' ? 'Sócio' : 'Agência'} - ${splitBrokerName} (${params.paymentMethod || 'Repasse'})`;
+            : `Repasse ${splitRole === 'PARTNER' || splitRole === 'SÓCIO' || splitRole === 'SOCIO' ? 'Sócio' : splitRole === 'AGENCY' || splitRole === 'AGÊNCIA' || splitRole === 'AGENCIA' ? 'Agência' : 'Comissão'} - ${splitBrokerName} (${params.paymentMethod || 'Repasse'})`;
 
           const newTxPayload = {
             agency_id: params.agencyId || currentSplit.agency_id,

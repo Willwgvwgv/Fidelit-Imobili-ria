@@ -130,45 +130,71 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       setInvoiceIssued(editingSale.invoiceIssued || false);
       setInvoiceNumber(editingSale.invoiceNumber || '');
       setBuyerName(editingSale.buyerName || '');
-      setBuyerCpf(editingSale.buyer_cpf || '');
+      setBuyerCpf(editingSale.buyer_cpf || editingSale.buyer_document || '');
       sellerSetName(editingSale.sellerName || '');
       setSellerCpf(editingSale.seller_cpf || '');
-      setVgv(editingSale.vgv || 0);
-      if (editingSale.vgv) {
-        setVgvInputStr(editingSale.vgv.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+      
+      const safeVgv = Number(editingSale.vgv) || 0;
+      setVgv(safeVgv);
+      if (safeVgv > 0) {
+        setVgvInputStr(safeVgv.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
       } else {
         setVgvInputStr('');
       }
-      setCommissionPercentage(editingSale.commissionPercentage || 6);
-      setIsInstallment(editingSale.is_installment || false);
+      setCommissionPercentage(Number(editingSale.commissionPercentage) || 6);
       
-      if (editingSale.installments && Array.isArray(editingSale.installments)) {
+      const isSaleInstallment = Boolean(editingSale.is_installment);
+      setIsInstallment(isSaleInstallment);
+      
+      if (isSaleInstallment && editingSale.installments && Array.isArray(editingSale.installments) && editingSale.installments.length > 0) {
         setInstallmentCount(editingSale.installments.length || 1);
         if (editingSale.installments[0]?.due_date) {
           setFirstDueDate(editingSale.installments[0].due_date);
         }
         
-        const mapped = editingSale.installments.map(inst => ({
-          installment_number: inst.installment_number,
-          value: inst.value,
-          valueStr: inst.value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-          due_date: inst.due_date,
-          is_down_payment: inst.installment_number === 1 && editingSale.installments.length > 1
-        }));
+        const mapped = editingSale.installments.map((inst, index) => {
+          const rawVal = typeof inst?.value === 'number' ? inst.value : (Number(inst?.value) || 0);
+          return {
+            installment_number: inst?.installment_number ?? (index + 1),
+            value: rawVal,
+            valueStr: rawVal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            due_date: inst?.due_date || new Date().toISOString().split('T')[0],
+            is_down_payment: (inst?.installment_number === 1 || index === 0) && editingSale.installments.length > 1
+          };
+        });
         setInstallmentsList(mapped);
 
         if (editingSale.installments.length > 1) {
-          const firstVal = editingSale.installments[0].value;
-          const isAllEqual = editingSale.installments.every(inst => Math.abs(inst.value - firstVal) < 0.05);
+          const firstVal = typeof editingSale.installments[0]?.value === 'number' 
+            ? editingSale.installments[0].value 
+            : (Number(editingSale.installments[0]?.value) || 0);
+          const isAllEqual = editingSale.installments.every(inst => {
+            const v = typeof inst?.value === 'number' ? inst.value : (Number(inst?.value) || 0);
+            return Math.abs(v - firstVal) < 0.05;
+          });
           setInstallmentPlanType(isAllEqual ? 'EQUAL' : 'CUSTOM');
           if (!isAllEqual) {
             setHasDownPayment(true);
             setDownPaymentValue(firstVal);
             setDownPaymentInputStr(firstVal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+          } else {
+            setHasDownPayment(false);
+            setDownPaymentValue(0);
+            setDownPaymentInputStr('');
           }
         } else {
           setInstallmentPlanType('EQUAL');
+          setHasDownPayment(false);
+          setDownPaymentValue(0);
+          setDownPaymentInputStr('');
         }
+      } else {
+        setInstallmentsList([]);
+        setInstallmentCount(4);
+        setInstallmentPlanType('EQUAL');
+        setHasDownPayment(false);
+        setDownPaymentValue(0);
+        setDownPaymentInputStr('');
       }
 
       if (editingSale.splits) {
@@ -366,8 +392,8 @@ export const SaleForm: React.FC<SaleFormProps> = ({
   };
 
   // Format currency helper
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+  const formatCurrency = (val?: number | null) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(val) || 0);
   };
 
   // Quick distribution templates
@@ -555,9 +581,12 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       }
     }
 
-    const nonAgencySplit = tempSplits.find(s => s.brokerId !== 'AGENCY');
-    const extBrokerId = nonAgencySplit?.brokerId !== 'AGENCY' ? nonAgencySplit?.brokerId : undefined;
-    const extBrokerName = nonAgencySplit?.brokerName && nonAgencySplit?.brokerName !== 'Agência (Imobiliária)' ? nonAgencySplit?.brokerName : undefined;
+    const nonAgencySplit = tempSplits.find(s => s.brokerId && s.brokerId !== 'AGENCY');
+    const extBrokerId = (nonAgencySplit?.brokerId && nonAgencySplit.brokerId !== 'AGENCY' && nonAgencySplit.brokerId.trim() !== '') ? nonAgencySplit.brokerId : undefined;
+    const extBrokerName = (nonAgencySplit?.brokerName && nonAgencySplit.brokerName !== 'Agência (Imobiliária)') ? nonAgencySplit.brokerName : undefined;
+
+    const rawBuyerCpf = (buyerCpf || '').trim();
+    const cleanBuyerDigits = rawBuyerCpf.replace(/\D/g, '');
 
     const saleData: Omit<Sale, 'id' | 'splits'> = {
       agencyId,
@@ -575,9 +604,13 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       invoiceIssued: invoiceIssued,
       invoiceNumber: invoiceIssued ? invoiceNumber.trim() : '',
       notes,
-      buyer_cpf: buyerCpf,
-      seller_cpf: sellerCpf,
-      external_broker_id: editingSale?.external_broker_id || extBrokerId,
+      buyer_cpf: rawBuyerCpf || undefined,
+      buyer_document: rawBuyerCpf || undefined,
+      buyer_type: cleanBuyerDigits.length > 11 ? 'cnpj' : 'cpf',
+      seller_cpf: (sellerCpf || '').trim() || undefined,
+      external_broker_id: (editingSale?.external_broker_id && editingSale.external_broker_id !== 'AGENCY' && editingSale.external_broker_id.trim() !== '') 
+        ? editingSale.external_broker_id 
+        : extBrokerId,
       external_broker_name: editingSale?.external_broker_name || extBrokerName,
       is_installment: isInstallment,
       installments: isInstallment ? generatedInstallments : null,

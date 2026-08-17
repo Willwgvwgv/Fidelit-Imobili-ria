@@ -10,8 +10,8 @@ export interface AuditLogPayload {
   details?: Record<string, any> | null;
 }
 
-// Regex to test if a string is a standard UUID v4/v1/v5
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Regex to test if a string is a standard UUID
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isValidUUID(str: string | null | undefined): boolean {
   if (!str) return false;
@@ -54,10 +54,10 @@ export async function logAuditEvent(params: AuditLogPayload): Promise<boolean> {
     const dbPayload: Record<string, any> = {
       action,
       entity_type,
-      // Se a coluna for UUID no banco, passa null se não for UUID válido, preservando no details
-      entity_id: entity_id || null,
+      // Se as colunas forem UUID no banco, passa null se não for UUID válido, preservando no details
+      entity_id: isValidUUID(entity_id) ? entity_id : null,
       user_id: isValidUUID(user_id) ? user_id : null,
-      agency_id: isValidUUID(agency_id) ? agency_id : (agency_id || null),
+      agency_id: isValidUUID(agency_id) ? agency_id : null,
       details: enrichedDetails
     };
 

@@ -11,8 +11,8 @@ interface BrokerStatementProps {
   onClose: () => void;
 }
 
-const formatCurrency = (v: number) =>
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+const formatCurrency = (v?: number | null) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0);
 
 const TYPE_CONFIG = {
   COMMISSION: { label: 'Comissão de venda', textClass: 'text-indigo-700 bg-indigo-50 border-indigo-100', sign: 1 },

@@ -95,7 +95,9 @@ const Commissions: React.FC<CommissionsProps> = ({
   const [paymentReceipt, setPaymentReceipt] = useState<string | null>(null);
   const [isSubmittingPayment, setIsSubmittingPayment] = useState<boolean>(false);
 
-  // Estados de conciliação financeira obrigatória no pagamento
+  // Estados de conciliação financeira no pagamento (Opcional - Decisão do usuário)
+  const [isFinancialLaunchPromptOpen, setIsFinancialLaunchPromptOpen] = useState(false);
+  const [financialPromptData, setFinancialPromptData] = useState<any | null>(null);
   const [financeAccounts, setFinanceAccounts] = useState<FinancialAccount[]>([]);
   const [financeCategories, setFinanceCategories] = useState<FinancialCategory[]>([]);
   const [reconciliationMode, setReconciliationMode] = useState<'create' | 'link'>('create');
@@ -400,8 +402,8 @@ const Commissions: React.FC<CommissionsProps> = ({
     });
   }, [groupedCommissions, statusFilter, searchTerm, brokerFilter, period, startDate, endDate]);
 
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+  const formatCurrency = (val?: number | null) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(val) || 0);
   };
 
   const renderStatusBadge = (comm: any) => {
@@ -681,18 +683,46 @@ const Commissions: React.FC<CommissionsProps> = ({
       return;
     }
 
-    const isInternalHousePayment = paymentRoleStr === 'PARTNER' || paymentRoleStr === 'AGENCY' || paymentRoleStr === 'SÓCIO' || paymentRoleStr === 'SOCIO' || paymentRoleStr === 'AGÊNCIA' || paymentRoleStr === 'AGENCIA';
+    // Fechar o modal de dados do pagamento e abrir o modal de decisão financeira
+    setIsPaymentModalOpen(false);
+    setFinancialPromptData({
+      payment: selectedPayment,
+      numAmount,
+      totalVal,
+      paymentDate,
+      paymentMethod,
+      paymentNotes,
+      paymentReceipt,
+      isPartial,
+      remainingForecastDate
+    });
+    setIsFinancialLaunchPromptOpen(true);
+  };
 
-    // Validação obrigatória da etapa de conciliação financeira APENAS para SÓCIO ou AGÊNCIA
-    if (isInternalHousePayment) {
+  const handleExecutePaymentWithFinancialChoice = async (launchInFinance: boolean) => {
+    if (!financialPromptData) return;
+
+    const {
+      payment,
+      numAmount,
+      totalVal,
+      paymentDate: pDate,
+      paymentMethod: pMethod,
+      paymentNotes: pNotes,
+      paymentReceipt: pReceipt,
+      isPartial,
+      remainingForecastDate: remDate
+    } = financialPromptData;
+
+    // Se o usuário optou por lançar no financeiro, validar os campos necessários se selecionou modo criar ou vincular
+    if (launchInFinance) {
       if (reconciliationMode === 'link' && !selectedCandidateTxId) {
-        triggerToast("Por favor, selecione uma transação financeira existente para vincular ou mude para 'Criar novo lançamento'.", "warning");
+        triggerToast("Por favor, selecione uma transação existente no extrato ou escolha a opção de Criar Lançamento.", "warning");
         return;
       }
-
       if (reconciliationMode === 'create') {
         if (!newTxAccountId) {
-          triggerToast("Por favor, selecione a conta bancária para o lançamento da despesa.", "warning");
+          triggerToast("Por favor, selecione a conta bancária para o lançamento financeiro.", "warning");
           return;
         }
         if (!newTxCategoryId) {
@@ -704,29 +734,30 @@ const Commissions: React.FC<CommissionsProps> = ({
 
     setIsSubmittingPayment(true);
     try {
-      if (selectedPayment.id) {
+      if (payment.id) {
         const paymentPayload: any = {
-          splitId: selectedPayment.id,
-          saleId: selectedPayment.saleId,
+          splitId: payment.id,
+          saleId: payment.saleId,
           paidAmount: numAmount,
           fullAmount: totalVal,
-          paymentDate: paymentDate,
-          paymentMethod: paymentMethod,
-          notes: paymentNotes || undefined,
-          receiptData: paymentReceipt || undefined,
-          remainingForecastDate: isPartial ? remainingForecastDate : undefined,
+          paymentDate: pDate,
+          paymentMethod: pMethod,
+          notes: pNotes || undefined,
+          receiptData: pReceipt || undefined,
+          remainingForecastDate: isPartial ? remDate : undefined,
           userEmail: currentUser?.email,
-          agencyId: currentUser?.agencyId
+          agencyId: currentUser?.agencyId,
+          skipFinancialLaunch: !launchInFinance
         };
 
-        if (isInternalHousePayment) {
+        if (launchInFinance) {
           if (reconciliationMode === 'link' && selectedCandidateTxId) {
             paymentPayload.transactionId = selectedCandidateTxId;
           } else {
             paymentPayload.newTransactionData = {
               accountId: newTxAccountId,
               categoryId: newTxCategoryId,
-              description: newTxDescription || `Repasse ${selectedPayment.role || 'Sócio/Agência'} - ${selectedPayment.brokerName || ''}`
+              description: newTxDescription || `Repasse ${payment.role || 'Comissão'} - ${payment.brokerName || ''}`
             };
           }
         }
@@ -734,25 +765,29 @@ const Commissions: React.FC<CommissionsProps> = ({
         const result = await supabaseService.payCommissionSplit(paymentPayload);
 
         if (result.success) {
-          const currentPaidSplit = selectedPayment;
-          setIsPaymentModalOpen(false);
+          const currentPaidSplit = payment;
+          setIsFinancialLaunchPromptOpen(false);
+          setFinancialPromptData(null);
           setSelectedPayment(null);
           setPaymentReceipt(null);
 
           const remainingVal = Math.max(0, totalVal - numAmount);
           if (result.isPartial) {
             triggerToast(
-              `Pagamento parcial de ${formatCurrency(numAmount)} conciliado e registrado! Saldo restante de ${formatCurrency(remainingVal)} agendado com sucesso.`,
+              `Pagamento parcial de ${formatCurrency(numAmount)} ${launchInFinance ? 'conciliado e lançado no Financeiro' : 'conciliado com sucesso'}! Saldo de ${formatCurrency(remainingVal)} agendado.`,
               "success"
             );
           } else {
-            triggerToast(`Pagamento total de ${formatCurrency(numAmount)} conciliado e registrado com sucesso!`, "success");
+            triggerToast(
+              `Pagamento total de ${formatCurrency(numAmount)} ${launchInFinance ? 'conciliado e lançado no Financeiro' : 'conciliado com sucesso'}!`,
+              "success"
+            );
           }
 
           if (onRefresh) {
             onRefresh();
           } else if (onUpdateStatus) {
-            onUpdateStatus(currentPaidSplit.saleId, currentPaidSplit.brokerId, CommissionStatus.PAID, paymentReceipt || undefined, paymentDate);
+            onUpdateStatus(currentPaidSplit.saleId, currentPaidSplit.brokerId, CommissionStatus.PAID, pReceipt || undefined, pDate);
           }
 
           // Verificar se existem outras comissões em aberto relacionadas ao mesmo negócio/imóvel/contrato
@@ -788,8 +823,9 @@ const Commissions: React.FC<CommissionsProps> = ({
         }
       } else {
         // Fallback caso não tenha split.id no momento
-        onUpdateStatus(selectedPayment.saleId, selectedPayment.brokerId, CommissionStatus.PAID, paymentReceipt || undefined, paymentDate);
-        setIsPaymentModalOpen(false);
+        onUpdateStatus(payment.saleId, payment.brokerId, CommissionStatus.PAID, pReceipt || undefined, pDate);
+        setIsFinancialLaunchPromptOpen(false);
+        setFinancialPromptData(null);
         setSelectedPayment(null);
         setPaymentReceipt(null);
         triggerToast("Pagamento registrado com sucesso!", "success");
@@ -2121,140 +2157,6 @@ const Commissions: React.FC<CommissionsProps> = ({
                   </select>
                 </div>
 
-                {/* Bloco de Conciliação Financeira (Apenas para SÓCIO ou AGÊNCIA) */}
-                {(() => {
-                  const pRole = selectedPayment?.role ? String(selectedPayment.role).toUpperCase() : 'BROKER';
-                  const isInternal = pRole === 'PARTNER' || pRole === 'AGENCY' || pRole === 'SÓCIO' || pRole === 'SOCIO' || pRole === 'AGÊNCIA' || pRole === 'AGENCIA';
-                  if (!isInternal) return null;
-
-                  return (
-                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
-                          <Building2 size={15} className="text-indigo-600" /> Conciliação Financeira *
-                        </div>
-                        <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-200 text-[11px] font-bold">
-                          <button
-                            type="button"
-                            onClick={() => setReconciliationMode('create')}
-                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
-                              reconciliationMode === 'create'
-                                ? 'bg-indigo-600 text-white shadow-xs'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            <PlusCircle size={12} /> Criar Lançamento
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setReconciliationMode('link')}
-                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
-                              reconciliationMode === 'link'
-                                ? 'bg-indigo-600 text-white shadow-xs'
-                                : 'text-slate-600 hover:text-slate-900'
-                            }`}
-                          >
-                            <Link2 size={12} /> Vincular Existente
-                          </button>
-                        </div>
-                      </div>
-
-                      {reconciliationMode === 'create' ? (
-                        <div className="space-y-2.5 animate-in fade-in duration-150">
-                          <p className="text-[11px] text-slate-500 leading-tight">
-                            Cria automaticamente uma despesa de comissão no módulo financeiro vinculada a este rateio interno de sócio/agência.
-                          </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
-                                Conta Bancária *
-                              </label>
-                              <select
-                                value={newTxAccountId}
-                                onChange={(e) => setNewTxAccountId(e.target.value)}
-                                className="w-full px-2.5 h-[34px] bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-indigo-500"
-                              >
-                                <option value="">Selecione uma conta...</option>
-                                {financeAccounts.map((acc) => (
-                                  <option key={acc.id} value={acc.id}>
-                                    {acc.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div>
-                              <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
-                                Categoria da Despesa *
-                              </label>
-                              <select
-                                value={newTxCategoryId}
-                                onChange={(e) => setNewTxCategoryId(e.target.value)}
-                                className="w-full px-2.5 h-[34px] bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-indigo-500"
-                              >
-                                <option value="">Selecione uma categoria...</option>
-                                {financeCategories
-                                  .filter((c) => c.type === 'EXPENSE')
-                                  .map((cat) => (
-                                    <option key={cat.id} value={cat.id}>
-                                      {cat.name}
-                                    </option>
-                                  ))}
-                              </select>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-2 animate-in fade-in duration-150">
-                          <p className="text-[11px] text-slate-500 leading-tight">
-                            Selecione a transação bancária/despesa já lançada no extrato para vincular e quitar este rateio interno.
-                          </p>
-                          {isLoadingCandidates ? (
-                            <div className="p-3 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-                              <Loader2 size={14} className="animate-spin text-indigo-600" /> Buscando transações...
-                            </div>
-                          ) : candidateTransactions.length > 0 ? (
-                            <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                              {candidateTransactions.map((tx) => (
-                                <label
-                                  key={tx.id}
-                                  className={`p-2 rounded-lg border text-xs flex items-center justify-between cursor-pointer transition-all ${
-                                    selectedCandidateTxId === tx.id
-                                      ? 'bg-indigo-50/80 border-indigo-300 text-indigo-950 font-semibold shadow-2xs'
-                                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <input
-                                      type="radio"
-                                      name="candidate_tx"
-                                      checked={selectedCandidateTxId === tx.id}
-                                      onChange={() => setSelectedCandidateTxId(tx.id)}
-                                      className="text-indigo-600 focus:ring-indigo-500"
-                                    />
-                                    <div className="truncate">
-                                      <p className="truncate font-medium">{tx.description}</p>
-                                      <p className="text-[10px] text-slate-400">
-                                        Vencimento: {new Date(tx.due_date + 'T12:00:00').toLocaleDateString('pt-BR')}
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <span className="font-bold text-red-600 shrink-0 ml-2">
-                                    -{formatCurrency(tx.amount)}
-                                  </span>
-                                </label>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-800">
-                              Nenhum lançamento similar encontrado no extrato para este valor/período. Recomendamos selecionar <strong>Criar Lançamento</strong>.
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-
                 {/* Comprovante / Anotação PIX */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-gray-600 uppercase flex items-center gap-1">
@@ -2317,13 +2219,243 @@ const Commissions: React.FC<CommissionsProps> = ({
                   disabled={isSubmittingPayment}
                   className="flex-1 h-[40px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-all text-sm flex items-center justify-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
                 >
+                  Continuar <ArrowRight size={16} />
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal de Decisão de Lançamento Financeiro (Independente e Opcional) */}
+      {isFinancialLaunchPromptOpen && financialPromptData && (() => {
+        const hasExistingTransaction = !!financialPromptData.payment?.settled_by_transaction_id;
+
+        return (
+          <div className="fixed inset-0 z-[105] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+            <div className="relative bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+              {/* Header */}
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-slate-50/80 shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <Building2 size={20} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-base leading-tight">Lançamento no Financeiro</h3>
+                    <p className="text-xs text-gray-500 font-medium">Decida se deseja registrar este pagamento no Financeiro</p>
+                  </div>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => {
+                    setIsFinancialLaunchPromptOpen(false);
+                    setFinancialPromptData(null);
+                  }}
+                  disabled={isSubmittingPayment}
+                  className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 space-y-4 overflow-y-auto">
+                {/* Resumo da Comissão a ser Paga */}
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500 font-medium">Beneficiário:</span>
+                    <span className="font-bold text-slate-800">{financialPromptData.payment?.brokerName} ({financialPromptData.payment?.role || 'Comissão'})</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500 font-medium">Valor a Quitar:</span>
+                    <span className="font-bold text-emerald-600 text-sm">{formatCurrency(financialPromptData.numAmount)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500 font-medium">Data do Pagamento:</span>
+                    <span className="font-semibold text-slate-700">{new Date(financialPromptData.paymentDate + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+                  </div>
+                </div>
+
+                {hasExistingTransaction ? (
+                  /* Mensagem quando já possui lançamento vinculado */
+                  <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold text-blue-800">
+                      <CheckCircle2 size={15} /> Este pagamento já possui um lançamento no Financeiro
+                    </div>
+                    <p className="text-[11px] text-blue-700 leading-relaxed">
+                      A transação financeira vinculada será mantida. Ao confirmar, o status da comissão será atualizado normalmente.
+                    </p>
+                  </div>
+                ) : (
+                  /* Pergunta e Configuração de Lançamento */
+                  <div className="space-y-3">
+                    <div className="p-3.5 bg-amber-50/60 border border-amber-200/80 rounded-xl">
+                      <p className="text-xs font-bold text-amber-900 leading-snug">
+                        Deseja lançar este pagamento também no Financeiro?
+                      </p>
+                      <p className="text-[11px] text-amber-800 mt-1 leading-relaxed">
+                        A comissão pode ser conciliada independentemente. Você tem total liberdade para escolher se deseja criar/vincular uma transação financeira agora ou apenas conciliar a comissão.
+                      </p>
+                    </div>
+
+                    {/* Bloco de Configuração Financeira (se optar por lançar) */}
+                    <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                          <Building2 size={15} className="text-indigo-600" /> Detalhes do Lançamento
+                        </div>
+                        <div className="flex items-center bg-white p-0.5 rounded-lg border border-slate-200 text-[11px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setReconciliationMode('create')}
+                            className={`px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                              reconciliationMode === 'create'
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            <PlusCircle size={12} /> Criar Novo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReconciliationMode('link')}
+                            className={`px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1 ${
+                              reconciliationMode === 'link'
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            <Link2 size={12} /> Vincular Existente
+                          </button>
+                        </div>
+                      </div>
+
+                      {reconciliationMode === 'create' ? (
+                        <div className="space-y-2.5 animate-in fade-in duration-150">
+                          <p className="text-[11px] text-slate-500 leading-tight">
+                            Será criada uma despesa no módulo financeiro vinculada a este pagamento.
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                                Conta Bancária *
+                              </label>
+                              <select
+                                value={newTxAccountId}
+                                onChange={(e) => setNewTxAccountId(e.target.value)}
+                                className="w-full px-2.5 h-[34px] bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-indigo-500"
+                              >
+                                <option value="">Selecione uma conta...</option>
+                                {financeAccounts.map((acc) => (
+                                  <option key={acc.id} value={acc.id}>
+                                    {acc.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                                Categoria *
+                              </label>
+                              <select
+                                value={newTxCategoryId}
+                                onChange={(e) => setNewTxCategoryId(e.target.value)}
+                                className="w-full px-2.5 h-[34px] bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-800 outline-none focus:border-indigo-500"
+                              >
+                                <option value="">Selecione uma categoria...</option>
+                                {financeCategories
+                                  .filter((c) => c.type === 'EXPENSE')
+                                  .map((cat) => (
+                                    <option key={cat.id} value={cat.id}>
+                                      {cat.name}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 animate-in fade-in duration-150">
+                          <p className="text-[11px] text-slate-500 leading-tight">
+                            Selecione uma transação de despesa do extrato para vincular.
+                          </p>
+                          {isLoadingCandidates ? (
+                            <div className="p-3 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                              <Loader2 size={14} className="animate-spin text-indigo-600" /> Buscando transações...
+                            </div>
+                          ) : candidateTransactions.length > 0 ? (
+                            <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                              {candidateTransactions.map((tx) => (
+                                <label
+                                  key={tx.id}
+                                  className={`p-2 rounded-lg border text-xs flex items-center justify-between cursor-pointer transition-all ${
+                                    selectedCandidateTxId === tx.id
+                                      ? 'bg-indigo-50/80 border-indigo-300 text-indigo-950 font-semibold shadow-2xs'
+                                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <input
+                                      type="radio"
+                                      name="candidate_tx"
+                                      checked={selectedCandidateTxId === tx.id}
+                                      onChange={() => setSelectedCandidateTxId(tx.id)}
+                                      className="text-indigo-600 focus:ring-indigo-500"
+                                    />
+                                    <div className="truncate">
+                                      <p className="truncate font-medium">{tx.description}</p>
+                                      <p className="text-[10px] text-slate-400">
+                                        Vencimento: {new Date(tx.due_date + 'T12:00:00').toLocaleDateString('pt-BR')}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="font-bold text-red-600 shrink-0 ml-2">
+                                    -{formatCurrency(tx.amount)}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-800">
+                              Nenhuma transação similar encontrada no extrato para este valor.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer com botões de decisão */}
+              <div className="p-4 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleExecutePaymentWithFinancialChoice(false)}
+                  disabled={isSubmittingPayment}
+                  className="flex-1 h-[42px] bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold rounded-xl transition-all text-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-2xs"
+                  title="Conclui o pagamento da comissão sem criar lançamento financeiro"
+                >
                   {isSubmittingPayment ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" /> Processando...
-                    </>
+                    <Loader2 size={15} className="animate-spin" />
                   ) : (
                     <>
-                      <Check size={16} /> Confirmar Pagamento
+                      <CheckCircle2 size={15} className="text-slate-500" /> Somente conciliar
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExecutePaymentWithFinancialChoice(true)}
+                  disabled={isSubmittingPayment}
+                  className="flex-1 h-[42px] bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+                  title="Conclui o pagamento da comissão e registra o lançamento no módulo Financeiro"
+                >
+                  {isSubmittingPayment ? (
+                    <Loader2 size={15} className="animate-spin" />
+                  ) : (
+                    <>
+                      <Building2 size={15} /> Lançar no Financeiro
                     </>
                   )}
                 </button>
@@ -2607,7 +2739,7 @@ const Commissions: React.FC<CommissionsProps> = ({
                             {split.brokerName || 'Corretor'}
                           </span>
                           <span className="font-bold text-slate-900 shrink-0">
-                            R$ {split.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            R$ {(split.value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                         <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1">

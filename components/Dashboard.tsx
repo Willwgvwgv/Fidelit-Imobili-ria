@@ -223,8 +223,8 @@ const Dashboard: React.FC<DashboardProps> = ({ sales, team, currentUser }) => {
     };
   }, [filteredSales]);
 
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+  const formatCurrency = (val?: number | null) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(val) || 0);
   };
 
   const chartData = useMemo(() => {

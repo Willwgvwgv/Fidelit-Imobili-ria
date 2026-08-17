@@ -69,8 +69,8 @@ export const formatBRL = (value: string | number | undefined | null): string => 
 /**
  * Standard utility to format number to currency display (e.g., R$ 1.500,50).
  */
-export const formatCurrency = (val: number): string => {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+export const formatCurrency = (val?: number | null): string => {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(val) || 0);
 };
 
 /**

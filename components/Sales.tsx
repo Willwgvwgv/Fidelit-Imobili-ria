@@ -188,8 +188,8 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
     role: SplitRole.BROKER
   });
 
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+  const formatCurrency = (val?: number | null) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(val) || 0);
   };
 
   const handleAddSplit = () => {
@@ -1013,7 +1013,7 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
                             <span className="text-[10px] text-slate-400">{split.role || ''}</span>
                           </div>
                           <span className="font-semibold text-slate-800">
-                            {split.totalValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            {(split.totalValue || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </span>
                         </div>
                       ))}

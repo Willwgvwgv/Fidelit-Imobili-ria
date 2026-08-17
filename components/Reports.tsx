@@ -41,8 +41,8 @@ const Reports: React.FC<ReportsProps> = ({ sales, team, currentUser }) => {
   const [selectedBroker, setSelectedBroker] = useState<string>('all');
   const isAdmin = currentUser.role === UserRole.ADMIN;
 
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+  const formatCurrency = (val?: number | null) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(val) || 0);
   };
 
   // 1. Filtragem de dados para o relatório
