@@ -384,21 +384,36 @@ export const supabaseService = {
       const calcVal = typeof s.calculatedValue === 'number' ? s.calculatedValue : (Number(s.calculatedValue) || 0);
       const percVal = typeof s.percentage === 'number' ? s.percentage : (Number(s.percentage) || 0);
 
+      // Check if this split is an existing record in DB that has already been paid
+      const existingMatchingSplit = s.id ? existingSplits.find((es: any) => es.id === s.id) : null;
+      const isAlreadyPaid = existingMatchingSplit && (
+        existingMatchingSplit.status === 'PAID' ||
+        (existingMatchingSplit.payment_date !== null && existingMatchingSplit.payment_date !== undefined && existingMatchingSplit.payment_date !== '') ||
+        Boolean(existingMatchingSplit.settled_by_transaction_id)
+      );
+
       const dbData: any = {
         sale_id: saleId,
         broker_id: (s.brokerId === 'AGENCY' || !s.brokerId) ? null : s.brokerId,
         broker_name: s.brokerName,
         percentage: percVal,
-        calculated_value: calcVal,
-        status: s.status || 'PENDING',
+        calculated_value: isAlreadyPaid && existingMatchingSplit?.calculated_value ? existingMatchingSplit.calculated_value : calcVal,
+        status: isAlreadyPaid ? 'PAID' : (s.status || 'PENDING'),
         role: mapUiRoleToDbRole(s.role || ''),
         forecast_date: s.forecastDate || sale.saleDate || null,
         installment_number: Number(s.installment_number) || 1,
         total_installments: Number(s.total_installments) || 1,
-        payment_date: s.paymentDate || null,
-        payment_method: s.paymentMethod || null,
-        receipt_data: s.receiptData || null
+        payment_date: isAlreadyPaid ? existingMatchingSplit.payment_date : (s.paymentDate || null),
+        payment_method: isAlreadyPaid ? existingMatchingSplit.payment_method : (s.paymentMethod || null),
+        receipt_data: isAlreadyPaid ? existingMatchingSplit.receipt_data : (s.receiptData || null)
       };
+
+      if (isAlreadyPaid && existingMatchingSplit.settled_by_transaction_id) {
+        dbData.settled_by_transaction_id = existingMatchingSplit.settled_by_transaction_id;
+      }
+      if (isAlreadyPaid && existingMatchingSplit.settled_at) {
+        dbData.settled_at = existingMatchingSplit.settled_at;
+      }
 
       if (s.id && existingIds.has(s.id)) {
         // Se tem ID válido e existe no banco com mesmo ID -> UPDATE

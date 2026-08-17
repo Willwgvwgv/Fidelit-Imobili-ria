@@ -13,7 +13,10 @@ import {
   CheckCircle2, 
   CreditCard, 
   GitBranch,
-  X
+  X,
+  Lock,
+  ShieldAlert,
+  AlertTriangle
 } from 'lucide-react';
 import { Sale, BrokerSplit, CommissionStatus, SplitRole, User, UserRole } from '../types';
 
@@ -40,6 +43,8 @@ interface InstallmentItem {
   valueStr: string;
   due_date: string;
   is_down_payment?: boolean;
+  status?: string;
+  isPaid?: boolean;
 }
 
 // Robust Brazilian Real format to float number converter
@@ -117,6 +122,13 @@ export const SaleForm: React.FC<SaleFormProps> = ({
   const [tempSplits, setTempSplits] = useState<TempSplit[]>([]);
   const [splitMode, setSplitMode] = useState<'commission' | 'vgv'>('commission');
 
+  // SAFE EDITING STATES: Tracking existing financial history
+  const [hasFinancialMovement, setHasFinancialMovement] = useState<boolean>(false);
+  const [paidSplitsList, setPaidSplitsList] = useState<BrokerSplit[]>([]);
+  const [paidInstallmentNumbers, setPaidInstallmentNumbers] = useState<number[]>([]);
+  const [showStructureChangeModal, setShowStructureChangeModal] = useState<boolean>(false);
+  const [pendingSubmitMode, setPendingSubmitMode] = useState<'save' | 'draft' | null>(null);
+
   // Load editing sale if any
   useEffect(() => {
     if (editingSale) {
@@ -142,6 +154,20 @@ export const SaleForm: React.FC<SaleFormProps> = ({
         setVgvInputStr('');
       }
       setCommissionPercentage(Number(editingSale.commissionPercentage) || 6);
+
+      // Financial history detection
+      const existingSplits = editingSale.splits || [];
+      const paidSplits = existingSplits.filter(s => 
+        s.status === CommissionStatus.PAID || 
+        (s.paymentDate !== null && s.paymentDate !== undefined && s.paymentDate !== '') ||
+        Boolean(s.settled_by_transaction_id)
+      );
+      const paidInstNumbers = Array.from(new Set(paidSplits.map(s => Number(s.installment_number) || 1)));
+      
+      const hasMovement = paidSplits.length > 0;
+      setHasFinancialMovement(hasMovement);
+      setPaidSplitsList(paidSplits);
+      setPaidInstallmentNumbers(paidInstNumbers);
       
       const isSaleInstallment = Boolean(editingSale.is_installment);
       setIsInstallment(isSaleInstallment);
@@ -154,12 +180,16 @@ export const SaleForm: React.FC<SaleFormProps> = ({
         
         const mapped = editingSale.installments.map((inst, index) => {
           const rawVal = typeof inst?.value === 'number' ? inst.value : (Number(inst?.value) || 0);
+          const instNum = inst?.installment_number ?? (index + 1);
+          const isPaidInst = paidInstNumbers.includes(instNum) || inst?.status === 'PAID';
           return {
-            installment_number: inst?.installment_number ?? (index + 1),
+            installment_number: instNum,
             value: rawVal,
             valueStr: rawVal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
             due_date: inst?.due_date || new Date().toISOString().split('T')[0],
-            is_down_payment: (inst?.installment_number === 1 || index === 0) && editingSale.installments.length > 1
+            is_down_payment: (inst?.installment_number === 1 || index === 0) && editingSale.installments.length > 1,
+            status: isPaidInst ? 'PAID' : (inst?.status || 'PENDING'),
+            isPaid: isPaidInst
           };
         });
         setInstallmentsList(mapped);
@@ -218,6 +248,9 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       }
       setHasLoadedEditingSale(true);
     } else {
+      setHasFinancialMovement(false);
+      setPaidSplitsList([]);
+      setPaidInstallmentNumbers([]);
       setTempSplits([
         {
           brokerId: 'AGENCY',
@@ -257,12 +290,15 @@ export const SaleForm: React.FC<SaleFormProps> = ({
     if (hasDown) {
       // 1st item is down payment
       const actualDown = Math.min(downVal, total);
+      const isPaid1 = paidInstallmentNumbers.includes(1);
       list.push({
         installment_number: 1,
         value: actualDown,
         valueStr: actualDown.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
         due_date: startDate,
-        is_down_payment: true
+        is_down_payment: true,
+        status: isPaid1 ? 'PAID' : 'PENDING',
+        isPaid: isPaid1
       });
 
       const remainingVal = Math.max(0, total - actualDown);
@@ -276,33 +312,69 @@ export const SaleForm: React.FC<SaleFormProps> = ({
           installmentDate.setMonth(d.getMonth() + (i - 1));
           
           const val = i === 2 ? Math.round((baseValue + remainder) * 100) / 100 : baseValue;
+          const isPaidI = paidInstallmentNumbers.includes(i);
           
           list.push({
             installment_number: i,
             value: val,
             valueStr: val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
             due_date: installmentDate.toISOString().split('T')[0],
-            is_down_payment: false
+            is_down_payment: false,
+            status: isPaidI ? 'PAID' : 'PENDING',
+            isPaid: isPaidI
           });
         }
       }
     } else {
-      // Split equally
+      // If there are paid installments, recalculate remaining balance across pending installments
+      const paidSum = editingSale?.installments && Array.isArray(editingSale.installments)
+        ? editingSale.installments
+            .filter((inst: any) => paidInstallmentNumbers.includes(inst?.installment_number))
+            .reduce((sum: number, inst: any) => sum + (Number(inst?.value) || 0), 0)
+        : 0;
+
+      const hasAnyPaid = paidInstallmentNumbers.length > 0;
+      const pendingCount = Math.max(1, count - paidInstallmentNumbers.length);
+      const remainingForPending = Math.max(0, total - paidSum);
+
       const baseValue = Math.floor((total / count) * 100) / 100;
       let remainder = Math.round((total - baseValue * count) * 100) / 100;
+
+      const pendingBaseVal = Math.floor((remainingForPending / pendingCount) * 100) / 100;
+      let pendingRemainder = Math.round((remainingForPending - pendingBaseVal * pendingCount) * 100) / 100;
+
+      let firstPendingAdjusted = false;
 
       for (let i = 1; i <= count; i++) {
         const installmentDate = new Date(d);
         installmentDate.setMonth(d.getMonth() + (i - 1));
 
-        const val = i === 1 ? Math.round((baseValue + remainder) * 100) / 100 : baseValue;
+        const isPaidI = paidInstallmentNumbers.includes(i);
+
+        let val = 0;
+        if (isPaidI) {
+          // Keep historical paid value from original sale if exists
+          const orig = editingSale?.installments?.find((it: any) => it.installment_number === i);
+          val = orig ? (Number(orig.value) || 0) : baseValue;
+        } else if (hasAnyPaid) {
+          if (!firstPendingAdjusted) {
+            val = Math.round((pendingBaseVal + pendingRemainder) * 100) / 100;
+            firstPendingAdjusted = true;
+          } else {
+            val = pendingBaseVal;
+          }
+        } else {
+          val = i === 1 ? Math.round((baseValue + remainder) * 100) / 100 : baseValue;
+        }
 
         list.push({
           installment_number: i,
           value: val,
           valueStr: val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
           due_date: installmentDate.toISOString().split('T')[0],
-          is_down_payment: false
+          is_down_payment: false,
+          status: isPaidI ? 'PAID' : 'PENDING',
+          isPaid: isPaidI
         });
       }
     }
@@ -445,10 +517,33 @@ export const SaleForm: React.FC<SaleFormProps> = ({
   };
 
   const handleRemoveSplit = (index: number) => {
+    const splitToRemove = tempSplits[index];
+    if (splitToRemove && hasFinancialMovement) {
+      const isPaid = paidSplitsList.some(ps => 
+        (splitToRemove.id && ps.id === splitToRemove.id) ||
+        (ps.brokerId === splitToRemove.brokerId && ps.brokerName === splitToRemove.brokerName)
+      );
+      if (isPaid) {
+        alert('Este beneficiário possui comissões ou repasses já pagos/conciliados nesta venda. Por segurança contábil, não é possível excluí-lo.');
+        return;
+      }
+    }
     setTempSplits(tempSplits.filter((_, i) => i !== index));
   };
 
   const handleUpdateSplit = (index: number, fields: Partial<TempSplit>) => {
+    const current = tempSplits[index];
+    if (current && hasFinancialMovement && fields.brokerId !== undefined && fields.brokerId !== current.brokerId) {
+      const isPaid = paidSplitsList.some(ps => 
+        (current.id && ps.id === current.id) ||
+        (ps.brokerId === current.brokerId && ps.brokerName === current.brokerName)
+      );
+      if (isPaid) {
+        alert('Este rateio possui pagamentos já liquidados para este beneficiário. Não é permitido alterar o corretor de um registro já pago.');
+        return;
+      }
+    }
+
     const updated = [...tempSplits];
     
     if (fields.brokerId !== undefined) {
@@ -566,17 +661,29 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       return;
     }
 
+    // SAFE EDITING CHECK: If switching from installment to non-installment while having paid installments
+    if (editingSale?.is_installment && !isInstallment && hasFinancialMovement) {
+      setPendingSubmitMode(isDraft ? 'draft' : 'save');
+      setShowStructureChangeModal(true);
+      return;
+    }
+
+    executeSave(isDraft);
+  };
+
+  const executeSave = (isDraft = false) => {
     // Generate installments array if installment mode is true
     const generatedInstallments = [];
     if (isInstallment && installmentsList.length > 0) {
       for (let i = 0; i < installmentsList.length; i++) {
         const inst = installmentsList[i];
+        const isPaidInst = paidInstallmentNumbers.includes(inst.installment_number) || inst.status === 'PAID';
         generatedInstallments.push({
           installment_number: inst.installment_number,
           percentage: totalCommission > 0 ? Math.round(((inst.value / totalCommission) * 100 + Number.EPSILON) * 100) / 100 : 0,
           value: inst.value,
           due_date: inst.due_date,
-          status: (inst as any).status || 'PENDING'
+          status: isPaidInst ? 'PAID' : (inst.status || 'PENDING')
         });
       }
     }
@@ -617,41 +724,82 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       status: isDraft ? 'DRAFT' : (editingSale?.status || 'ACTIVE')
     };
 
-    // Construct final splits with calculated values and preserved IDs
+    // Construct final splits with calculated values, matching existing DB splits to preserve IDs and historical payments
     let finalSplits: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[] = [];
+    const origSplits = editingSale?.splits || [];
 
     if (isInstallment && installmentsList.length > 0) {
       installmentsList.forEach(parcela => {
         tempSplits.forEach(s => {
-          const calculatedValue = Math.round(((parcela.value * s.percentage) / 100 + Number.EPSILON) * 100) / 100;
+          // Find original matching split for this broker and installment to preserve ID and paid history
+          const matchingOrig = origSplits.find(os => 
+            (s.id && os.id === s.id && (Number(os.installment_number) || 1) === parcela.installment_number) ||
+            ((os.brokerId === s.brokerId || (!os.brokerId && s.brokerId === 'AGENCY')) && 
+             (Number(os.installment_number) || 1) === parcela.installment_number)
+          );
+
+          const isAlreadyPaid = matchingOrig && (
+            matchingOrig.status === CommissionStatus.PAID ||
+            (matchingOrig.paymentDate !== null && matchingOrig.paymentDate !== undefined && matchingOrig.paymentDate !== '') ||
+            Boolean(matchingOrig.settled_by_transaction_id)
+          );
+
+          const calculatedValue = isAlreadyPaid && matchingOrig.calculatedValue
+            ? matchingOrig.calculatedValue
+            : Math.round(((parcela.value * s.percentage) / 100 + Number.EPSILON) * 100) / 100;
+
           finalSplits.push({
-            id: s.id,
+            id: matchingOrig?.id || (installmentsList.length === 1 ? s.id : undefined),
             brokerId: s.brokerId,
             brokerName: s.brokerName,
             percentage: s.percentage,
             calculatedValue,
-            status: CommissionStatus.PENDING,
+            status: isAlreadyPaid ? CommissionStatus.PAID : (matchingOrig?.status || CommissionStatus.PENDING),
             role: s.role,
-            forecastDate: parcela.due_date,
+            forecastDate: matchingOrig?.forecastDate || parcela.due_date,
             installment_number: parcela.installment_number,
-            total_installments: installmentCount
+            total_installments: installmentCount,
+            paymentDate: matchingOrig?.paymentDate || null,
+            paymentMethod: matchingOrig?.paymentMethod || null,
+            receiptData: matchingOrig?.receiptData || null,
+            settled_by_transaction_id: matchingOrig?.settled_by_transaction_id || undefined,
+            settled_at: matchingOrig?.settled_at || undefined
           });
         });
       });
     } else {
       finalSplits = tempSplits.map(s => {
-        const calculatedValue = Math.round(((totalCommission * s.percentage) / 100 + Number.EPSILON) * 100) / 100;
+        const matchingOrig = origSplits.find(os => 
+          (s.id && os.id === s.id) ||
+          (os.brokerId === s.brokerId || (!os.brokerId && s.brokerId === 'AGENCY'))
+        );
+
+        const isAlreadyPaid = matchingOrig && (
+          matchingOrig.status === CommissionStatus.PAID ||
+          (matchingOrig.paymentDate !== null && matchingOrig.paymentDate !== undefined && matchingOrig.paymentDate !== '') ||
+          Boolean(matchingOrig.settled_by_transaction_id)
+        );
+
+        const calculatedValue = isAlreadyPaid && matchingOrig.calculatedValue
+          ? matchingOrig.calculatedValue
+          : Math.round(((totalCommission * s.percentage) / 100 + Number.EPSILON) * 100) / 100;
+
         return {
-          id: s.id,
+          id: matchingOrig?.id || s.id,
           brokerId: s.brokerId,
           brokerName: s.brokerName,
           percentage: s.percentage,
           calculatedValue,
-          status: CommissionStatus.PENDING,
+          status: isAlreadyPaid ? CommissionStatus.PAID : (matchingOrig?.status || CommissionStatus.PENDING),
           role: s.role,
-          forecastDate: saleDate,
+          forecastDate: matchingOrig?.forecastDate || saleDate,
           installment_number: 1,
-          total_installments: 1
+          total_installments: 1,
+          paymentDate: matchingOrig?.paymentDate || null,
+          paymentMethod: matchingOrig?.paymentMethod || null,
+          receiptData: matchingOrig?.receiptData || null,
+          settled_by_transaction_id: matchingOrig?.settled_by_transaction_id || undefined,
+          settled_at: matchingOrig?.settled_at || undefined
         };
       });
     }
@@ -1162,15 +1310,30 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                 </div>
 
                 <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
-                  {installmentsList.map((item, idx) => (
-                    <div key={item.installment_number} className="flex flex-col md:flex-row items-center gap-4 bg-slate-50 border border-slate-100 p-3 rounded-xl hover:border-slate-200 transition-colors">
-                      <div className="w-full md:w-36 flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 text-[10px] font-bold flex items-center justify-center">
+                  {installmentsList.map((item, idx) => {
+                    const isPaidRow = Boolean(item.isPaid || paidInstallmentNumbers.includes(item.installment_number));
+                    return (
+                    <div key={item.installment_number} className={`flex flex-col md:flex-row items-center gap-4 p-3 rounded-xl transition-colors border ${
+                      isPaidRow 
+                        ? 'bg-emerald-50/50 border-emerald-200/80 shadow-xs' 
+                        : 'bg-slate-50 border-slate-100 hover:border-slate-200'
+                    }`}>
+                      <div className="w-full md:w-44 flex items-center gap-2">
+                        <span className={`w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center ${
+                          isPaidRow ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
+                        }`}>
                           {item.installment_number}
                         </span>
-                        <span className="text-xs font-black text-[#1e3a5f] uppercase">
-                          {item.is_down_payment ? 'Entrada' : `Parcela ${item.installment_number}`}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-xs font-black text-[#1e3a5f] uppercase">
+                            {item.is_down_payment ? 'Entrada' : `Parcela ${item.installment_number}`}
+                          </span>
+                          {isPaidRow && (
+                            <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-700">
+                              <Lock size={10} /> Paga / Liquidada
+                            </span>
+                          )}
+                        </div>
                       </div>
 
                       <div className="w-full md:flex-1 space-y-1">
@@ -1179,19 +1342,19 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">R$</span>
                           <input
                             type="text"
-                            disabled={installmentPlanType === 'EQUAL'}
+                            disabled={installmentPlanType === 'EQUAL' || isPaidRow}
                             value={item.valueStr}
                             onChange={(e) => {
-                              if (installmentPlanType === 'EQUAL') return;
+                              if (installmentPlanType === 'EQUAL' || isPaidRow) return;
                               handleUpdateInstallmentRow(idx, e.target.value, item.due_date);
                             }}
                             onBlur={() => {
-                              if (installmentPlanType === 'EQUAL') return;
+                              if (installmentPlanType === 'EQUAL' || isPaidRow) return;
                               const parsed = parseBrlValue(item.valueStr);
                               handleUpdateInstallmentRow(idx, parsed.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), item.due_date);
                             }}
                             className={`w-full pl-9 pr-4 py-2 bg-white border rounded-xl outline-none transition-all text-xs font-bold text-slate-800 shadow-sm ${
-                              installmentPlanType === 'EQUAL'
+                              installmentPlanType === 'EQUAL' || isPaidRow
                                 ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed shadow-none'
                                 : 'border-slate-200 focus:ring-2 focus:ring-blue-100'
                             }`}
@@ -1203,21 +1366,22 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                         <label className="text-[9px] font-black uppercase tracking-wider text-slate-400 block md:hidden">Vencimento</label>
                         <input
                           type="date"
-                          disabled={installmentPlanType === 'EQUAL'}
+                          disabled={installmentPlanType === 'EQUAL' || isPaidRow}
                           value={item.due_date}
                           onChange={(e) => {
-                            if (installmentPlanType === 'EQUAL') return;
+                            if (installmentPlanType === 'EQUAL' || isPaidRow) return;
                             handleUpdateInstallmentRow(idx, item.valueStr, e.target.value);
                           }}
                           className={`w-full px-3 py-2 bg-white border rounded-xl outline-none transition-all text-xs font-medium text-slate-800 shadow-sm ${
-                            installmentPlanType === 'EQUAL'
+                            installmentPlanType === 'EQUAL' || isPaidRow
                               ? 'bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed shadow-none'
                               : 'border-slate-200 focus:ring-2 focus:ring-blue-100'
                           }`}
                         />
                       </div>
                     </div>
-                  ))}
+                  );
+                })}
                 </div>
 
                 {/* Installments sum status */}
@@ -1466,14 +1630,29 @@ export const SaleForm: React.FC<SaleFormProps> = ({
 
                   {/* Delete button */}
                   <div className="md:col-span-1 flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSplit(idx)}
-                      className="p-1 px-2.5 bg-red-50 hover:bg-red-100 text-red-500 rounded-md transition-colors"
-                      title="Excluir Split"
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    {(() => {
+                      const isPaidSplit = hasFinancialMovement && paidSplitsList.some(ps => 
+                        (split.id && ps.id === split.id) ||
+                        (ps.brokerId === split.brokerId && ps.brokerName === split.brokerName)
+                      );
+                      if (isPaidSplit) {
+                        return (
+                          <div className="p-1 px-2.5 bg-emerald-50 text-emerald-600 rounded-md flex items-center gap-1" title="Comissões já pagas / liquidadas para este recebedor">
+                            <Lock size={13} />
+                          </div>
+                        );
+                      }
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSplit(idx)}
+                          className="p-1 px-2.5 bg-red-50 hover:bg-red-100 text-red-500 rounded-md transition-colors"
+                          title="Excluir Split"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      );
+                    })()}
                   </div>
 
                 </div>
@@ -1488,6 +1667,21 @@ export const SaleForm: React.FC<SaleFormProps> = ({
           </div>
         </div>
       </div>
+
+      {/* BANNER INFORMATIVO SE HOUVER HISTÓRICO FINANCEIRO */}
+      {hasFinancialMovement && (
+        <div className="mx-6 md:mx-8 mt-4 p-4 bg-amber-50/80 border border-amber-200 rounded-2xl flex items-start gap-3 text-amber-900">
+          <ShieldAlert size={20} className="text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs space-y-1">
+            <p className="font-black tracking-wide uppercase text-amber-950">
+              Modo de Edição Segura Ativo
+            </p>
+            <p className="text-amber-800">
+              Esta venda possui parcelas ou comissões já pagas/conciliadas. O sistema preserva integralmente os registros já liquidados ({paidSplitsList.length} repasse(s) pago(s)), permitindo atualizar dados cadastrais e saldo de parcelas futuras.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* FOOTER ACTIONS */}
       <div className="p-6 md:p-8 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row justify-end items-center gap-4">
@@ -1524,6 +1718,61 @@ export const SaleForm: React.FC<SaleFormProps> = ({
           </button>
         </div>
       </div>
+
+      {/* MODAL DE CONFIRMAÇÃO DE ALTERAÇÃO ESTRUTURAL */}
+      {showStructureChangeModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mb-4">
+              <AlertTriangle size={24} />
+            </div>
+            
+            <h3 className="text-lg font-black text-slate-800 tracking-tight mb-2">
+              Alteração na Estrutura da Venda
+            </h3>
+            
+            <p className="text-sm text-slate-600 leading-relaxed mb-4">
+              Esta venda possui <strong>{paidSplitsList.length} pagamento(s) ou parcela(s) já liquidados</strong>. 
+              Alterar a modalidade para <em>À Vista</em> manterá o histórico financeiro intacto e consolidará o saldo pendente restante.
+            </p>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-6 space-y-2 text-xs text-slate-700">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Parcelas pagas:</span>
+                <span className="font-bold text-emerald-600">{paidInstallmentNumbers.length} parcela(s)</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Total da Comissão:</span>
+                <span className="font-bold text-slate-800">{formatCurrency(totalCommission)}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowStructureChangeModal(false);
+                  setIsInstallment(true);
+                }}
+                className="px-5 py-2.5 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                Cancelar e Manter Parcelado
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => {
+                  setShowStructureChangeModal(false);
+                  executeSave(pendingSubmitMode === 'draft');
+                }}
+                className="px-5 py-2.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl shadow-sm transition-colors"
+              >
+                Confirmar e Preservar Histórico
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -489,13 +489,13 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
           map.set(tx.id, {
             type: 'rent',
             id: candidate[0].id,
-            label: `Aluguel: ${candidate[0].tenant_name} (R$ ${candidate[0].expected_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`,
+            label: `Aluguel: ${candidate[0].tenant_name} (R$ ${(candidate[0].expected_amount ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`,
           });
         }
       } else if (tx.type === 'debit') {
         // Look for broker split with exact calculated_value and date ± 3 days
         const candidate = brokerSplits.filter(split => {
-          if (Math.abs(split.calculated_value - tx.amount) > 0.01) return false;
+          if (Math.abs((split.calculated_value ?? 0) - (tx.amount ?? 0)) > 0.01) return false;
           if (!split.due_date) return true;
           const splitDate = new Date(split.due_date).getTime();
           const diffDays = Math.abs(txDate - splitDate) / (1000 * 3600 * 24);
@@ -507,7 +507,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
           map.set(tx.id, {
             type: 'broker_split',
             id: candidate[0].id,
-            label: `Comissão: ${candidate[0].broker_name}${clientLabel} (R$ ${candidate[0].calculated_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`,
+            label: `Comissão: ${candidate[0].broker_name}${clientLabel} (R$ ${(candidate[0].calculated_value ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`,
           });
         }
       }
@@ -1059,7 +1059,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                             className={`text-base font-bold ${getTransactionValueColor(tx)}`}
                           >
                             {tx.transfer_id ? '' : isCreditTransaction(tx) ? '+' : '-'} R${' '}
-                            {tx.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            {(tx.amount ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                       </div>
@@ -1201,7 +1201,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                             className={`text-base font-bold ${getTransactionValueColor(tx)}`}
                           >
                             {isCreditTransaction(tx) ? '+' : '-'} R${' '}
-                            {tx.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            {(tx.amount ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                       </div>
@@ -1274,7 +1274,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-slate-800 truncate">{inst.tenant_name}</span>
                           <span className="font-mono text-emerald-600 font-bold">
-                            R$ {inst.expected_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            R$ {(inst.expected_amount ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-[11px] text-slate-500">
@@ -1308,7 +1308,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-slate-800">{split.broker_name}</span>
                           <span className="font-mono text-rose-600 font-bold">
-                            R$ {split.calculated_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            R$ {(split.calculated_value ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                         <div className="flex items-center justify-between text-[11px] text-slate-500 mt-0.5">
@@ -1355,7 +1355,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
               <p className="font-mono">
                 {formatDateBR(linkingBankTx.date)} |{' '}
                 <strong className={linkingBankTx.type === 'credit' ? 'text-emerald-700' : 'text-rose-700'}>
-                  R$ {linkingBankTx.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  R$ {(linkingBankTx.amount ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </strong>
               </p>
             </div>
@@ -1501,7 +1501,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                                       </span>
                                     )}
                                   </div>
-                                  <span>R$ {inst.expected_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                  <span>R$ {(inst.expected_amount ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                 </div>
                                 <div className="text-[11px] text-slate-500 mt-0.5">{inst.property_address} (Venc: {inst.due_date})</div>
                               </div>
@@ -1594,7 +1594,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                                       </span>
                                     )}
                                   </div>
-                                  <span>R$ {split.calculated_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                  <span>R$ {(split.calculated_value ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                 </div>
                                 <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
                                   {split.property_address && <p className="font-medium text-slate-700 truncate">Imóvel: {split.property_address}</p>}
@@ -1742,7 +1742,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
           deleteTargetTx ? (
             <div className="space-y-2 text-xs text-slate-600">
               <p>
-                Tem certeza que deseja <strong className="text-rose-700">excluir permanentemente</strong> a transação <strong className="text-slate-800">"{deleteTargetTx.description}"</strong> (R$ {deleteTargetTx.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})?
+                Tem certeza que deseja <strong className="text-rose-700">excluir permanentemente</strong> a transação <strong className="text-slate-800">"{deleteTargetTx.description}"</strong> (R$ {(deleteTargetTx.amount ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})?
               </p>
               {deleteTargetTx.match_id && (
                 <p className="p-2 bg-amber-50 rounded-lg border border-amber-200 text-amber-900">
@@ -1920,7 +1920,7 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
                             {split.broker_name || 'Corretor'}
                           </span>
                           <span className="font-bold text-slate-900 shrink-0">
-                            R$ {split.calculated_value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            R$ {((split.calculated_value ?? (split as any).value ?? 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                         <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1">

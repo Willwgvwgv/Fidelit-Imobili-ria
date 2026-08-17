@@ -806,13 +806,13 @@ const Commissions: React.FC<CommissionsProps> = ({
                 propertyAddress: currentPaidSplit.propertyAddress || targetSale?.propertyAddress,
                 clientName: currentPaidSplit.clientName || targetSale?.buyerName,
                 brokerName: currentPaidSplit.brokerName,
-                value: currentPaidSplit.value
+                value: currentPaidSplit.value ?? (currentPaidSplit as any).calculatedValue ?? 0
               },
               relatedSplits: otherOpenSplits.map(sp => ({
-                id: sp.id,
+                id: sp.id || '',
                 saleId: currentPaidSplit.saleId,
                 brokerName: team.find(b => b.id === sp.brokerId)?.name || sp.brokerName || 'Corretor',
-                value: sp.value,
+                value: (sp as any).value ?? sp.calculatedValue ?? 0,
                 forecastDate: sp.forecastDate,
                 status: sp.status
               }))
@@ -2740,7 +2740,7 @@ const Commissions: React.FC<CommissionsProps> = ({
                             {split.brokerName || 'Corretor'}
                           </span>
                           <span className="font-bold text-slate-900 shrink-0">
-                            R$ {(split.value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            R$ {((split.value ?? (split as any).calculatedValue ?? 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
                         <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-1">
