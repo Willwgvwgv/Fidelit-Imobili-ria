@@ -243,16 +243,20 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
       // Register audit log
       await logAuditEvent({
         action: 'remove_import',
-        entity_type: 'bank_transactions',
-        entity_id: batchId,
+        table_name: 'bank_transactions',
+        record_id: batchId,
         user_id: userId || null,
         agency_id: currentAgencyId || agencyId || null,
-        details: {
+        old_data: {
           batch_id: batchId,
           account_id: targetAccountId,
+          count
+        },
+        new_data: {
           removed_count: count,
-          timestamp: new Date().toISOString()
-        }
+          status: 'deleted'
+        },
+        changed_fields: ['status']
       });
 
       await fetchTransactions(targetAccountId || selectedAccountId);
@@ -603,17 +607,25 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
       // Log in audit_log
       await logAuditEvent({
         action: 'undo_reconciliation',
-        entity_type: 'bank_transactions',
-        entity_id: bankTxId,
+        table_name: 'bank_transactions',
+        record_id: bankTxId,
         user_id: userId || null,
         agency_id: currentAgencyId || agencyId || null,
-        details: {
+        old_data: {
+          status: 'reconciled',
           match_type: matchType || null,
           match_id: matchId || null,
           description: tx.description,
-          amount: tx.amount,
-          timestamp: new Date().toISOString()
-        }
+          amount: tx.amount
+        },
+        new_data: {
+          status: 'pending',
+          match_type: null,
+          match_id: null,
+          description: tx.description,
+          amount: tx.amount
+        },
+        changed_fields: ['status', 'match_id', 'match_type']
       });
 
       await fetchTransactions();
@@ -691,17 +703,21 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
       // Log in audit_log
       await logAuditEvent({
         action: 'delete_bank_transaction',
-        entity_type: 'bank_transactions',
-        entity_id: bankTxId,
+        table_name: 'bank_transactions',
+        record_id: bankTxId,
         user_id: userId || null,
         agency_id: currentAgencyId || agencyId || null,
-        details: {
-          match_type: matchType || null,
-          match_id: matchId || null,
+        old_data: {
+          id: bankTxId,
           description: tx.description,
           amount: tx.amount,
-          timestamp: new Date().toISOString()
-        }
+          match_type: matchType || null,
+          match_id: matchId || null
+        },
+        new_data: {
+          status: 'deleted'
+        },
+        changed_fields: ['status']
       });
 
       await fetchTransactions();
@@ -785,15 +801,21 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
       // 3. Insert audit log
       await logAuditEvent({
         action: 'bulk_ignore',
-        entity_type: 'bank_transactions',
-        entity_id: bankTxIds.length === 1 ? bankTxIds[0] : null,
+        table_name: 'bank_transactions',
+        record_id: bankTxIds.length === 1 ? bankTxIds[0] : null,
         user_id: userId || null,
         agency_id: currentAgencyId || agencyId || null,
-        details: {
+        old_data: {
           count: bankTxIds.length,
           tx_ids: bankTxIds,
-          timestamp: new Date().toISOString(),
-        }
+          status: 'pending'
+        },
+        new_data: {
+          count: bankTxIds.length,
+          tx_ids: bankTxIds,
+          status: 'ignored'
+        },
+        changed_fields: ['status', 'match_id', 'match_type']
       });
 
       await fetchTransactions();
@@ -872,15 +894,20 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
       // 3. Insert audit log
       await logAuditEvent({
         action: 'bulk_delete',
-        entity_type: 'bank_transactions',
-        entity_id: bankTxIds.length === 1 ? bankTxIds[0] : null,
+        table_name: 'bank_transactions',
+        record_id: bankTxIds.length === 1 ? bankTxIds[0] : null,
         user_id: userId || null,
         agency_id: currentAgencyId || agencyId || null,
-        details: {
+        old_data: {
           count: bankTxIds.length,
-          tx_ids: bankTxIds,
-          timestamp: new Date().toISOString(),
-        }
+          tx_ids: bankTxIds
+        },
+        new_data: {
+          status: 'deleted',
+          count: bankTxIds.length,
+          tx_ids: bankTxIds
+        },
+        changed_fields: ['status']
       });
 
       await fetchTransactions();

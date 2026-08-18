@@ -37,7 +37,6 @@ import BrokerStatement from './BrokerStatement';
 import { supabaseService } from '../services/supabaseService';
 import { supabase } from '../supabase';
 import { ConfirmModal } from './ui/ConfirmModal';
-import { logAuditEvent } from '../src/utils/auditLogger';
 
 interface CommissionsProps {
   sales: Sale[];

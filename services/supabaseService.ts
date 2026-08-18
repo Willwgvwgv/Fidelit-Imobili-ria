@@ -639,23 +639,35 @@ export const supabaseService = {
       // 4. Gravar log de auditoria com usuário autenticado e justificativa obrigatória
       await logAuditEvent({
         action: 'ESTORNO',
-        entity_type: 'broker_splits',
-        entity_id: params.splitId,
+        table_name: 'broker_splits',
+        record_id: params.splitId,
         user_id: authUser.id,
         user_email: authUser.email || '',
         agency_id: params.agencyId || currentSplit.agency_id || null,
-        details: {
-          action: 'ESTORNO_PAGAMENTO',
-          status_anterior: previousStatus,
-          status_novo: 'PENDING',
-          motivo_estorno: params.reason.trim(),
-          user_id: authUser.id,
-          user_email: authUser.email,
-          previous_settled_by_transaction_id: previousSettledTxId,
-          previous_payment_date: currentSplit.payment_date,
-          previous_payment_method: currentSplit.payment_method,
+        old_data: {
+          status: previousStatus,
+          payment_date: currentSplit.payment_date,
+          payment_method: currentSplit.payment_method,
+          receipt_data: currentSplit.receipt_data,
+          settled_by_transaction_id: previousSettledTxId,
           calculated_value: currentSplit.calculated_value
-        }
+        },
+        new_data: {
+          status: 'PENDING',
+          payment_date: null,
+          payment_method: null,
+          receipt_data: null,
+          settled_by_transaction_id: null,
+          calculated_value: currentSplit.calculated_value,
+          estorno_motivo: params.reason.trim()
+        },
+        changed_fields: [
+          'status',
+          'payment_date',
+          'payment_method',
+          'receipt_data',
+          'settled_by_transaction_id'
+        ]
       });
 
       return { success: true };
@@ -864,22 +876,38 @@ export const supabaseService = {
         // Inserir log de auditoria estruturado
         await logAuditEvent({
           action: 'PAYMENT_FULL',
-          entity_type: 'broker_splits',
-          entity_id: params.splitId,
+          table_name: 'broker_splits',
+          record_id: params.splitId,
           user_id: authenticatedUserId,
           user_email: authenticatedUserEmail,
-          agency_id: params.agencyId || null,
-          details: {
-            action: 'PAYMENT_FULL',
-            status_anterior: currentSplit.status,
-            status_novo: 'PAID',
-            paid_amount: fullVal,
+          agency_id: params.agencyId || currentSplit.agency_id || null,
+          old_data: {
+            status: currentSplit.status,
+            calculated_value: currentSplit.calculated_value,
+            payment_date: currentSplit.payment_date,
+            payment_method: currentSplit.payment_method,
+            receipt_data: currentSplit.receipt_data,
+            settled_by_transaction_id: currentSplit.settled_by_transaction_id,
+            notes: currentSplit.notes
+          },
+          new_data: {
+            status: 'PAID',
+            calculated_value: fullVal,
             payment_date: params.paymentDate,
             payment_method: params.paymentMethod || 'PIX',
+            receipt_data: params.receiptData || null,
             settled_by_transaction_id: resolvedTransactionId,
-            user_id: authenticatedUserId,
-            user_email: authenticatedUserEmail
-          }
+            notes: params.notes || currentSplit.notes || null
+          },
+          changed_fields: [
+            'status',
+            'calculated_value',
+            'payment_date',
+            'payment_method',
+            'receipt_data',
+            'settled_by_transaction_id',
+            ...(params.notes ? ['notes'] : [])
+          ]
         });
 
         return { success: true, isPartial: false, transactionId: resolvedTransactionId };
@@ -949,22 +977,50 @@ export const supabaseService = {
         // Log de auditoria estruturado
         await logAuditEvent({
           action: 'PAYMENT_PARTIAL',
-          entity_type: 'broker_splits',
-          entity_id: params.splitId,
+          table_name: 'broker_splits',
+          record_id: params.splitId,
           user_id: authenticatedUserId,
           user_email: authenticatedUserEmail,
-          agency_id: params.agencyId || null,
-          details: {
-            action: 'PAYMENT_PARTIAL',
-            status_anterior: currentSplit.status,
-            status_novo: 'PARTIAL',
-            paid_amount: paidVal,
-            remaining_amount: remainingVal,
-            remaining_forecast_date: params.remainingForecastDate,
+          agency_id: params.agencyId || currentSplit.agency_id || null,
+          old_data: {
+            status: currentSplit.status,
+            calculated_value: currentSplit.calculated_value,
+            percentage: currentSplit.percentage,
+            installment_number: currentSplit.installment_number,
+            total_installments: currentSplit.total_installments,
+            payment_date: currentSplit.payment_date,
+            payment_method: currentSplit.payment_method,
+            receipt_data: currentSplit.receipt_data,
+            settled_by_transaction_id: currentSplit.settled_by_transaction_id,
+            notes: currentSplit.notes
+          },
+          new_data: {
+            status: 'PAID',
+            calculated_value: paidVal,
+            percentage: paidPercentage,
+            installment_number: currentInstallment,
+            total_installments: totalInstallments,
+            payment_date: params.paymentDate,
+            payment_method: params.paymentMethod || 'PIX',
+            receipt_data: params.receiptData || null,
             settled_by_transaction_id: resolvedTransactionId,
-            user_id: authenticatedUserId,
-            user_email: authenticatedUserEmail
-          }
+            notes: partialNote,
+            remaining_split_value: remainingVal,
+            remaining_percentage: remainingPercentage,
+            remaining_forecast_date: params.remainingForecastDate || null
+          },
+          changed_fields: [
+            'status',
+            'calculated_value',
+            'percentage',
+            'installment_number',
+            'total_installments',
+            'payment_date',
+            'payment_method',
+            'receipt_data',
+            'settled_by_transaction_id',
+            'notes'
+          ]
         });
 
         return { success: true, isPartial: true, transactionId: resolvedTransactionId };
