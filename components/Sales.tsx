@@ -847,7 +847,11 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
               <SaleForm
                 agencyId={currentUser.agencyId}
                 team={team}
-                onSave={handleSaveSale}
+                onSave={(saleData, splitsData) =>
+                  editingSale
+                    ? handleUpdateSale(editingSale.id, saleData, splitsData)
+                    : handleSaveSale(saleData, splitsData)
+                }
                 onCancel={closeModal}
                 editingSale={editingSale}
                 onUpdate={handleUpdateSale}

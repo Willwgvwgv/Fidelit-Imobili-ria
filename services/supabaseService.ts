@@ -204,6 +204,7 @@ export const supabaseService = {
 
   // Create a new sale
   async createSale(sale: Omit<Sale, 'id' | 'splits'>, splits: Omit<BrokerSplit, 'id' | 'sale_id'>[]): Promise<Sale | null> {
+    console.log('[DEBUG_CREATE_SALE_CALLED]', new Error().stack);
     if (!supabase) return null;
 
     const rateLimit = rateLimiter.consume('createSale', RATE_LIMIT_PROFILES.MUTATION);
@@ -290,6 +291,7 @@ export const supabaseService = {
     sale: Partial<Sale>, 
     splits: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[]
   ): Promise<boolean> {
+    console.log('[DEBUG_UPDATE_SALE_CALLED]', { saleId }, new Error().stack);
     if (!supabase) return false;
 
     const rateLimit = rateLimiter.consume('updateSale', RATE_LIMIT_PROFILES.MUTATION);

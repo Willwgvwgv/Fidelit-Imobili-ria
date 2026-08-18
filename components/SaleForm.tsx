@@ -804,6 +804,8 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       });
     }
 
+    console.log('[DEBUG_SAVE_PATH]', { hasEditingSale: !!editingSale, editingSaleId: editingSale?.id, hasOnUpdate: !!onUpdate });
+
     if (editingSale && onUpdate) {
       onUpdate(editingSale.id, saleData, finalSplits);
     } else {
