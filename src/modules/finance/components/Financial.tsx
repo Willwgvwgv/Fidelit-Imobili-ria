@@ -353,6 +353,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [selectedCardForDetails, setSelectedCardForDetails] = useState<FinancialAccount | null>(null);
   const [selectedCardForHistory, setSelectedCardForHistory] = useState<FinancialAccount | null>(null);
   const [detailPeriod, setDetailPeriod] = useState<Date>(new Date());
+  const [paymentInvoicePeriod, setPaymentInvoicePeriod] = useState<Date>(new Date());
   const [showMismatchConfirm, setShowMismatchConfirm] = useState<boolean>(false);
   const [expandedYears, setExpandedYears] = useState<Record<number, boolean>>({ [new Date().getFullYear()]: true });
 
@@ -1368,11 +1369,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
   };
 
-  const handleOpenPayInvoiceModal = (card: FinancialAccount) => {
+  const handleOpenPayInvoiceModal = (card: FinancialAccount, targetPeriod?: Date) => {
+    const activePeriod = targetPeriod || currentPeriod;
     const pendingTxs = transactions.filter(t => {
       if (t.account_id !== card.id) return false;
       if (t.status !== TransactionStatus.PENDING) return false;
-      return InvoiceDomain.isTxInCardInvoicePeriod(t.due_date, card, currentPeriod);
+      return InvoiceDomain.isTxInCardInvoicePeriod(t.due_date, card, activePeriod);
     });
 
     if (pendingTxs.length === 0) {
@@ -1383,6 +1385,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const totalAmount = pendingTxs.reduce((sum, t) => sum + t.amount, 0);
 
     setSelectedCardForPayment(card);
+    setPaymentInvoicePeriod(activePeriod);
     setPayInvoiceAmountStr(totalAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
     setPayInvoiceDate(getLocalTodayStr());
 
@@ -1390,6 +1393,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setPayInvoiceSourceAccountId(firstBankAcc ? firstBankAcc.id : '');
 
     setShowMismatchConfirm(false);
+    setSelectedCardForDetails(null);
     setPayInvoiceModalOpen(true);
   };
 
@@ -1412,7 +1416,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       return;
     }
 
-    const expectedAmount = getPendingInvoiceAmount(selectedCardForPayment.id);
+    const expectedAmount = InvoiceDomain.getPendingInvoiceAmount(selectedCardForPayment.id, selectedCardForPayment, transactions, paymentInvoicePeriod);
     if (Math.abs(paymentAmount - expectedAmount) > 0.01) {
       showToast(
         `O valor informado (R$ ${paymentAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) não corresponde ao total da fatura (R$ ${expectedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}). Ajuste o valor para prosseguir.`,
@@ -1472,7 +1476,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       const pendingTxs = transactions.filter(t => {
         if (t.account_id !== selectedCardForPayment.id) return false;
         if (t.status !== TransactionStatus.PENDING) return false;
-        return InvoiceDomain.isTxInCardInvoicePeriod(t.due_date, selectedCardForPayment, currentPeriod);
+        return InvoiceDomain.isTxInCardInvoicePeriod(t.due_date, selectedCardForPayment, paymentInvoicePeriod);
       });
 
       if (pendingTxs.length > 0) {
@@ -4784,7 +4788,18 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         const targetMonth = period.getMonth();
                         const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
                         const safeClosingDay = Math.min(closingDay, daysInTargetMonth);
-                        const safeDueDay = Math.min(dueDay, daysInTargetMonth);
+
+                        let dueYear = targetYear;
+                        let dueMonth = targetMonth;
+                        if (dueDay <= closingDay) {
+                          dueMonth += 1;
+                          if (dueMonth > 11) {
+                            dueMonth = 0;
+                            dueYear += 1;
+                          }
+                        }
+                        const daysInDueMonth = new Date(dueYear, dueMonth + 1, 0).getDate();
+                        const safeDueDay = Math.min(dueDay, daysInDueMonth);
 
                         const formatShortDate = (day: number, month: number, yr: number) => {
                           const dy = String(day).padStart(2, '0');
@@ -4793,7 +4808,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         };
 
                         const closingDateStr = formatShortDate(safeClosingDay, targetMonth, targetYear);
-                        const dueDateStr = formatShortDate(safeDueDay, targetMonth, targetYear);
+                        const dueDateStr = formatShortDate(safeDueDay, dueMonth, dueYear);
 
                         return (
                           <div
@@ -7982,7 +7997,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         onConfirm={handlePreConfirmPayInvoice}
         data={{
           accounts,
-          currentPeriod
+          currentPeriod: paymentInvoicePeriod
         }}
         invoiceService={{
           getInvoicePeriodRangeStr: InvoiceDomain.getInvoicePeriodRangeStr,

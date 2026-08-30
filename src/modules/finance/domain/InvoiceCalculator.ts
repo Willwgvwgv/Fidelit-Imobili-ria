@@ -113,8 +113,18 @@ export const getInvoiceStatus = (
   const targetMonth = period.getMonth();
   const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
   
-  const safeDueDay = Math.min(dueDay, daysInTargetMonth);
-  const dueDate = new Date(targetYear, targetMonth, safeDueDay);
+  let dueYear = targetYear;
+  let dueMonth = targetMonth;
+  if (dueDay <= closingDay) {
+    dueMonth += 1;
+    if (dueMonth > 11) {
+      dueMonth = 0;
+      dueYear += 1;
+    }
+  }
+  const daysInDueMonth = new Date(dueYear, dueMonth + 1, 0).getDate();
+  const safeDueDay = Math.min(dueDay, daysInDueMonth);
+  const dueDate = new Date(dueYear, dueMonth, safeDueDay);
   
   const today = new Date();
   today.setHours(0, 0, 0, 0);

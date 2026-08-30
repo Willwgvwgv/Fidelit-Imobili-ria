@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CreditCard, Calendar } from 'lucide-react';
+import { CreditCard, Calendar, AlertTriangle } from 'lucide-react';
 import { PayInvoiceModalProps } from './types';
 
 export const PayInvoiceModal: React.FC<PayInvoiceModalProps> = ({
@@ -19,6 +19,12 @@ export const PayInvoiceModal: React.FC<PayInvoiceModalProps> = ({
   invoiceService: { getInvoicePeriodRangeStr, getAccountLiveBalance },
   formatters: { currency, formatBRL }
 }) => {
+  const selectedAccount = accounts.find(a => a.id === sourceAccountId);
+  const liveBalance = selectedAccount ? getAccountLiveBalance(selectedAccount) : null;
+  const numericAmount = parseFloat(amountStr.replace(/\./g, '').replace(',', '.')) || 0;
+  const hasInsufficientBalance = selectedAccount && liveBalance !== null && liveBalance < numericAmount && numericAmount > 0;
+  const deficit = hasInsufficientBalance ? liveBalance! - numericAmount : 0;
+
   return (
     <AnimatePresence>
       {isOpen && card && (
@@ -83,6 +89,16 @@ export const PayInvoiceModal: React.FC<PayInvoiceModalProps> = ({
                     ))}
                 </select>
               </div>
+
+              {hasInsufficientBalance && (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 text-amber-800 text-xs font-semibold flex items-start gap-2 shadow-xs">
+                  <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div className="leading-relaxed">
+                    <span className="font-bold text-amber-900">Saldo insuficiente na conta.</span> Esta operação deixará a conta com saldo de{' '}
+                    <strong className="font-extrabold text-amber-950">{currency(deficit)}</strong>.
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Valor do Pagamento (R$)*</label>

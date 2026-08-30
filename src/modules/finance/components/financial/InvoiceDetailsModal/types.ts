@@ -29,6 +29,6 @@ export interface InvoiceDetailsModalProps {
   onDeleteTransaction?: (id: string) => void;
   onDuplicateTransaction?: (tx: FinancialTransaction) => void;
   onQuickLaunch?: (card: FinancialAccount) => void;
-  onPayInvoice?: (card: FinancialAccount) => void;
+  onPayInvoice?: (card: FinancialAccount, period?: Date) => void;
   categoryGroups?: Record<string, string>;
 }

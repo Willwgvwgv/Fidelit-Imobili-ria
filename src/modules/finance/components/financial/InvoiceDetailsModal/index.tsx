@@ -169,7 +169,18 @@ export const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
   const targetMonth = period.getMonth();
   const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
   const safeClosingDay = Math.min(closingDay, daysInTargetMonth);
-  const safeDueDay = Math.min(dueDay, daysInTargetMonth);
+
+  let dueYear = targetYear;
+  let dueMonth = targetMonth;
+  if (dueDay <= closingDay) {
+    dueMonth += 1;
+    if (dueMonth > 11) {
+      dueMonth = 0;
+      dueYear += 1;
+    }
+  }
+  const daysInDueMonth = new Date(dueYear, dueMonth + 1, 0).getDate();
+  const safeDueDay = Math.min(dueDay, daysInDueMonth);
 
   const formatShortDateStr = (day: number, month: number, yr: number) => {
     const dy = String(day).padStart(2, '0');
@@ -178,7 +189,7 @@ export const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
   };
 
   const closingDateStr = formatShortDateStr(safeClosingDay, targetMonth, targetYear);
-  const dueDateStr = formatShortDateStr(safeDueDay, targetMonth, targetYear);
+  const dueDateStr = formatShortDateStr(safeDueDay, dueMonth, dueYear);
 
   const capitalizedMonth = period.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
   const monthYearStr = `${capitalizedMonth.charAt(0).toUpperCase() + capitalizedMonth.slice(1)}/${period.getFullYear()}`;
@@ -209,8 +220,10 @@ export const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
   }
 
   // Calculate Days to Due
-  const today = new Date(2026, 6, 9); // current local date July 9, 2026
-  const due = new Date(targetYear, targetMonth, safeDueDay);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const due = new Date(dueYear, dueMonth, safeDueDay);
+  due.setHours(0, 0, 0, 0);
   const diffTime = due.getTime() - today.getTime();
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
@@ -1050,7 +1063,7 @@ export const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
                 {onPayInvoice && (
                   <button 
                     type="button"
-                    onClick={() => onPayInvoice(card)} 
+                    onClick={() => onPayInvoice(card, period)} 
                     className="w-full sm:w-auto px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-md hover:shadow-lg active:scale-95"
                   >
                     <DollarSign size={13} /> Pagar Fatura
