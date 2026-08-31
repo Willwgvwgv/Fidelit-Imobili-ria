@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { CreditCard, Calendar, DollarSign, Loader2, RefreshCw, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { CreditCard, Calendar, DollarSign, Loader2, RefreshCw, CheckCircle2, ShieldCheck, AlertCircle, Clock } from 'lucide-react';
 import { supabase } from '../../../../supabase';
-import { User, FinancialAccount, FinancialTransaction } from '../../../../types';
+import { User, FinancialAccount, FinancialTransaction, TransactionStatus } from '../../../../types';
 import { useAccountTransfers } from '../../../hooks/useAccountTransfers';
 import { HeaderTooltip } from './HeaderTooltip';
 import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
+import * as InvoiceDomain from '../domain/InvoiceCalculator';
+import { InvoiceStatus } from '../constants';
 
 interface CartoesProps {
   currentUser: User;
@@ -111,10 +113,74 @@ export const Cartoes: React.FC<CartoesProps> = ({
     loadCardPendingInvoices();
   }, [creditCards]);
 
+  const currentPeriod = useMemo(() => new Date(), []);
+
+  // Compute invoice summary per card
+  const cardSummaries = useMemo(() => {
+    const map: Record<
+      string,
+      {
+        currentPendingAmount: number;
+        currentPendingCount: number;
+        currentStatus: InvoiceStatus;
+        periodRangeStr: string;
+        futurePendingAmount: number;
+        futurePendingCount: number;
+      }
+    > = {};
+
+    creditCards.forEach((card) => {
+      const currentPendingAmount = InvoiceDomain.getPendingInvoiceAmount(
+        card.id,
+        card,
+        transactions,
+        currentPeriod
+      );
+      const currentStatus = InvoiceDomain.getInvoiceStatus(
+        card.id,
+        card,
+        transactions,
+        currentPeriod
+      );
+      const currentTxs = InvoiceDomain.getInvoiceTransactions(
+        card.id,
+        card,
+        transactions,
+        currentPeriod
+      );
+      const currentPendingCount = currentTxs.filter(
+        (t) => t.status === TransactionStatus.PENDING
+      ).length;
+
+      const periodRangeStr = InvoiceDomain.getInvoicePeriodRangeStr(card, currentPeriod);
+
+      // Future transactions: pending transactions whose due_date is in a future invoice period
+      const futureTxs = transactions.filter((t) => {
+        if (t.account_id !== card.id || t.status !== TransactionStatus.PENDING) return false;
+        if (InvoiceDomain.isTxInCardInvoicePeriod(t.due_date, card, currentPeriod)) return false;
+        return true;
+      });
+
+      const futurePendingAmount = futureTxs.reduce((sum, t) => sum + (t.amount || 0), 0);
+      const futurePendingCount = futureTxs.length;
+
+      map[card.id] = {
+        currentPendingAmount,
+        currentPendingCount,
+        currentStatus,
+        periodRangeStr,
+        futurePendingAmount,
+        futurePendingCount,
+      };
+    });
+
+    return map;
+  }, [creditCards, transactions, currentPeriod]);
+
   const handleOpenPayModal = (card: FinancialAccount) => {
     setSelectedCard(card);
-    const invInfo = cardInvoices[card.id];
-    const initialAmt = invInfo && invInfo.pendingAmount > 0 ? invInfo.pendingAmount : 0;
+    const summary = cardSummaries[card.id];
+    const initialAmt = summary ? summary.currentPendingAmount : 0;
 
     setPaymentAmount(initialAmt.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
     setPaymentDate(new Date().toISOString().split('T')[0]);
@@ -211,31 +277,85 @@ export const Cartoes: React.FC<CartoesProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {creditCards.map((card) => {
-            const invInfo = cardInvoices[card.id] || { pendingAmount: 0, pendingCount: 0 };
+            const summary = cardSummaries[card.id] || {
+              currentPendingAmount: 0,
+              currentPendingCount: 0,
+              currentStatus: InvoiceStatus.ABERTA,
+              periodRangeStr: '',
+              futurePendingAmount: 0,
+              futurePendingCount: 0,
+            };
+
+            const getStatusBadge = (status: InvoiceStatus) => {
+              switch (status) {
+                case InvoiceStatus.PAGA:
+                  return (
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-semibold flex items-center gap-1">
+                      <CheckCircle2 size={12} /> Fatura Paga
+                    </span>
+                  );
+                case InvoiceStatus.FECHADA:
+                  return (
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-semibold flex items-center gap-1">
+                      <Clock size={12} /> Fatura Fechada
+                    </span>
+                  );
+                case InvoiceStatus.VENCIDA:
+                  return (
+                    <span className="px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-semibold flex items-center gap-1">
+                      <AlertCircle size={12} /> Fatura Vencida
+                    </span>
+                  );
+                case InvoiceStatus.ABERTA:
+                default:
+                  return (
+                    <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-semibold flex items-center gap-1">
+                      <ShieldCheck size={12} /> Fatura Aberta
+                    </span>
+                  );
+              }
+            };
 
             return (
               <div
                 key={card.id}
                 className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs flex flex-col justify-between space-y-5"
               >
-                <div>
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                     <span className="font-bold text-slate-900 text-base">{card.name}</span>
-                    <span className="px-2.5 py-0.5 rounded-full bg-[#f1f5f9] text-[#475569] text-[11px] font-semibold">
-                      Cartão de Crédito
-                    </span>
+                    {getStatusBadge(summary.currentStatus)}
                   </div>
 
+                  {/* Destaque: Fatura da Competência Atual */}
                   <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-1.5">
-                    <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-                      Fatura Pendente Estimada
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                        Fatura Atual em Aberto
+                      </span>
+                      {summary.periodRangeStr && (
+                        <span className="text-[11px] font-medium text-slate-400">
+                          {summary.periodRangeStr}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[26px] font-bold text-slate-900 tracking-tight leading-none">
+                      R$ {summary.currentPendingAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-xs font-normal text-slate-500 mt-1">
+                      {summary.currentPendingCount} {summary.currentPendingCount === 1 ? 'lançamento nesta fatura' : 'lançamentos nesta fatura'}
+                    </p>
+                  </div>
+
+                  {/* Linha secundária: Parcelas / Competências Futuras */}
+                  <div className="px-3.5 py-2.5 bg-slate-50/70 rounded-xl border border-slate-100 flex items-center justify-between text-xs">
+                    <span className="text-slate-500 font-medium">Competências futuras:</span>
+                    <span className="font-bold text-slate-700">
+                      R$ {summary.futurePendingAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}{' '}
+                      <span className="font-normal text-slate-400 text-[11px]">
+                        ({summary.futurePendingCount} {summary.futurePendingCount === 1 ? 'lançamento' : 'lançamentos'})
+                      </span>
                     </span>
-                    <p className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
-                      R$ {invInfo.pendingAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                    </p>
-                    <p className="text-xs font-normal text-slate-400 mt-1">
-                      {invInfo.pendingCount} {invInfo.pendingCount === 1 ? 'lançamento pendente' : 'lançamentos pendentes'}
-                    </p>
                   </div>
                 </div>
 
@@ -245,7 +365,7 @@ export const Cartoes: React.FC<CartoesProps> = ({
                     className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl transition-all shadow-2xs flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <DollarSign size={14} />
-                    <span>Liquidar Fatura</span>
+                    <span>Liquidar Fatura Atual</span>
                   </button>
                 </div>
               </div>

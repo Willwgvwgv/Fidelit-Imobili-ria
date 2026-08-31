@@ -306,7 +306,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   // Extrato dynamic states
   const monthInputRef = useRef<HTMLInputElement>(null);
   const [currentPeriod, setCurrentPeriod] = useState<Date>(new Date());
-  const [periodMode, setPeriodMode] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH' | 'CUSTOM'>('ALL');
+  const [periodMode, setPeriodMode] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH' | 'CUSTOM'>('THIS_MONTH');
   const [visibleCount, setVisibleCount] = useState<number>(20);
   const [kpiFilter, setKpiFilter] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
@@ -315,8 +315,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [selectedTxIds, setSelectedTxIds] = useState<string[]>([]);
   const [editingTransaction, setEditingTransaction] = useState<FinancialTransaction | null>(null);
 
-  // New states for form formatting, recurrence, and payment
+  // New states for form formatting, recurrence, payment, and transfer
   const [amountInputStr, setAmountInputStr] = useState<string>('');
+  const [destinationAccountId, setDestinationAccountId] = useState<string>('');
   const {
     recurrenceType,
     setRecurrenceType,
@@ -433,6 +434,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     setEditingCategory(null);
     setEditingTransaction(null);
     setAmountInputStr('');
+    setDestinationAccountId('');
     setRecurrenceType('NONE');
     setRecurrencePeriods(1);
     setMarkAsPaid(false);
@@ -894,8 +896,8 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           if (t.status !== TransactionStatus.PAID || !isInSelectedMonth(t.due_date)) return false;
         }
       } else {
-        // Default: filter list strictly by selected month
-        if (!isInSelectedMonth(t.due_date)) {
+        // Default: filter list strictly by selected month unless periodMode is ALL
+        if (periodMode !== 'ALL' && !isInSelectedMonth(t.due_date)) {
           return false;
         }
       }
@@ -920,7 +922,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
       return true;
     });
-  }, [transactions, searchTerm, typeFilter, currentPeriod, kpiFilter, categoryFilter, accountFilter]);
+  }, [transactions, searchTerm, typeFilter, currentPeriod, periodMode, kpiFilter, categoryFilter, accountFilter]);
 
 
 
@@ -998,6 +1000,87 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             payment_date: null
           });
         }
+      }
+
+      // Handle Transfer Type (Linked Pair of Transactions)
+      if (newTransaction.type === TransactionType.TRANSFER && !editingTransaction) {
+        if (!destinationAccountId) {
+          alert('Por favor, selecione a Conta Bancária de Destino para a transferência.');
+          setIsSubmittingTransaction(false);
+          return;
+        }
+        if (destinationAccountId === newTransaction.account_id) {
+          alert('A Conta de Origem e a Conta de Destino devem ser diferentes.');
+          setIsSubmittingTransaction(false);
+          return;
+        }
+
+        const sourceAcc = accounts.find(a => a.id === newTransaction.account_id);
+        const destAcc = accounts.find(a => a.id === destinationAccountId);
+        const transferGroupId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).substring(2, 8));
+
+        // Handle Transfer Type (Linked Pair of Transactions with rollback)
+        const outgoingPayload = {
+          ...payload,
+          account_id: newTransaction.account_id,
+          type: TransactionType.EXPENSE,
+          is_transfer: true,
+          transfer_group_id: transferGroupId,
+          description: newTransaction.description || `Transferência para ${destAcc?.name || 'Conta Destino'}`,
+        };
+
+        const incomingPayload = {
+          ...payload,
+          account_id: destinationAccountId,
+          type: TransactionType.INCOME,
+          is_transfer: true,
+          transfer_group_id: transferGroupId,
+          description: newTransaction.description ? `${newTransaction.description} (Recebido)` : `Transferência de ${sourceAcc?.name || 'Conta Origem'}`,
+        };
+
+        if (supabase) {
+          try {
+            // Atomic batch insert: inserts both records in a single array payload to Postgres
+            const { data: insertedData, error: insertError } = await supabase
+              .from('financial_transactions')
+              .insert([outgoingPayload, incomingPayload])
+              .select('id');
+
+            if (insertError) {
+              throw new Error(insertError.message);
+            }
+
+            // Verify both were created; if only 1 created, perform compensation rollback
+            if (!insertedData || insertedData.length < 2) {
+              if (insertedData && insertedData.length > 0) {
+                const insertedIds = insertedData.map(d => d.id);
+                await supabase.from('financial_transactions').delete().in('id', insertedIds);
+              }
+              throw new Error('Falha ao registrar ambos os lados da transferência bancária.');
+            }
+
+            showToast('Transferência entre contas criada com sucesso!', 'success');
+            setIsModalOpen(false);
+            setDestinationAccountId('');
+            loadFinancialData();
+          } catch (err: any) {
+            console.error('Error creating transfer transactions:', err);
+            // Safety rollback using transfer_group_id in case any partial insertion exists
+            try {
+              await supabase
+                .from('financial_transactions')
+                .delete()
+                .eq('transfer_group_id', transferGroupId);
+            } catch (rbErr) {
+              console.error('Failed to cleanup orphaned transfer transactions:', rbErr);
+            }
+            alert('Erro ao criar transferência bancária: ' + (err.message || 'Falha na gravação.'));
+          }
+        } else {
+          alert('Conexão com o banco de dados indisponível.');
+        }
+        setIsSubmittingTransaction(false);
+        return;
       }
 
       if (editingTransaction) {
@@ -1543,10 +1626,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     }
 
     const creditLimitVal = newAccount.credit_limit ? parseBRL(String(newAccount.credit_limit)) : null;
-    const isCard = modalType === 'card';
+    const isCard = modalType === 'card' || (editingAccount && (editingAccount.type === 'credit_card' || (editingAccount as any).account_type === 'credit_card')) || newAccount.type === 'credit_card';
 
-    const closingDayVal = isCard && newAccount.closing_day ? parseInt(String(newAccount.closing_day), 10) : null;
-    const dueDayVal = isCard && newAccount.due_day ? parseInt(String(newAccount.due_day), 10) : null;
+    const closingDayVal = newAccount.closing_day ? parseInt(String(newAccount.closing_day), 10) : (editingAccount?.closing_day || null);
+    const dueDayVal = newAccount.due_day ? parseInt(String(newAccount.due_day), 10) : (editingAccount?.due_day || null);
 
     if (isCard) {
       if (closingDayVal !== null && (closingDayVal < 1 || closingDayVal > 31)) {
@@ -2678,15 +2761,16 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     return (
       <div className="space-y-6">
-        {/* Month Selector Bar at Top of Extrato */}
-        <div className="bg-white rounded-3xl border border-slate-100 p-3.5 px-5 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+        {/* Unified Month & Period Selector Bar at Top of Extrato */}
+        <div className="bg-white rounded-3xl border border-slate-100 p-3.5 px-5 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {/* Pill Navigation [◄] [Mês Ano] [►] */}
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/60">
               <button
                 type="button"
                 onClick={() => {
                   setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+                  setPeriodMode('CUSTOM');
                   setVisibleCount(20);
                 }}
                 className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
@@ -2695,7 +2779,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 <ChevronLeft size={18} />
               </button>
 
-              <span className="px-3.5 py-1 font-black text-xs sm:text-sm text-slate-800 capitalize tracking-wide min-w-[130px] text-center">
+              <span className={`px-3.5 py-1 font-black text-xs sm:text-sm capitalize tracking-wide min-w-[130px] text-center ${periodMode === 'ALL' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
                 {capitalizedMonth}
               </span>
 
@@ -2703,6 +2787,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 type="button"
                 onClick={() => {
                   setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+                  setPeriodMode('CUSTOM');
                   setVisibleCount(20);
                 }}
                 className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-white rounded-xl transition-all cursor-pointer"
@@ -2731,30 +2816,74 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   if (e.target.value) {
                     const [y, m] = e.target.value.split('-').map(Number);
                     setCurrentPeriod(new Date(y, m - 1, 1));
+                    setPeriodMode('CUSTOM');
                     setVisibleCount(20);
                   }
                 }}
               />
             </div>
-
-            {/* Quick shortcut to current month */}
-            {(currentPeriod.getFullYear() !== new Date().getFullYear() || currentPeriod.getMonth() !== new Date().getMonth()) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setCurrentPeriod(new Date());
-                  setVisibleCount(20);
-                }}
-                className="text-xs font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-xl transition-all cursor-pointer border border-blue-100"
-              >
-                Mês Atual
-              </button>
-            )}
           </div>
 
-          <div className="text-xs font-bold text-slate-500 flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Mês em Exibição: <strong className="text-slate-800 capitalize">{capitalizedMonth}</strong></span>
+          {/* Quick period shortcuts acoplados */}
+          <div className="flex flex-wrap items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200/60">
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentPeriod(new Date());
+                setPeriodMode('THIS_MONTH');
+                setVisibleCount(20);
+              }}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                periodMode === 'THIS_MONTH'
+                  ? 'bg-white text-blue-600 shadow-2xs font-black'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+              }`}
+            >
+              Este mês
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const now = new Date();
+                setCurrentPeriod(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+                setPeriodMode('LAST_MONTH');
+                setVisibleCount(20);
+              }}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                periodMode === 'LAST_MONTH'
+                  ? 'bg-white text-blue-600 shadow-2xs font-black'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+              }`}
+            >
+              Mês passado
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
+              }}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                periodMode === 'CUSTOM'
+                  ? 'bg-white text-blue-600 shadow-2xs font-black'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+              }`}
+            >
+              Personalizado
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPeriodMode('ALL');
+                setVisibleCount(20);
+              }}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                periodMode === 'ALL'
+                  ? 'bg-white text-blue-600 shadow-2xs font-black'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+              }`}
+            >
+              Tudo
+            </button>
           </div>
         </div>
 
@@ -6493,77 +6622,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 ))}
               </div>
 
-              {/* Period Dropdown & Custom Navigation */}
-              <div className="flex items-center gap-2">
-                <select
-                  value={periodMode}
-                  onChange={(e) => {
-                    setPeriodMode(e.target.value as any);
-                    setVisibleCount(20);
-                  }}
-                  className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-700 outline-none shadow-xs cursor-pointer hover:border-slate-300 transition-all"
-                >
-                  <option value="ALL">Período: Tudo</option>
-                  <option value="THIS_MONTH">Este mês</option>
-                  <option value="LAST_MONTH">Mês passado</option>
-                  <option value="CUSTOM">Personalizado</option>
-                </select>
-
-                {periodMode === 'CUSTOM' && (
-                  <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl relative animate-fadeIn">
-                    <button
-                      onClick={() => {
-                        setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
-                        setVisibleCount(20);
-                      }}
-                      className="p-1 px-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-                      title="Mês Anterior"
-                    >
-                      <ChevronLeft size={16} />
-                    </button>
-
-                    <div
-                      onClick={() => {
-                        monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
-                      }}
-                      className="text-xs font-black uppercase tracking-wider text-slate-800 px-1.5 min-w-[110px] text-center cursor-pointer hover:bg-slate-200 py-1 rounded-lg transition-colors relative flex items-center justify-center"
-                    >
-                      {(() => {
-                        const monthNames = [
-                          'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-                          'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-                        ];
-                        return `${monthNames[currentPeriod.getMonth()]} de ${currentPeriod.getFullYear()}`;
-                      })()}
-                      <input
-                        ref={monthInputRef}
-                        type="month"
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                        value={`${currentPeriod.getFullYear()}-${String(currentPeriod.getMonth() + 1).padStart(2, '0')}`}
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            const [y, m] = e.target.value.split('-').map(Number);
-                            setCurrentPeriod(new Date(y, m - 1, 1));
-                            setVisibleCount(20);
-                          }
-                        }}
-                      />
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        setCurrentPeriod(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
-                        setVisibleCount(20);
-                      }}
-                      className="p-1 px-1.5 text-slate-400 hover:text-slate-600 cursor-pointer"
-                      title="Próximo Mês"
-                    >
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
-                )}
-              </div>
-
               {/* Additional Filter Trigger */}
               <div className="relative">
                 <button
@@ -6573,7 +6631,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <Filter size={14} />
                   <span>Filtrar</span>
                 </button>
-                {(categoryFilter !== 'ALL' || accountFilter !== 'ALL' || periodMode !== 'ALL') && (
+                {(categoryFilter !== 'ALL' || accountFilter !== 'ALL') && (
                   <span
                     id="filter-active-dot"
                     className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border border-white shadow-sm animate-pulse"
@@ -6584,23 +6642,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setIsFilterDropdownOpen(false)} />
                     <div className="absolute left-0 mt-2 w-64 bg-white border border-slate-100 rounded-2xl shadow-xl p-4 z-20 space-y-4">
-                      <div>
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Período</label>
-                        <select
-                          value={periodMode}
-                          onChange={(e) => {
-                            setPeriodMode(e.target.value as any);
-                            setVisibleCount(20);
-                          }}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none cursor-pointer"
-                        >
-                          <option value="ALL">Período: Tudo</option>
-                          <option value="THIS_MONTH">Este mês</option>
-                          <option value="LAST_MONTH">Mês passado</option>
-                          <option value="CUSTOM">Personalizado</option>
-                        </select>
-                      </div>
-
                       <div>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Categoria</label>
                         <select
@@ -7233,6 +7274,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               <Cartoes
                 currentUser={currentUser}
                 accounts={accounts}
+                transactions={transactions}
                 showToast={showToast}
                 onRefreshData={loadFinancialData}
               />
@@ -7308,6 +7350,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         >
                           <option value={TransactionType.INCOME}>Receita</option>
                           <option value={TransactionType.EXPENSE}>Despesa</option>
+                          <option value={TransactionType.TRANSFER}>Transferência entre Contas</option>
                         </select>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
@@ -7337,7 +7380,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Conta Bancária*</label>
+                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">
+                            {newTransaction.type === TransactionType.TRANSFER ? 'Conta Origem (Saída)*' : 'Conta Bancária*'}
+                          </label>
                           {accounts.length === 0 ? (
                             <div className="mt-1 p-3 bg-rose-50 border border-rose-100 rounded-xl text-xs text-rose-700 font-semibold space-y-2">
                               <p>Nenhuma conta cadastrada. Cadastre uma conta antes de lançar.</p>
@@ -7377,17 +7422,38 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           )}
                         </div>
                         <div>
-                          <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Categoria*</label>
-                          <select
-                            className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
-                            value={newTransaction.category_id}
-                            onChange={(e) => setNewTransaction({...newTransaction, category_id: e.target.value})}
-                          >
-                            <option value="">Selecione...</option>
-                            {categories.filter(c => c.type === newTransaction.type).map(c => (
-                              <option key={c.id} value={c.id}>{c.name}</option>
-                            ))}
-                          </select>
+                          {newTransaction.type === TransactionType.TRANSFER ? (
+                            <>
+                              <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Conta Destino (Entrada)*</label>
+                              <select
+                                className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
+                                value={destinationAccountId}
+                                required
+                                onChange={(e) => setDestinationAccountId(e.target.value)}
+                              >
+                                <option value="">Selecione...</option>
+                                {accounts
+                                  .filter(a => a.id !== newTransaction.account_id)
+                                  .map(a => (
+                                    <option key={a.id} value={a.id}>{a.name}</option>
+                                  ))}
+                              </select>
+                            </>
+                          ) : (
+                            <>
+                              <label className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Categoria*</label>
+                              <select
+                                className="w-full bg-slate-50 border border-slate-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium text-slate-700"
+                                value={newTransaction.category_id}
+                                onChange={(e) => setNewTransaction({...newTransaction, category_id: e.target.value})}
+                              >
+                                <option value="">Selecione...</option>
+                                {categories.filter(c => c.type === newTransaction.type).map(c => (
+                                  <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                              </select>
+                            </>
+                          )}
                         </div>
                       </div>
 
@@ -7448,7 +7514,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           }}
                         />
                         <label htmlFor="markAsPaid" className="text-xs font-bold text-slate-700 cursor-pointer select-none">
-                          {newTransaction.type === TransactionType.INCOME ? 'Marcar como Recebido' : 'Marcar como Pago'}
+                          {newTransaction.type === TransactionType.INCOME
+                            ? 'Marcar como Recebido'
+                            : newTransaction.type === TransactionType.TRANSFER
+                            ? 'Marcar como Transferido / Efetivado'
+                            : 'Marcar como Pago'}
                         </label>
                       </div>
 

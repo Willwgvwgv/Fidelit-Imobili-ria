@@ -268,7 +268,12 @@ export const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
           dotClass: 'bg-slate-400'
         };
       }
-      if (tx.notes?.toLowerCase().includes('conciliado') || tx.id.charCodeAt(0) % 3 === 0) {
+      const isReconciled = Boolean(
+        tx.bank_transaction_id ||
+        (tx.settled_by_transaction_id && tx.settled_by_transaction_id.trim() !== '') ||
+        (tx.notes && tx.notes.toLowerCase().includes('conciliado'))
+      );
+      if (isReconciled) {
         return {
           label: 'Conciliado',
           badgeClass: 'bg-blue-50 text-blue-700 border-blue-100',
@@ -281,7 +286,8 @@ export const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
         dotClass: 'bg-emerald-500'
       };
     } else {
-      const isLate = tx.due_date && tx.due_date < '2026-07-09';
+      const todayStr = new Date().toISOString().split('T')[0];
+      const isLate = tx.due_date && tx.due_date < todayStr;
       if (isLate) {
         return {
           label: 'Atrasado',
