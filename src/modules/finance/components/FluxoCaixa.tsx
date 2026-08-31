@@ -950,14 +950,14 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
                             className={`text-[11px] font-bold px-2 py-1 rounded-lg border transition-all ${
                               item.contract_status === 'active'
                                 ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                : item.contract_status === 'inactive'
+                                : item.contract_status === 'ended'
                                 ? 'bg-slate-100 text-slate-700 border-slate-200'
                                 : 'bg-rose-50 text-rose-800 border-rose-200'
                             }`}
                           >
                             <option value="active">● Ativo</option>
-                            <option value="inactive">○ Inativo</option>
-                            <option value="broken">✕ Quebrado / Rescindido</option>
+                            <option value="ended">○ Inativo (Encerrado)</option>
+                            <option value="cancelled">✕ Quebrado / Rescindido</option>
                           </select>
                         </td>
                         <td className="p-3 font-mono text-slate-600">{item.due_date}</td>
