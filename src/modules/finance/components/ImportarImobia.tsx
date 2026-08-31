@@ -164,6 +164,9 @@ export const ImportarImobia: React.FC<ImportarImobiaProps> = ({
           day_of_month: item.day_of_month,
           status: 'active',
           imported_from: 'imobia.app',
+          seguro_locaticio_value: 0,
+          seguro_incendio_value: 0,
+          outras_taxas_value: 0,
         };
 
         const { data: contractData, error: contractErr } = await supabase
@@ -189,6 +192,11 @@ export const ImportarImobia: React.FC<ImportarImobiaProps> = ({
         while (currentIterDate <= endIterDate) {
           const dueDateStr = currentIterDate.toISOString().split('T')[0];
           const expectedFee = item.monthly_rent * (item.brokerage_fee_pct / 100);
+          const seguroLocaticio = Number(contractData.seguro_locaticio_value || 0);
+          const seguroIncendio = Number(contractData.seguro_incendio_value || 0);
+          const outrasTaxas = Number(contractData.outras_taxas_value || 0);
+          // Nova fórmula de repasse para parcelas geradas a partir de agora:
+          const ownerRepasse = item.monthly_rent - expectedFee - seguroLocaticio - seguroIncendio - outrasTaxas;
 
           const installmentPayload = {
             contract_id: contractData.id,
@@ -196,6 +204,13 @@ export const ImportarImobia: React.FC<ImportarImobiaProps> = ({
             due_date: dueDateStr,
             expected_amount: item.monthly_rent,
             expected_fee: expectedFee,
+            owner_repasse_amount: ownerRepasse,
+            seguro_locaticio_amount: seguroLocaticio,
+            seguro_incendio_amount: seguroIncendio,
+            outras_taxas_amount: outrasTaxas,
+            broker_commission_pct: null,
+            broker_commission_amount: 0,
+            broker_commission_launched: false,
             status: currentIterDate < today ? 'overdue' : 'pending',
           };
 

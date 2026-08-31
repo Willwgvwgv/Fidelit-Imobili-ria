@@ -465,6 +465,21 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
         }
       }
 
+      // If matching with a manual financial transaction (expense/revenue), update status to 'PAID'
+      if (cleanMatchType === 'expense' && cleanMatchId) {
+        try {
+          await supabase
+            .from('financial_transactions')
+            .update({
+              status: 'PAID',
+              payment_date: new Date().toISOString().split('T')[0],
+            })
+            .eq('id', cleanMatchId);
+        } catch (expErr) {
+          console.warn('Could not update financial_transactions:', expErr);
+        }
+      }
+
       await fetchTransactions();
       return true;
     } catch (err) {
@@ -587,6 +602,19 @@ export function useBankTransactions(agencyId?: string, selectedAccountId?: strin
               .eq('id', matchId);
           } catch (e) {
             console.warn('Could not reset rent_installments:', e);
+          }
+        } else if (matchType === 'expense') {
+          try {
+            await supabase
+              .from('financial_transactions')
+              .update({
+                status: 'PENDING',
+                payment_date: null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', matchId);
+          } catch (e) {
+            console.warn('Could not reset financial_transactions:', e);
           }
         }
       }
