@@ -89,6 +89,8 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
       icon: <AlertTriangle size={16} />,
       iconBg: 'bg-red-100 text-red-600',
       activeBorder: 'border-2 border-red-500 ring-2 ring-red-100',
+      isGlobalToday: true,
+      timeContext: 'Retrato de hoje • Independente do mês',
     },
     {
       id: 'hoje',
@@ -99,6 +101,8 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
       icon: <Clock size={16} />,
       iconBg: 'bg-amber-100 text-amber-600',
       activeBorder: 'border-2 border-amber-500 ring-2 ring-amber-100',
+      isGlobalToday: true,
+      timeContext: 'Retrato de hoje • Independente do mês',
     },
     {
       id: 'proximos7',
@@ -109,6 +113,8 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
       icon: <Calendar size={16} />,
       iconBg: 'bg-blue-100 text-blue-600',
       activeBorder: 'border-2 border-blue-500 ring-2 ring-blue-100',
+      isGlobalToday: true,
+      timeContext: 'Próximos 7 dias • Independente do mês',
     },
     {
       id: 'avencer',
@@ -119,6 +125,8 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
       icon: <TrendingUp size={16} />,
       iconBg: 'bg-emerald-100 text-emerald-600',
       activeBorder: 'border-2 border-emerald-500 ring-2 ring-emerald-100',
+      isGlobalToday: false,
+      timeContext: `Mês de ${monthName}`,
     },
   ];
 
@@ -192,9 +200,27 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
                 <h3 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
                   {formatCurrency(card.amount)}
                 </h3>
-                <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider mt-1.5">
-                  {card.sub}
-                </p>
+                {card.isGlobalToday ? (
+                  <div className="mt-2 space-y-1">
+                    <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wider">
+                      {card.sub}
+                    </p>
+                    <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-slate-400">
+                      <Clock size={11} className="text-slate-400 shrink-0" />
+                      <span>{card.timeContext}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-2 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200/60 w-fit">
+                      <Calendar size={12} className="text-emerald-600 shrink-0" />
+                      <span>MÊS SELECIONADO: <span className="uppercase font-black text-emerald-800">{monthLabelUpper}</span></span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-emerald-600">
+                      <span>{card.timeContext}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </button>
           );
