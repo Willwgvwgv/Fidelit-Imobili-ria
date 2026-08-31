@@ -22,7 +22,6 @@ import { useBankTransactions, BankTransaction } from '../../../hooks/useBankTran
 import { supabase } from '../../../../supabase';
 import { TransferBadge } from '../../../components/TransferBadge';
 import { HeaderTooltip } from './HeaderTooltip';
-import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
 import { isCreditTransaction, getTransactionValueColor } from '../utils/currency';
 import { formatDateBR } from '../utils/dates';
 import { ConfirmModal } from '../../../components/ui/ConfirmModal';
@@ -863,8 +862,6 @@ export const Conciliacao: React.FC<ConciliacaoProps> = ({
 
   return (
     <div className="space-y-6">
-      <FinancialKpiHeaderCards transactions={transactions} />
-
       {/* Top Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
         <div>

@@ -10,7 +10,12 @@ import {
   AlertTriangle,
   Building2,
   BarChart3,
-  RefreshCw
+  RefreshCw,
+  MoreVertical,
+  CalendarClock,
+  XCircle,
+  CheckCircle,
+  X
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -28,13 +33,15 @@ import { useCashFlow } from '../../../hooks/useCashFlow';
 import { supabase } from '../../../../supabase';
 import { User, FinancialTransaction } from '../../../../types';
 import { HeaderTooltip } from './HeaderTooltip';
-import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
 
 interface RentInstallmentRow {
   id: string;
   contract_id: string;
   due_date: string;
   expected_amount: number;
+  received_amount?: number | null;
+  received_at?: string | null;
+  notes?: string | null;
   status: 'pending' | 'received' | 'overdue' | 'partial' | 'cancelled';
   tenant_name?: string;
   property_address?: string;
@@ -53,6 +60,16 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
 
   const [currentMonthInstallments, setCurrentMonthInstallments] = useState<RentInstallmentRow[]>([]);
   const [loadingInstallments, setLoadingInstallments] = useState(false);
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [actionModal, setActionModal] = useState<{
+    type: 'partial' | 'cancel' | 'reschedule';
+    installment: RentInstallmentRow;
+  } | null>(null);
+  const [partialAmount, setPartialAmount] = useState<string>('');
+  const [partialNotes, setPartialNotes] = useState<string>('');
+  const [cancelReason, setCancelReason] = useState<string>('');
+  const [newDueDate, setNewDueDate] = useState<string>('');
+  const [submittingAction, setSubmittingAction] = useState(false);
 
   // Fetch rent installments for current month
   const loadMonthInstallments = async () => {
@@ -71,6 +88,9 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
           contract_id,
           due_date,
           expected_amount,
+          received_amount,
+          received_at,
+          notes,
           status,
           rent_contracts (
             tenant_name,
@@ -88,6 +108,9 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
         contract_id: item.contract_id,
         due_date: item.due_date,
         expected_amount: Number(item.expected_amount || 0),
+        received_amount: item.received_amount ? Number(item.received_amount) : null,
+        received_at: item.received_at,
+        notes: item.notes,
         status: item.status,
         tenant_name: item.rent_contracts?.tenant_name || 'Inquilino',
         property_address: item.rent_contracts?.property_address || 'Imóvel',
@@ -171,17 +194,19 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
     return result;
   }, [dreMonthly, totalReceivable30d, totalPayable30d]);
 
-  const handleMarkAsReceived = async (installmentId: string) => {
+  const handleMarkAsReceived = async (installment: RentInstallmentRow) => {
     if (!supabase) return;
     try {
+      const hoje = new Date().toISOString().split('T')[0];
       const { error } = await supabase
         .from('rent_installments')
         .update({
           status: 'received',
-          received_at: new Date().toISOString().split('T')[0],
+          received_amount: installment.expected_amount,
+          received_at: hoje,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', installmentId);
+        .eq('id', installment.id);
 
       if (error) throw error;
       if (showToast) showToast('Aluguel marcado como recebido!', 'success');
@@ -193,10 +218,118 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
     }
   };
 
+  const handlePartialPayment = async () => {
+    if (!supabase || !actionModal?.installment) return;
+    const val = parseFloat(partialAmount.replace(',', '.'));
+    if (isNaN(val) || val <= 0) {
+      if (showToast) showToast('Informe um valor recebido válido maior que zero.', 'error');
+      return;
+    }
+    if (val >= actionModal.installment.expected_amount) {
+      if (showToast) showToast('O valor parcial deve ser menor que o valor total esperado.', 'warning');
+      return;
+    }
+
+    setSubmittingAction(true);
+    try {
+      const hoje = new Date().toISOString().split('T')[0];
+      const noteText = partialNotes.trim()
+        ? `Baixa parcial de R$ ${val.toFixed(2)}. Obs: ${partialNotes.trim()}`
+        : `Baixa parcial de R$ ${val.toFixed(2)}`;
+
+      const { error } = await supabase
+        .from('rent_installments')
+        .update({
+          status: 'partial',
+          received_amount: val,
+          received_at: hoje,
+          notes: noteText,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', actionModal.installment.id);
+
+      if (error) throw error;
+      if (showToast) showToast('Baixa parcial registrada com sucesso!', 'success');
+      setActionModal(null);
+      loadMonthInstallments();
+      fetchAllCashFlowData();
+    } catch (err) {
+      console.error('Erro ao registrar baixa parcial:', err);
+      if (showToast) showToast('Erro ao registrar baixa parcial.', 'error');
+    } finally {
+      setSubmittingAction(false);
+    }
+  };
+
+  const handleCancelInstallment = async () => {
+    if (!supabase || !actionModal?.installment) return;
+    if (!cancelReason.trim()) {
+      if (showToast) showToast('Por favor, informe o motivo do cancelamento.', 'warning');
+      return;
+    }
+
+    setSubmittingAction(true);
+    try {
+      const { error } = await supabase
+        .from('rent_installments')
+        .update({
+          status: 'cancelled',
+          notes: `Cancelada: ${cancelReason.trim()}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', actionModal.installment.id);
+
+      if (error) throw error;
+      if (showToast) showToast('Parcela cancelada com sucesso.', 'success');
+      setActionModal(null);
+      loadMonthInstallments();
+      fetchAllCashFlowData();
+    } catch (err) {
+      console.error('Erro ao cancelar parcela:', err);
+      if (showToast) showToast('Erro ao cancelar parcela.', 'error');
+    } finally {
+      setSubmittingAction(false);
+    }
+  };
+
+  const handleRescheduleDueDate = async () => {
+    if (!supabase || !actionModal?.installment) return;
+    if (!newDueDate) {
+      if (showToast) showToast('Selecione a nova data de vencimento.', 'warning');
+      return;
+    }
+
+    setSubmittingAction(true);
+    try {
+      const hoje = new Date().toISOString().split('T')[0];
+      const isPast = newDueDate < hoje;
+      const newStatus = isPast ? 'overdue' : 'pending';
+
+      const { error } = await supabase
+        .from('rent_installments')
+        .update({
+          due_date: newDueDate,
+          status: newStatus,
+          notes: `Vencimento renegociado de ${actionModal.installment.due_date} para ${newDueDate}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', actionModal.installment.id);
+
+      if (error) throw error;
+      if (showToast) showToast(`Vencimento alterado para ${newDueDate} (${isPast ? 'Atrasado' : 'Pendente'}).`, 'success');
+      setActionModal(null);
+      loadMonthInstallments();
+      fetchAllCashFlowData();
+    } catch (err) {
+      console.error('Erro ao alterar vencimento:', err);
+      if (showToast) showToast('Erro ao alterar vencimento.', 'error');
+    } finally {
+      setSubmittingAction(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <FinancialKpiHeaderCards transactions={transactions} />
-
       {/* Header */}
       <div className="flex items-center justify-between bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
         <div>
@@ -379,6 +512,8 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
               <tbody className="divide-y divide-slate-100">
                 {currentMonthInstallments.map((item) => {
                   const isReceived = item.status === 'received';
+                  const isPartial = item.status === 'partial';
+                  const isCancelled = item.status === 'cancelled';
                   const isOverdue = item.status === 'overdue' || (item.status === 'pending' && new Date(item.due_date) < new Date());
 
                   return (
@@ -388,28 +523,104 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
                       <td className="p-3 font-mono text-slate-600">{item.due_date}</td>
                       <td className="p-3 font-bold text-right text-slate-900">
                         R$ {item.expected_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        {isPartial && item.received_amount && (
+                          <div className="text-[10px] font-medium text-indigo-600">
+                            Recebido: R$ {item.received_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </div>
+                        )}
                       </td>
                       <td className="p-3 text-center">
                         <span
                           className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
                             isReceived
                               ? 'bg-[#d1fae5] text-[#065f46]'
+                              : isPartial
+                              ? 'bg-indigo-100 text-indigo-800'
+                              : isCancelled
+                              ? 'bg-slate-100 text-slate-600 line-through'
                               : isOverdue
                               ? 'bg-[#fee2e2] text-[#991b1b]'
                               : 'bg-[#fef3c7] text-[#92400e]'
                           }`}
+                          title={item.notes || undefined}
                         >
-                          {isReceived ? 'Recebido' : isOverdue ? 'Atrasado' : 'Pendente'}
+                          {isReceived
+                            ? 'Recebido'
+                            : isPartial
+                            ? 'Parcial'
+                            : isCancelled
+                            ? 'Cancelada'
+                            : isOverdue
+                            ? 'Atrasado'
+                            : 'Pendente'}
                         </span>
                       </td>
-                      <td className="p-3 text-center">
-                        {!isReceived && (
-                          <button
-                            onClick={() => handleMarkAsReceived(item.id)}
-                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl transition-all shadow-2xs cursor-pointer"
-                          >
-                            Dar Baixa
-                          </button>
+                      <td className="p-3 text-center relative">
+                        {!isReceived && !isCancelled && (
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => handleMarkAsReceived(item)}
+                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-lg transition-all shadow-2xs cursor-pointer"
+                              title="Dar Baixa Integral"
+                            >
+                              Dar Baixa
+                            </button>
+                            <div className="relative">
+                              <button
+                                onClick={() => setActiveMenuId(activeMenuId === item.id ? null : item.id)}
+                                className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-all cursor-pointer"
+                                title="Mais Ações"
+                              >
+                                <MoreVertical size={14} />
+                              </button>
+
+                              {activeMenuId === item.id && (
+                                <>
+                                  <div
+                                    className="fixed inset-0 z-10"
+                                    onClick={() => setActiveMenuId(null)}
+                                  />
+                                  <div className="absolute right-0 mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1 text-left">
+                                    <button
+                                      onClick={() => {
+                                        setActiveMenuId(null);
+                                        setPartialAmount('');
+                                        setPartialNotes('');
+                                        setActionModal({ type: 'partial', installment: item });
+                                      }}
+                                      className="w-full px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <DollarSign size={13} className="text-indigo-600" />
+                                      <span>Baixa Parcial</span>
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setActiveMenuId(null);
+                                        setNewDueDate(item.due_date);
+                                        setActionModal({ type: 'reschedule', installment: item });
+                                      }}
+                                      className="w-full px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <CalendarClock size={13} className="text-amber-600" />
+                                      <span>Alterar Vencimento</span>
+                                    </button>
+                                    <div className="border-t border-slate-100 my-1" />
+                                    <button
+                                      onClick={() => {
+                                        setActiveMenuId(null);
+                                        setCancelReason('');
+                                        setActionModal({ type: 'cancel', installment: item });
+                                      }}
+                                      className="w-full px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center gap-2 cursor-pointer"
+                                    >
+                                      <XCircle size={13} className="text-red-500" />
+                                      <span>Cancelar Parcela</span>
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -420,6 +631,200 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
           </div>
         )}
       </div>
+
+      {/* Modal de Ações de Parcela: Baixa Parcial, Cancelamento, Alteração de Vencimento */}
+      {actionModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-150">
+            
+            {/* Cabeçalho do Modal */}
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2">
+                {actionModal.type === 'partial' && (
+                  <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                    <DollarSign size={18} />
+                  </div>
+                )}
+                {actionModal.type === 'reschedule' && (
+                  <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+                    <CalendarClock size={18} />
+                  </div>
+                )}
+                {actionModal.type === 'cancel' && (
+                  <div className="p-2 bg-red-50 text-red-600 rounded-xl">
+                    <XCircle size={18} />
+                  </div>
+                )}
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {actionModal.type === 'partial' && 'Registrar Baixa Parcial'}
+                    {actionModal.type === 'reschedule' && 'Alterar Vencimento'}
+                    {actionModal.type === 'cancel' && 'Cancelar Parcela'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {actionModal.installment.tenant_name} • {actionModal.installment.property_address}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActionModal(null)}
+                disabled={submittingAction}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-all cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Resumo da Parcela */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-4 text-xs text-slate-600 flex justify-between items-center">
+              <div>
+                <span className="text-slate-400 block text-[11px]">Vencimento Atual</span>
+                <span className="font-semibold text-slate-700">{actionModal.installment.due_date}</span>
+              </div>
+              <div className="text-right">
+                <span className="text-slate-400 block text-[11px]">Valor Esperado</span>
+                <span className="font-bold text-slate-900 text-sm">
+                  R$ {actionModal.installment.expected_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
+            {/* Formulário Tipo: Baixa Parcial */}
+            {actionModal.type === 'partial' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Valor Recebido Parcial (R$) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    max={actionModal.installment.expected_amount - 0.01}
+                    value={partialAmount}
+                    onChange={(e) => setPartialAmount(e.target.value)}
+                    placeholder="Ex: 1500.00"
+                    autoFocus
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Deve ser menor que R$ {actionModal.installment.expected_amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Observação (Opcional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={partialNotes}
+                    onChange={(e) => setPartialNotes(e.target.value)}
+                    placeholder="Ex: Pagou 50% hoje, saldo restante prometido para o dia 15"
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden resize-none"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Formulário Tipo: Alterar Vencimento */}
+            {actionModal.type === 'reschedule' && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Nova Data de Vencimento *
+                  </label>
+                  <input
+                    type="date"
+                    value={newDueDate}
+                    onChange={(e) => setNewDueDate(e.target.value)}
+                    autoFocus
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                  />
+                  {newDueDate && (
+                    <p className="text-[11px] mt-1 text-slate-500">
+                      {newDueDate < new Date().toISOString().split('T')[0] ? (
+                        <span className="text-red-600 font-medium">⚠️ Data retroativa: a parcela será marcada como Atrasada.</span>
+                      ) : (
+                        <span className="text-emerald-600 font-medium">✓ A parcela ficará com status Pendente.</span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Formulário Tipo: Cancelar Parcela */}
+            {actionModal.type === 'cancel' && (
+              <div className="space-y-3">
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800">
+                  Atenção: Cancelar a parcela desativa a cobrança no fluxo de caixa. O motivo ficará registrado no histórico.
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Motivo do Cancelamento *
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="Ex: Rescisão contratual antecipada, Isenção acordada em aditivo..."
+                    autoFocus
+                    className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:outline-hidden resize-none"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Rodapé / Botões de Ação */}
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100 mt-5">
+              <button
+                type="button"
+                onClick={() => setActionModal(null)}
+                disabled={submittingAction}
+                className="px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 rounded-xl transition-all cursor-pointer"
+              >
+                Fechar
+              </button>
+
+              {actionModal.type === 'partial' && (
+                <button
+                  type="button"
+                  onClick={handlePartialPayment}
+                  disabled={submittingAction || !partialAmount}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <CheckCircle size={14} />
+                  {submittingAction ? 'Gravando...' : 'Confirmar Baixa Parcial'}
+                </button>
+              )}
+
+              {actionModal.type === 'reschedule' && (
+                <button
+                  type="button"
+                  onClick={handleRescheduleDueDate}
+                  disabled={submittingAction || !newDueDate}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <CalendarClock size={14} />
+                  {submittingAction ? 'Gravando...' : 'Confirmar Novo Vencimento'}
+                </button>
+              )}
+
+              {actionModal.type === 'cancel' && (
+                <button
+                  type="button"
+                  onClick={handleCancelInstallment}
+                  disabled={submittingAction || !cancelReason.trim()}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-semibold text-xs rounded-xl transition-all shadow-xs cursor-pointer flex items-center gap-1.5"
+                >
+                  <XCircle size={14} />
+                  {submittingAction ? 'Cancelando...' : 'Confirmar Cancelamento'}
+                </button>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 };

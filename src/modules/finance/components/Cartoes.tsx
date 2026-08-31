@@ -4,7 +4,6 @@ import { supabase } from '../../../../supabase';
 import { User, FinancialAccount, FinancialTransaction, TransactionStatus } from '../../../../types';
 import { useAccountTransfers } from '../../../hooks/useAccountTransfers';
 import { HeaderTooltip } from './HeaderTooltip';
-import { FinancialKpiHeaderCards } from './FinancialKpiHeaderCards';
 import * as InvoiceDomain from '../domain/InvoiceCalculator';
 import { InvoiceStatus } from '../constants';
 
@@ -239,8 +238,6 @@ export const Cartoes: React.FC<CartoesProps> = ({
 
   return (
     <div className="space-y-6">
-      <FinancialKpiHeaderCards transactions={transactions} />
-
       {/* Header */}
       <div className="flex items-center justify-between bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
         <div>

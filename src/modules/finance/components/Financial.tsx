@@ -40,7 +40,6 @@ import {
   Sparkles,
   Zap,
   X,
-  Receipt,
   Activity,
   FileDown,
   ArrowLeft,
@@ -409,8 +408,132 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return calcAccountLiveBalance(account, transactions);
   };
 
-  // Accounts payable and receivable states
-  const [pagamentosTab, setPagamentosTab] = useState<'todas' | 'pagar' | 'receber' | 'vencidos'>('todas');
+  // Helper to calculate interest and penalty for overdue pending rent income
+  const calculateInterestAndPenalty = (tx: FinancialTransaction) => {
+    const hoje = getLocalTodayStr();
+    if (tx.status !== TransactionStatus.PENDING || tx.type !== TransactionType.INCOME || !tx.due_date || tx.due_date >= hoje) {
+      return null;
+    }
+
+    // Não deve rodar para transferências internas
+    if (tx.is_transfer || tx.transfer_group_id) {
+      return null;
+    }
+
+    // Validação estrita de categoria: deve ser INCOME e conter "aluguel" no nome
+    const category = categories.find(c => c.id === tx.category_id);
+    if (!category) {
+      return null;
+    }
+
+    const catNameLower = category.name.toLowerCase();
+    if (!catNameLower.includes('aluguel')) {
+      return null;
+    }
+
+    // Proteção adicional contra ajustes de caixa ou descrições de transferências
+    const descLower = (tx.description || '').toLowerCase();
+    if (descLower.includes('ajuste de caixa') || descLower.includes('transferência') || descLower.includes('transferencia')) {
+      return null;
+    }
+
+    const t1 = new Date(hoje + 'T12:00:00').getTime();
+    const t2 = new Date(tx.due_date + 'T12:00:00').getTime();
+    const diasAtraso = Math.floor((t1 - t2) / (1000 * 60 * 60 * 24));
+    if (diasAtraso <= 0) return null;
+
+    const multaValor = tx.amount * 0.10; // 10% multa moratória
+    const jurosValor = tx.amount * (0.00033 * diasAtraso); // 1% ao mês pro-rata dia
+    const acrescimoTotal = multaValor + jurosValor;
+    const totalComJuros = tx.amount + acrescimoTotal;
+
+    return {
+      diasAtraso,
+      multaValor,
+      jurosValor,
+      acrescimoTotal,
+      totalComJuros
+    };
+  };
+
+  const [launchingPenaltyId, setLaunchingPenaltyId] = useState<string | null>(null);
+
+  const handleCreatePenaltyTransaction = async (
+    originalTx: FinancialTransaction,
+    info: { diasAtraso: number; multaValor: number; jurosValor: number; acrescimoTotal: number }
+  ) => {
+    if (!supabase) {
+      showToast('Conexão com o banco de dados indisponível.', 'error');
+      return;
+    }
+
+    setLaunchingPenaltyId(originalTx.id);
+    try {
+      const hoje = getLocalTodayStr();
+
+      // 1. Resolve or create dedicated category for Multas e Juros Recebidos
+      let penaltyCategoryId = '';
+      const existingPenaltyCat = categories.find(
+        c => c.type === TransactionType.INCOME &&
+        (c.name.toLowerCase().includes('multa') || c.name.toLowerCase().includes('juros'))
+      );
+
+      if (existingPenaltyCat) {
+        penaltyCategoryId = existingPenaltyCat.id;
+      } else {
+        // Create new dedicated category
+        const { data: newCatData, error: catError } = await supabase
+          .from('financial_categories')
+          .insert([{
+            name: 'Multas e Juros Recebidos',
+            type: TransactionType.INCOME,
+            description: 'Receitas provenientes de multas contratuais e juros de mora por atraso de pagamento'
+          }])
+          .select();
+
+        if (catError) {
+          console.error('Error creating dedicated penalty category:', catError);
+        } else if (newCatData && newCatData.length > 0) {
+          penaltyCategoryId = newCatData[0].id;
+          await loadCategories();
+        }
+      }
+
+      const penaltyPayload = {
+        type: TransactionType.INCOME,
+        amount: Math.round(info.acrescimoTotal * 100) / 100,
+        description: `Multa/Juros — ${originalTx.description} — atraso de ${info.diasAtraso} ${info.diasAtraso === 1 ? 'dia' : 'dias'}`,
+        account_id: originalTx.account_id || null,
+        category_id: penaltyCategoryId || null,
+        contact_name: originalTx.contact_name || null,
+        status: TransactionStatus.PENDING,
+        due_date: hoje,
+        notes: `Multa (10% = ${formatCurrency(info.multaValor)}) + Juros (${info.diasAtraso}d = ${formatCurrency(info.jurosValor)}) ref. ao lançamento original [ORIGINAL_TX:${originalTx.id}]`
+      };
+
+      const { data, error } = await supabase
+        .from('financial_transactions')
+        .insert([penaltyPayload])
+        .select();
+
+      if (error) {
+        console.error('Error creating penalty transaction:', error);
+        showToast('Erro ao lançar multa/juros: ' + error.message, 'error');
+      } else {
+        showToast('Multa/Juros lançada com sucesso!', 'success');
+        if (data && data.length > 0) {
+          setTransactions(prev => [data[0], ...prev]);
+        }
+        loadFinancialData();
+      }
+    } catch (err: any) {
+      console.error('Error in handleCreatePenaltyTransaction:', err);
+      showToast('Erro ao lançar multa/juros.', 'error');
+    } finally {
+      setLaunchingPenaltyId(null);
+    }
+  };
+
   const [localActiveView, setLocalActiveView] = useState<string>(activeView);
   const [selectedAccountIdForDetail, setSelectedAccountIdForDetail] = useState<string | null>(null);
   const [centroCustoTab, setCentroCustoTab] = useState<'todos' | 'despesas' | 'receitas'>('todos');
@@ -2965,6 +3088,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   const category = categories.find(c => c.id === tx.category_id);
                   const account = accounts.find(a => a.id === tx.account_id);
                   const isPaid = tx.status === TransactionStatus.PAID;
+                  const interestInfo = calculateInterestAndPenalty(tx);
 
                   return (
                     <tr key={tx.id} className="hover:bg-slate-50/50 transition-all group">
@@ -2993,6 +3117,35 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                             <span className="inline-flex items-center gap-1 text-[9px] font-black text-blue-600 bg-blue-50/50 border border-blue-100/50 px-1.5 py-0.5 rounded-md uppercase tracking-wider select-none">
                               🔁 Recorrente
                             </span>
+                          </div>
+                        )}
+                        {interestInfo && (
+                          <div className="mt-2 text-[11px] font-medium text-red-700 flex flex-wrap items-center gap-2 bg-[#fee2e2] px-2.5 py-1.5 rounded-lg border border-[#fca5a5] w-fit">
+                            <div className="flex items-center gap-1.5">
+                              <AlertCircle size={13} className="flex-shrink-0 text-red-600" />
+                              <span>Atraso de {interestInfo.diasAtraso} {interestInfo.diasAtraso === 1 ? 'dia' : 'dias'}: Multa (10%) {formatCurrency(interestInfo.multaValor)} / Juros {formatCurrency(interestInfo.jurosValor)} / Acréscimo {formatCurrency(interestInfo.acrescimoTotal)}</span>
+                            </div>
+                            {(() => {
+                              const alreadyLaunched = transactions.some(t => t.notes && t.notes.includes(`[ORIGINAL_TX:${tx.id}]`));
+                              if (alreadyLaunched) {
+                                return (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-md">
+                                    ✓ Multa/Juros já lançada
+                                  </span>
+                                );
+                              }
+                              return (
+                                <button
+                                  type="button"
+                                  disabled={launchingPenaltyId === tx.id}
+                                  onClick={() => handleCreatePenaltyTransaction(tx, interestInfo)}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-[10px] font-bold rounded-md transition-all shadow-xs cursor-pointer"
+                                >
+                                  <PlusCircle size={11} />
+                                  {launchingPenaltyId === tx.id ? 'Lançando...' : 'Lançar Multa/Juros'}
+                                </button>
+                              );
+                            })()}
                           </div>
                         )}
                         {((tx as any).ofx_fitid?.startsWith('MANUAL-') || (tx as any).transfer_id) && (
@@ -3667,343 +3820,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             </div>
           </div>
 
-        </div>
-      </div>
-    );
-  };
-
-  const renderContasPagarReceber = () => {
-    const hoje = getLocalTodayStr();
-
-    // Helper to calculate difference in days
-    const getDaysDiff = (d1Str: string, d2Str: string): number => {
-      if (!d1Str || !d2Str) return 0;
-      const t1 = new Date(d1Str + 'T12:00:00').getTime();
-      const t2 = new Date(d2Str + 'T12:00:00').getTime();
-      return Math.floor((t1 - t2) / (1000 * 60 * 60 * 24));
-    };
-
-    // Helper for formatting dates cleanly
-    const formatDateStr = (dateStr: string) => {
-      if (!dateStr) return '';
-      const parts = dateStr.split('-');
-      if (parts.length === 3) {
-        return `${parts[2]}/${parts[1]}/${parts[0]}`;
-      }
-      return formatDateBR(dateStr);
-    };
-
-    // Helper to calculate interest and penalty
-    const calculateInterest = (amount: number, dueDateStr: string, status: TransactionStatus, type: TransactionType) => {
-      if (status !== TransactionStatus.PENDING || type !== TransactionType.EXPENSE || dueDateStr >= hoje) {
-        return null;
-      }
-      const diasAtraso = getDaysDiff(hoje, dueDateStr);
-      if (diasAtraso <= 0) return null;
-
-      const multaValor = amount * 0.02;
-      const jurosValor = amount * (0.00033 * diasAtraso);
-      const totalComJuros = amount + multaValor + jurosValor;
-
-      return {
-        diasAtraso,
-        multaValor,
-        jurosValor,
-        totalComJuros
-      };
-    };
-
-    const handleQuickPay = async (tx: FinancialTransaction) => {
-      const success = await supabaseService.updateTransactionStatus(tx.id, TransactionStatus.PAID);
-      if (success) {
-        showToast('Lançamento liquidado com sucesso!', 'success');
-        loadFinancialData();
-      } else {
-        setTransactions(prev => prev.map(t => t.id === tx.id ? { ...t, status: TransactionStatus.PAID, payment_date: hoje } : t));
-        showToast('Lançamento liquidado localmente!', 'success');
-      }
-    };
-
-    const handlePostponeTransaction = async (tx: FinancialTransaction) => {
-      const currentDueDate = new Date(tx.due_date + 'T12:00:00');
-      currentDueDate.setDate(currentDueDate.getDate() + 7);
-      const newDueDateStr = currentDueDate.toISOString().split('T')[0];
-
-      if (supabase) {
-        const { error } = await supabase
-          .from('financial_transactions')
-          .update({ due_date: newDueDateStr })
-          .eq('id', tx.id);
-
-        if (error) {
-          console.error('Error postponing transaction:', error);
-          showToast('Erro ao adiar lançamento.', 'error');
-        } else {
-          showToast(`Vencimento adiado para ${formatDateStr(newDueDateStr)}!`, 'success');
-          loadFinancialData();
-        }
-      } else {
-        setTransactions(prev => prev.map(t => t.id === tx.id ? { ...t, due_date: newDueDateStr } : t));
-        showToast(`Vencimento adiado localmente para ${formatDateStr(newDueDateStr)}!`, 'success');
-      }
-    };
-
-    // Compute KPI cards totals
-    const txsVencidas = transactions.filter(t => t.status === TransactionStatus.PENDING && t.due_date < hoje && t.type === TransactionType.EXPENSE);
-    const txsHoje = transactions.filter(t => t.status === TransactionStatus.PENDING && t.due_date === hoje && t.type === TransactionType.EXPENSE);
-    const txsSeteDias = transactions.filter(t => t.status === TransactionStatus.PENDING && t.type === TransactionType.EXPENSE && getDaysDiff(t.due_date, hoje) > 0 && getDaysDiff(t.due_date, hoje) <= 7);
-    const txsAReceber = transactions.filter(t => t.type === TransactionType.INCOME && t.status === TransactionStatus.PENDING);
-
-    const countVencidas = txsVencidas.length;
-    const sumVencidas = txsVencidas.reduce((a, b) => a + b.amount, 0);
-
-    const countHoje = txsHoje.length;
-    const sumHoje = txsHoje.reduce((a, b) => a + b.amount, 0);
-
-    const countSeteDias = txsSeteDias.length;
-    const sumSeteDias = txsSeteDias.reduce((a, b) => a + b.amount, 0);
-
-    const countAReceber = txsAReceber.length;
-    const sumAReceber = txsAReceber.reduce((a, b) => a + b.amount, 0);
-
-    // Apply filters based on pagamentosTab and search term
-    const filteredList = transactions.filter(t => {
-      // Search filter
-      if (searchTerm.trim() !== '') {
-        const term = searchTerm.toLowerCase();
-        const descMatches = t.description.toLowerCase().includes(term);
-        const catName = categories.find(c => c.id === t.category_id)?.name.toLowerCase() || '';
-        const accName = accounts.find(a => a.id === t.account_id)?.name.toLowerCase() || '';
-        if (!descMatches && !catName.includes(term) && !accName.includes(term)) {
-          return false;
-        }
-      }
-
-      // Tab filter
-      if (pagamentosTab === 'pagar') {
-        return t.type === TransactionType.EXPENSE && t.status === TransactionStatus.PENDING;
-      }
-      if (pagamentosTab === 'receber') {
-        return t.type === TransactionType.INCOME && t.status === TransactionStatus.PENDING;
-      }
-      if (pagamentosTab === 'vencidos') {
-        return t.status === TransactionStatus.PENDING && t.due_date < hoje;
-      }
-
-      // If 'todas' tab, show all pending, plus paid transactions that are in the current month/year
-      if (t.status === TransactionStatus.PENDING) {
-        return true;
-      } else {
-        const parts = t.due_date.split('-');
-        if (parts.length >= 2) {
-          const txYear = parseInt(parts[0], 10);
-          const txMonth = parseInt(parts[1], 10) - 1;
-          return txYear === currentPeriod.getFullYear() && txMonth === currentPeriod.getMonth();
-        }
-        return false;
-      }
-    });
-
-    // Grouping
-    const groups: { [key: string]: { title: string; colorClass: string; transactions: FinancialTransaction[] } } = {
-      vencidos: { title: 'Vencidos', colorClass: 'bg-[#fee2e2] border-[#fca5a5] text-[#991b1b]', transactions: [] },
-      hoje: { title: 'Vence Hoje', colorClass: 'bg-[#fef3c7] border-[#fde68a] text-[#92400e]', transactions: [] },
-      proximos7: { title: 'Próximos 7 Dias', colorClass: 'bg-[#fef3c7] border-[#fde68a] text-[#92400e]', transactions: [] },
-      futuro: { title: 'Futuro', colorClass: 'bg-[#f1f5f9] border-slate-200 text-[#475569]', transactions: [] },
-      liquidadas: { title: 'Liquidadas', colorClass: 'bg-[#d1fae5] border-[#a7f3d0] text-[#065f46]', transactions: [] },
-    };
-
-    filteredList.forEach(t => {
-      if (t.status === TransactionStatus.PAID) {
-        groups.liquidadas.transactions.push(t);
-      } else if (t.due_date < hoje) {
-        groups.vencidos.transactions.push(t);
-      } else if (t.due_date === hoje) {
-        groups.hoje.transactions.push(t);
-      } else if (getDaysDiff(t.due_date, hoje) > 0 && getDaysDiff(t.due_date, hoje) <= 7) {
-        groups.proximos7.transactions.push(t);
-      } else {
-        groups.futuro.transactions.push(t);
-      }
-    });
-
-    // Sort within groups
-    groups.vencidos.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
-    groups.hoje.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
-    groups.proximos7.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
-    groups.futuro.transactions.sort((a, b) => a.due_date.localeCompare(b.due_date));
-    groups.liquidadas.transactions.sort((a, b) => (b.payment_date || b.due_date).localeCompare(a.payment_date || a.due_date));
-
-    const totalVisibleTxs = Object.values(groups).reduce((acc, g) => acc + g.transactions.length, 0);
-
-    return (
-      <div className="space-y-8">
-        {/* KPI Cards */}
-        <FinancialKpiHeaderCards transactions={transactions} />
-
-        {/* Tabs of Filter */}
-        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-          <div className="flex gap-4">
-            {(['todas', 'pagar', 'receber', 'vencidos'] as const).map(tab => (
-              <button
-                key={tab}
-                onClick={() => setPagamentosTab(tab)}
-                className={`pb-3 text-xs font-semibold uppercase tracking-wide border-b-2 px-4 transition-all cursor-pointer ${
-                  pagamentosTab === tab ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                {tab === 'todas' ? 'Todas' : tab === 'pagar' ? 'A Pagar' : tab === 'receber' ? 'A Receber' : 'Vencidos'}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* List of Grouped transactions */}
-        <div className="space-y-6">
-          {totalVisibleTxs === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-200 p-12 shadow-2xs text-center flex flex-col items-center justify-center space-y-4">
-              <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-full flex items-center justify-center">
-                <CheckSquare size={24} />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-base font-bold text-slate-900">Nenhum lançamento encontrado</h3>
-                <p className="text-xs text-slate-500 font-normal">Nenhum vencimento corresponde aos filtros selecionados.</p>
-              </div>
-            </div>
-          ) : (
-            ['vencidos', 'hoje', 'proximos7', 'futuro', 'liquidadas'].map(groupKey => {
-              const grp = groups[groupKey];
-              if (grp.transactions.length === 0) return null;
-
-              return (
-                <div key={groupKey} className="space-y-3">
-                  <div className={`px-3 py-1 rounded-full border text-xs font-semibold w-fit shadow-2xs ${grp.colorClass}`}>
-                    {grp.title} ({grp.transactions.length})
-                  </div>
-
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden divide-y divide-slate-100">
-                    {grp.transactions.map(tx => {
-                      const category = categories.find(c => c.id === tx.category_id);
-                      const account = accounts.find(a => a.id === tx.account_id);
-                      const isIncome = isCreditTransaction(tx, category);
-                      const isPaid = tx.status === TransactionStatus.PAID;
-                      const isOverdue = tx.status === TransactionStatus.PENDING && tx.due_date < hoje;
-                      const isToday = tx.status === TransactionStatus.PENDING && tx.due_date === hoje;
-                      const interestInfo = calculateInterest(tx.amount, tx.due_date, tx.status, tx.type);
-
-                      return (
-                        <div key={tx.id} className="p-4 hover:bg-slate-50/60 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4">
-                          <div className="flex items-start gap-3.5 flex-1">
-                            <div className={`w-9 h-9 rounded-xl ${isIncome ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'} flex items-center justify-center font-bold flex-shrink-0`}>
-                              {isIncome ? <ArrowUpRight size={18} /> : <ArrowDownRight size={18} />}
-                            </div>
-                            <div className="space-y-1">
-                              <div className="flex items-center flex-wrap gap-2">
-                                <span className="text-sm font-bold text-slate-900 tracking-tight">{tx.description}</span>
-                                {tx.installment_number && tx.total_installments && (
-                                  <span className="text-[11px] bg-slate-100 text-slate-600 border border-slate-200 font-medium px-2 py-0.5 rounded-full">
-                                    Parcela {tx.installment_number}/{tx.total_installments}
-                                  </span>
-                                )}
-                                {tx.recurrence_group_id && (
-                                  <span className="text-[11px] font-medium text-slate-600 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full select-none">
-                                    🔁 Recorrente
-                                  </span>
-                                )}
-                              </div>
-                              {tx.contact_name && (
-                                <p className="text-xs text-slate-500 font-medium">{tx.contact_name}</p>
-                              )}
-                              <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500 font-medium">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                                    {category?.name || 'Sem Categoria'}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  <Wallet size={12} className="text-slate-400" />
-                                  <span>{account?.name || 'Sem Conta'}</span>
-                                </div>
-                              </div>
-
-                              {interestInfo && (
-                                <div className="mt-2 text-xs font-medium text-red-700 flex items-center gap-1.5 bg-[#fee2e2] px-3 py-1.5 rounded-xl border border-[#fca5a5] w-fit">
-                                  <AlertCircle size={14} />
-                                  <span>Atraso de {interestInfo.diasAtraso} {interestInfo.diasAtraso === 1 ? 'dia' : 'dias'}: Multa: {formatCurrency(interestInfo.multaValor)} | Juros: {formatCurrency(interestInfo.jurosValor)} | Total: {formatCurrency(interestInfo.totalComJuros)}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between md:justify-end gap-4 flex-shrink-0">
-                            <div className="text-left sm:text-right">
-                              <p className={`text-sm font-bold whitespace-nowrap ${isIncome ? 'text-emerald-700' : 'text-red-700'}`}>{formatCurrency(tx.amount)}</p>
-                              <div className="flex items-center gap-1.5 text-xs text-slate-500 font-normal mt-0.5">
-                                <Calendar size={12} />
-                                <span>Vence em {formatDateStr(tx.due_date)}</span>
-                              </div>
-                            </div>
-
-                            <div>
-                              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                isPaid
-                                  ? 'bg-[#d1fae5] text-[#065f46]'
-                                  : isOverdue
-                                    ? 'bg-[#fee2e2] text-[#991b1b]'
-                                    : 'bg-[#fef3c7] text-[#92400e]'
-                              }`}>
-                                {isPaid
-                                  ? 'Liquidado'
-                                  : isOverdue
-                                    ? 'Vencido'
-                                    : isToday
-                                      ? 'Hoje'
-                                      : 'Pendente'}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center gap-1.5">
-                              {!isPaid && (
-                                <>
-                                  <button
-                                    onClick={() => handleQuickPay(tx)}
-                                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Check size={12} /> Liquidar
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      setConfirmModalTitle('Adiar Vencimento');
-                                      setConfirmModalMessage(`Deseja adiar o vencimento do lançamento "${tx.description}" em 7 dias?`);
-                                      setConfirmModalConfirmText('Adiar');
-                                      setConfirmModalConfirmColor('bg-blue-600 hover:bg-blue-700 text-white');
-                                      setOnConfirmAction(() => () => {
-                                        handlePostponeTransaction(tx);
-                                      });
-                                      setConfirmModalOpen(true);
-                                    }}
-                                    className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Clock size={12} /> Adiar
-                                  </button>
-                                </>
-                              )}
-                              <button
-                                onClick={() => handleEditTransactionClick(tx)}
-                                className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
-                              >
-                                <Sliders size={12} /> Detalhes
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })
-          )}
         </div>
       </div>
     );
@@ -7015,69 +6831,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           </>
         )}
 
-        {/* Contas a Pagar / Receber */}
-        {localActiveView === 'financial-pagamentos' && (
-          <>
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-xs font-black uppercase text-slate-400 tracking-wider flex items-center gap-1 mr-2">
-                <Receipt size={14} /> Contas a Pagar/Receber
-              </span>
-
-              {/* Tab Filter */}
-              <div className="flex bg-slate-100 p-1 rounded-xl">
-                {(['todas', 'pagar', 'receber', 'vencidas'] as const).map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => setPagamentosTab(tab)}
-                    className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider transition-all cursor-pointer rounded-lg ${
-                      pagamentosTab === tab
-                        ? 'bg-white text-slate-800 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    {tab === 'todas' ? 'Todas' : tab === 'pagar' ? 'A Pagar' : tab === 'receber' ? 'A Receber' : 'Vencidas'}
-                  </button>
-                ))}
-              </div>
-
-              {/* Search Input */}
-              <div className="relative min-w-[200px]">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Pesquisar lançamentos..."
-                  className="pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-blue-100 transition-all font-medium"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setNewTransaction({...newTransaction, type: TransactionType.EXPENSE, status: TransactionStatus.PENDING});
-                  setModalType('transaction');
-                  setIsModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-sm cursor-pointer"
-              >
-                <Plus size={13} /> Nova Despesa Pagar
-              </button>
-              <button
-                onClick={() => {
-                  setNewTransaction({...newTransaction, type: TransactionType.INCOME, status: TransactionStatus.PENDING});
-                  setModalType('transaction');
-                  setIsModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-sm cursor-pointer"
-              >
-                <Plus size={13} /> Nova Receita Receber
-              </button>
-            </div>
-          </>
-        )}
-
         {/* Centro de Custo */}
         {localActiveView === 'financial-centrocusto' && (
           <>
@@ -7280,10 +7033,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               />
             )}
             {localActiveView === 'financial-categorias' && renderCategorias()}
-            {localActiveView === 'financial-pagamentos' && renderContasPagarReceber()}
             {localActiveView === 'financial-centrocusto' && renderCentroCusto()}
             {localActiveView === 'financial-relatorios' && renderRelatorios()}
-            {(localActiveView === 'financial-extrato' || localActiveView === 'financial' || localActiveView === 'financial-extrato') && renderExtrato()}
+            {(localActiveView === 'financial-extrato' || localActiveView === 'financial') && renderExtrato()}
           </motion.div>
         </AnimatePresence>
       )}
