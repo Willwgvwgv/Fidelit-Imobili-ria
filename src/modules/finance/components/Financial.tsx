@@ -310,6 +310,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [kpiFilter, setKpiFilter] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [accountFilter, setAccountFilter] = useState<string>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'OPEN' | 'OVERDUE' | 'PAID'>('ALL');
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
   const [selectedTxIds, setSelectedTxIds] = useState<string[]>([]);
   const [editingTransaction, setEditingTransaction] = useState<FinancialTransaction | null>(null);
@@ -1043,9 +1044,20 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         return false;
       }
 
+      // 4c. Status Filter from dropdown (Todos / Em Aberto / Vencido / Pago)
+      if (statusFilter !== 'ALL') {
+        const isPaid = t.status === TransactionStatus.PAID;
+        const isOverdue = t.status === TransactionStatus.PENDING && Boolean(t.due_date && t.due_date < todayStr);
+        const isOpen = t.status === TransactionStatus.PENDING;
+
+        if (statusFilter === 'PAID' && !isPaid) return false;
+        if (statusFilter === 'OVERDUE' && !isOverdue) return false;
+        if (statusFilter === 'OPEN' && !isOpen) return false;
+      }
+
       return true;
     });
-  }, [transactions, searchTerm, typeFilter, currentPeriod, periodMode, kpiFilter, categoryFilter, accountFilter]);
+  }, [transactions, searchTerm, typeFilter, currentPeriod, periodMode, kpiFilter, categoryFilter, accountFilter, statusFilter]);
 
 
 
@@ -6447,7 +6459,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <Filter size={14} />
                   <span>Filtrar</span>
                 </button>
-                {(categoryFilter !== 'ALL' || accountFilter !== 'ALL') && (
+                {(categoryFilter !== 'ALL' || accountFilter !== 'ALL' || statusFilter !== 'ALL') && (
                   <span
                     id="filter-active-dot"
                     className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-500 rounded-full border border-white shadow-sm animate-pulse"
@@ -6458,6 +6470,23 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setIsFilterDropdownOpen(false)} />
                     <div className="absolute left-0 mt-2 w-64 bg-white border border-slate-100 rounded-2xl shadow-xl p-4 z-20 space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Situação</label>
+                        <select
+                          value={statusFilter}
+                          onChange={(e) => {
+                            setStatusFilter(e.target.value as any);
+                            setVisibleCount(20);
+                          }}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs font-bold text-slate-700 outline-none cursor-pointer"
+                        >
+                          <option value="ALL">Todas as Situações</option>
+                          <option value="OPEN">Em Aberto</option>
+                          <option value="OVERDUE">Vencido</option>
+                          <option value="PAID">Pago</option>
+                        </select>
+                      </div>
+
                       <div>
                         <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filtrar por Categoria</label>
                         <select

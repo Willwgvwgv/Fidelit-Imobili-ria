@@ -153,7 +153,6 @@ export const NAV_ITEMS = [
       { id: 'financial-contas', label: 'Contas Bancárias', icon: <Landmark size={18} /> },
       { id: 'financial-contratos', label: 'Contratos imobia.app', icon: <Building2 size={18} /> },
       { id: 'financial-categorias', label: 'Categorias', icon: <Tag size={18} /> },
-      { id: 'financial-pagamentos', label: 'Contas a Pagar/Receber', icon: <Receipt size={18} /> },
       { id: 'financial-centrocusto', label: 'Centro de Custo', icon: <Layers size={18} /> },
       { id: 'financial-relatorios', label: 'Relatórios', icon: <FileDown size={18} /> },
     ]

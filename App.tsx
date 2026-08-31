@@ -254,7 +254,6 @@ const App: React.FC = () => {
       case 'financial-importar-extrato':
       case 'financial-contratos':
       case 'financial-categorias':
-      case 'financial-pagamentos':
       case 'financial-centrocusto':
       case 'financial-relatorios':
         return <Financial currentUser={currentUser} activeView={activeView} />;
