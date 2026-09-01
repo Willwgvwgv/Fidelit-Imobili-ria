@@ -1173,46 +1173,19 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           description: newTransaction.description ? `${newTransaction.description} (Recebido)` : `Transferência de ${sourceAcc?.name || 'Conta Origem'}`,
         };
 
-        if (supabase) {
-          try {
-            // Atomic batch insert: inserts both records in a single array payload to Postgres
-            const { data: insertedData, error: insertError } = await supabase
-              .from('financial_transactions')
-              .insert([outgoingPayload, incomingPayload])
-              .select('id');
+        const transferResult = await supabaseService.createAccountTransfer(
+          outgoingPayload,
+          incomingPayload,
+          transferGroupId
+        );
 
-            if (insertError) {
-              throw new Error(insertError.message);
-            }
-
-            // Verify both were created; if only 1 created, perform compensation rollback
-            if (!insertedData || insertedData.length < 2) {
-              if (insertedData && insertedData.length > 0) {
-                const insertedIds = insertedData.map(d => d.id);
-                await supabase.from('financial_transactions').delete().in('id', insertedIds);
-              }
-              throw new Error('Falha ao registrar ambos os lados da transferência bancária.');
-            }
-
-            showToast('Transferência entre contas criada com sucesso!', 'success');
-            setIsModalOpen(false);
-            setDestinationAccountId('');
-            loadFinancialData();
-          } catch (err: any) {
-            console.error('Error creating transfer transactions:', err);
-            // Safety rollback using transfer_group_id in case any partial insertion exists
-            try {
-              await supabase
-                .from('financial_transactions')
-                .delete()
-                .eq('transfer_group_id', transferGroupId);
-            } catch (rbErr) {
-              console.error('Failed to cleanup orphaned transfer transactions:', rbErr);
-            }
-            alert('Erro ao criar transferência bancária: ' + (err.message || 'Falha na gravação.'));
-          }
+        if (transferResult.success) {
+          showToast('Transferência entre contas criada com sucesso!', 'success');
+          setIsModalOpen(false);
+          setDestinationAccountId('');
+          loadFinancialData();
         } else {
-          alert('Conexão com o banco de dados indisponível.');
+          alert('Erro ao criar transferência bancária: ' + (transferResult.error || 'Falha na gravação.'));
         }
         setIsSubmittingTransaction(false);
         return;

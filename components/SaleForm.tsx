@@ -762,8 +762,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
             paymentDate: matchingOrig?.paymentDate || null,
             paymentMethod: matchingOrig?.paymentMethod || null,
             receiptData: matchingOrig?.receiptData || null,
-            settled_by_transaction_id: matchingOrig?.settled_by_transaction_id || undefined,
-            settled_at: matchingOrig?.settled_at || undefined
+            settled_by_transaction_id: matchingOrig?.settled_by_transaction_id || undefined
           });
         });
       });
@@ -798,8 +797,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
           paymentDate: matchingOrig?.paymentDate || null,
           paymentMethod: matchingOrig?.paymentMethod || null,
           receiptData: matchingOrig?.receiptData || null,
-          settled_by_transaction_id: matchingOrig?.settled_by_transaction_id || undefined,
-          settled_at: matchingOrig?.settled_at || undefined
+          settled_by_transaction_id: matchingOrig?.settled_by_transaction_id || undefined
         };
       });
     }

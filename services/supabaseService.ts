@@ -413,9 +413,6 @@ export const supabaseService = {
       if (isAlreadyPaid && existingMatchingSplit.settled_by_transaction_id) {
         dbData.settled_by_transaction_id = existingMatchingSplit.settled_by_transaction_id;
       }
-      if (isAlreadyPaid && existingMatchingSplit.settled_at) {
-        dbData.settled_at = existingMatchingSplit.settled_at;
-      }
 
       if (s.id && existingIds.has(s.id)) {
         // Se tem ID válido e existe no banco com mesmo ID -> UPDATE
@@ -1617,6 +1614,55 @@ export const supabaseService = {
     } catch (e: any) {
       console.error('Falha geral no semeador do Supabase:', e);
       return { success: false, message: e.message || 'Falha ao semear banco.' };
+    }
+  },
+
+  /**
+   * Cria um par vinculado de lançamentos (saída na conta de origem, entrada na conta de
+   * destino) representando uma transferência entre contas. Insert atômico em lote; se
+   * apenas 1 dos 2 registros for criado, faz rollback de compensação apagando o que foi
+   * inserido. Também faz uma limpeza de segurança por transfer_group_id em caso de exceção
+   * inesperada durante o processo.
+   */
+  async createAccountTransfer(
+    outgoingPayload: Record<string, any>,
+    incomingPayload: Record<string, any>,
+    transferGroupId: string
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!supabase) {
+      return { success: false, error: 'Conexão com o banco de dados indisponível.' };
+    }
+
+    try {
+      const { data: insertedData, error: insertError } = await supabase
+        .from('financial_transactions')
+        .insert([outgoingPayload, incomingPayload])
+        .select('id');
+
+      if (insertError) {
+        throw new Error(insertError.message);
+      }
+
+      if (!insertedData || insertedData.length < 2) {
+        if (insertedData && insertedData.length > 0) {
+          const insertedIds = insertedData.map(d => d.id);
+          await supabase.from('financial_transactions').delete().in('id', insertedIds);
+        }
+        throw new Error('Falha ao registrar ambos os lados da transferência bancária.');
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error creating transfer transactions:', err);
+      try {
+        await supabase
+          .from('financial_transactions')
+          .delete()
+          .eq('transfer_group_id', transferGroupId);
+      } catch (rbErr) {
+        console.error('Failed to cleanup orphaned transfer transactions:', rbErr);
+      }
+      return { success: false, error: err.message || 'Falha na gravação.' };
     }
   }
 };

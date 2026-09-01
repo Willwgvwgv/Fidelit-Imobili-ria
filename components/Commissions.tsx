@@ -372,12 +372,13 @@ const Commissions: React.FC<CommissionsProps> = ({
         (group.buyerCpf && group.buyerCpf.toLowerCase().includes(term)) ||
         (group.saleCode && group.saleCode.toLowerCase().includes(term));
       const matchesBroker = brokerFilter === 'ALL' || group.brokerId === brokerFilter;
-      const matchesPeriod = (() => {
-        if (period === 'all') return true;
-        const dateStr = group.date || '';
-        if (!dateStr) return true;
+      // Verifica cada parcela do grupo individualmente por forecastDate (com fallback pra date),
+      // em vez de usar só a data da venda do grupo. Isso evita excluir vendas cuja parcela
+      // vence no mês filtrado mas cuja venda ocorreu em mês anterior.
+      const checkDateMatch = (dateStr: string): boolean => {
+        if (!dateStr) return false;
         const d = new Date(dateStr + 'T00:00:00');
-        if (isNaN(d.getTime())) return true;
+        if (isNaN(d.getTime())) return false;
         const now = new Date();
         if (period === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
         if (period === 'prev_month') {
@@ -397,6 +398,16 @@ const Commissions: React.FC<CommissionsProps> = ({
           return true;
         }
         return true;
+      };
+      const matchesPeriod = (() => {
+        if (period === 'all') return true;
+        if (!group.installments || group.installments.length === 0) {
+          return checkDateMatch(group.date || '');
+        }
+        return group.installments.some((inst: any) => {
+          const dateStr = inst.forecastDate || inst.date || group.date || '';
+          return checkDateMatch(dateStr);
+        });
       })();
       return matchesStatus && matchesSearch && matchesBroker && matchesPeriod;
     });
