@@ -1098,9 +1098,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   }, [filteredTransactions, dateSortDirection]);
 
   // Calcula o saldo consolidado (ou da conta filtrada) ao final de cada dia, usando
-  // apenas lançamentos PAGOS (é o que efetivamente moveu o saldo real da conta),
-  // percorrendo o histórico completo em ordem cronológica crescente — independente
-  // da ordenação escolhida para exibição na tabela.
+  // apenas lançamentos PAGOS (é o que efetivamente moveu o saldo real da conta).
+  // Parte do saldo real ATUAL de cada conta (getAccountLiveBalance — a mesma fonte
+  // confiável usada em todo o resto do app, que prioriza current_balance) e desconta
+  // retroativamente dia a dia, andando do mais recente pro mais antigo. Isso evita
+  // depender de initial_balance, que pode estar desatualizado ou com erro de digitação
+  // em alguma conta.
   const dailyClosingBalanceMap = useMemo(() => {
     const map = new Map<string, number>();
 
@@ -1111,20 +1114,31 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     if (scopeAccounts.length === 0) return map;
 
     const scopeAccountIds = new Set(scopeAccounts.map(a => a.id));
-    let runningBalance = scopeAccounts.reduce((sum, a) => sum + (a.initial_balance || 0), 0);
+    const todaysBalance = scopeAccounts.reduce((sum, a) => sum + getAccountLiveBalance(a), 0);
 
-    const chronological = transactions
+    // Ordem decrescente: do dia mais recente com movimento pago pro mais antigo
+    const chronologicalDesc = transactions
       .filter(t => scopeAccountIds.has(t.account_id) && t.status === TransactionStatus.PAID && t.due_date)
-      .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''));
+      .sort((a, b) => (b.due_date || '').localeCompare(a.due_date || ''));
 
-    chronological.forEach(t => {
-      if (t.type === TransactionType.INCOME) {
-        runningBalance += t.amount || 0;
-      } else {
-        // EXPENSE e TRANSFER (saída) reduzem o saldo
-        runningBalance -= t.amount || 0;
+    let runningBalance = todaysBalance;
+    let lastSeenDate: string | null = null;
+
+    chronologicalDesc.forEach(t => {
+      if (t.due_date !== lastSeenDate) {
+        // Fecha o registro do dia com o saldo ANTES de descontar o efeito deste dia
+        // (ou seja: o saldo já reflete tudo que aconteceu depois dele, e nada do que
+        // vai acontecer nele mesmo ainda).
+        map.set(t.due_date, runningBalance);
+        lastSeenDate = t.due_date;
       }
-      map.set(t.due_date, runningBalance);
+      // Desconta o efeito deste lançamento, preparando o saldo "pré-este-dia"
+      // para servir de referência ao dia anterior (mais antigo) na iteração seguinte.
+      if (t.type === TransactionType.INCOME) {
+        runningBalance -= t.amount || 0;
+      } else {
+        runningBalance += t.amount || 0;
+      }
     });
 
     return map;
