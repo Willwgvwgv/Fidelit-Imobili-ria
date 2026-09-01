@@ -43,7 +43,10 @@ import {
   Activity,
   FileDown,
   ArrowLeft,
-  History
+  History,
+  ArrowUpDown,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -305,12 +308,32 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   // Extrato dynamic states
   const monthInputRef = useRef<HTMLInputElement>(null);
   const [currentPeriod, setCurrentPeriod] = useState<Date>(new Date());
-  const [periodMode, setPeriodMode] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH' | 'CUSTOM'>('THIS_MONTH');
+  const [periodMode, setPeriodMode] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH' | 'CUSTOM' | 'LAST_30_DAYS'>('THIS_MONTH');
   const [visibleCount, setVisibleCount] = useState<number>(20);
   const [kpiFilter, setKpiFilter] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [accountFilter, setAccountFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'OPEN' | 'OVERDUE' | 'PAID'>('ALL');
+  const [dateSortDirection, setDateSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [showDailyBalanceRows, setShowDailyBalanceRows] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('comissione_extrato_show_daily_balance');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const toggleShowDailyBalanceRows = () => {
+    setShowDailyBalanceRows(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('comissione_extrato_show_daily_balance', String(next));
+      } catch {
+        // localStorage indisponível (modo privado etc.) — segue só em memória
+      }
+      return next;
+    });
+  };
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
   const [selectedTxIds, setSelectedTxIds] = useState<string[]>([]);
   const [editingTransaction, setEditingTransaction] = useState<FinancialTransaction | null>(null);
@@ -1020,8 +1043,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
           if (t.status !== TransactionStatus.PAID || !isInSelectedMonth(t.due_date)) return false;
         }
       } else {
-        // Default: filter list strictly by selected month unless periodMode is ALL
-        if (periodMode !== 'ALL' && !isInSelectedMonth(t.due_date)) {
+        // Default: filter list strictly by selected month unless periodMode is ALL,
+        // ou pela janela rolante de últimos 30 dias quando esse modo estiver ativo.
+        if (periodMode === 'LAST_30_DAYS') {
+          if (!t.due_date) return false;
+          const diff = calcDaysDiff(todayStr, t.due_date);
+          if (diff < 0 || diff > 30) return false;
+        } else if (periodMode !== 'ALL' && !isInSelectedMonth(t.due_date)) {
           return false;
         }
       }
@@ -1058,6 +1086,49 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       return true;
     });
   }, [transactions, searchTerm, typeFilter, currentPeriod, periodMode, kpiFilter, categoryFilter, accountFilter, statusFilter]);
+
+  // Aplica a ordenação por data de vencimento escolhida na coluna do Extrato
+  const sortedFilteredTransactions = useMemo(() => {
+    const arr = [...filteredTransactions];
+    arr.sort((a, b) => {
+      const cmp = (a.due_date || '').localeCompare(b.due_date || '');
+      return dateSortDirection === 'asc' ? cmp : -cmp;
+    });
+    return arr;
+  }, [filteredTransactions, dateSortDirection]);
+
+  // Calcula o saldo consolidado (ou da conta filtrada) ao final de cada dia, usando
+  // apenas lançamentos PAGOS (é o que efetivamente moveu o saldo real da conta),
+  // percorrendo o histórico completo em ordem cronológica crescente — independente
+  // da ordenação escolhida para exibição na tabela.
+  const dailyClosingBalanceMap = useMemo(() => {
+    const map = new Map<string, number>();
+
+    const scopeAccounts = accountFilter !== 'ALL'
+      ? accounts.filter(a => a.id === accountFilter)
+      : accounts.filter(a => a.type !== 'credit_card' && a.type !== 'CREDIT');
+
+    if (scopeAccounts.length === 0) return map;
+
+    const scopeAccountIds = new Set(scopeAccounts.map(a => a.id));
+    let runningBalance = scopeAccounts.reduce((sum, a) => sum + (a.initial_balance || 0), 0);
+
+    const chronological = transactions
+      .filter(t => scopeAccountIds.has(t.account_id) && t.status === TransactionStatus.PAID && t.due_date)
+      .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''));
+
+    chronological.forEach(t => {
+      if (t.type === TransactionType.INCOME) {
+        runningBalance += t.amount || 0;
+      } else {
+        // EXPENSE e TRANSFER (saída) reduzem o saldo
+        runningBalance -= t.amount || 0;
+      }
+      map.set(t.due_date, runningBalance);
+    });
+
+    return map;
+  }, [transactions, accounts, accountFilter]);
 
 
 
@@ -2863,7 +2934,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       setVisibleCount(20);
     };
 
-    const displayedTransactions = filteredTransactions.slice(0, visibleCount);
+    const displayedTransactions = sortedFilteredTransactions.slice(0, visibleCount);
     const monthFormatted = currentPeriod.toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
     const capitalizedMonth = monthFormatted.charAt(0).toUpperCase() + monthFormatted.slice(1);
 
@@ -2968,6 +3039,20 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             <button
               type="button"
               onClick={() => {
+                setPeriodMode('LAST_30_DAYS');
+                setVisibleCount(20);
+              }}
+              className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                periodMode === 'LAST_30_DAYS'
+                  ? 'bg-white text-blue-600 shadow-2xs font-black'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+              }`}
+            >
+              Últimos 30 dias
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 monthInputRef.current?.showPicker ? monthInputRef.current.showPicker() : monthInputRef.current?.click();
               }}
               className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
@@ -3017,9 +3102,24 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 {!kpiFilter && `Exibindo lançamentos de ${capitalizedMonth}`}
               </span>
             </div>
-            <span className="text-xs font-extrabold text-slate-500 bg-slate-200/60 px-2.5 py-1 rounded-full w-fit">
-              {filteredTransactions.length} {filteredTransactions.length === 1 ? 'lançamento' : 'lançamentos'}
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleShowDailyBalanceRows}
+                className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full transition-all cursor-pointer border ${
+                  showDailyBalanceRows
+                    ? 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100'
+                    : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200'
+                }`}
+                title={showDailyBalanceRows ? 'Esconder saldo diário' : 'Mostrar saldo diário'}
+              >
+                {showDailyBalanceRows ? <Eye size={12} /> : <EyeOff size={12} />}
+                Saldo diário
+              </button>
+              <span className="text-xs font-extrabold text-slate-500 bg-slate-200/60 px-2.5 py-1 rounded-full w-fit">
+                {filteredTransactions.length} {filteredTransactions.length === 1 ? 'lançamento' : 'lançamentos'}
+              </span>
+            </div>
           </div>
 
           {/* Mass Actions Bar */}
@@ -3059,7 +3159,16 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                       }}
                     />
                   </th>
-                  <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Vencimento</th>
+                  <th
+                    className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest cursor-pointer select-none hover:text-slate-600 transition-colors"
+                    onClick={() => setDateSortDirection(prev => prev === 'asc' ? 'desc' : 'asc')}
+                    title="Clique para ordenar por data"
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      Vencimento
+                      <ArrowUpDown size={11} className={dateSortDirection === 'asc' ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                    </span>
+                  </th>
                   <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Pagamento</th>
                   <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Descrição</th>
                   <th className="px-6 py-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Conta / Categoria</th>
@@ -3069,14 +3178,18 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {displayedTransactions.map((tx) => {
+                {displayedTransactions.map((tx, txIdx) => {
                   const category = categories.find(c => c.id === tx.category_id);
                   const account = accounts.find(a => a.id === tx.account_id);
                   const isPaid = tx.status === TransactionStatus.PAID;
                   const interestInfo = calculateInterestAndPenalty(tx);
+                  const isLastOfDayGroup = txIdx === displayedTransactions.length - 1
+                    || displayedTransactions[txIdx + 1].due_date !== tx.due_date;
+                  const dayClosingBalance = dailyClosingBalanceMap.get(tx.due_date);
 
                   return (
-                    <tr key={tx.id} className="hover:bg-slate-50/50 transition-all group">
+                    <React.Fragment key={tx.id}>
+                    <tr className="hover:bg-slate-50/50 transition-all group">
                       <td className="px-6 py-5 text-center">
                         <input
                           type="checkbox"
@@ -3214,6 +3327,16 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         </div>
                       </td>
                     </tr>
+                    {isLastOfDayGroup && showDailyBalanceRows && dayClosingBalance !== undefined && (
+                      <tr className="bg-slate-50/30">
+                        <td colSpan={8} className="px-6 py-1.5 text-center">
+                          <span className="text-[10px] font-semibold text-slate-300 tracking-wide">
+                            Fechamento {formatDateBR(tx.due_date)} · Saldo: {formatCurrency(dayClosingBalance)}
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
                 {filteredTransactions.length === 0 && !loading && (
