@@ -3253,11 +3253,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     <React.Fragment key={tx.id}>
                     {isFirstOfDayGroup && showDailyBalanceRows && (
                       <tr className="bg-slate-100/70 border-y border-slate-200">
-                        <td colSpan={9} className="px-6 py-2">
+                        <td colSpan={9} className="py-2 px-0">
                           <div className="flex items-center justify-between">
-                            <span className="text-xs font-black text-slate-600">{formatDateBR(tx.due_date)}</span>
+                            <span className="sticky left-6 text-xs font-black text-slate-600 whitespace-nowrap">{formatDateBR(tx.due_date)}</span>
                             {dayClosingBalance !== undefined && (
-                              <span className="text-xs font-black text-slate-600">
+                              <span className="sticky right-6 text-xs font-black text-slate-600 whitespace-nowrap">
                                 Saldo do Dia: <span className={dayClosingBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}>{formatCurrency(dayClosingBalance)}</span>
                               </span>
                             )}
