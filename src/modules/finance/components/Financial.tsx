@@ -7518,7 +7518,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
              ) : (
                <motion.div
                  initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-                 className="bg-white rounded-3xl w-full max-w-xl shadow-2xl relative z-10 overflow-hidden"
+                 className="bg-white rounded-3xl w-full max-w-xl shadow-2xl relative z-10 overflow-y-auto max-h-[90vh]"
                >
                 {/* 2. Modal type: Account creation */}
                  {modalType === 'account' && (
