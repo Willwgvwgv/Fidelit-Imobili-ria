@@ -1144,15 +1144,14 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   // retroativamente dia a dia, andando do mais recente pro mais antigo. Isso evita
   // depender de initial_balance, que pode estar desatualizado ou com erro de digitação
   // em alguma conta.
-  const { dailyClosingBalanceMap, transactionBalanceMap } = useMemo(() => {
+  const dailyClosingBalanceMap = useMemo(() => {
     const map = new Map<string, number>();
-    const txMap = new Map<string, number>();
 
     const scopeAccounts = accountFilter !== 'ALL'
       ? accounts.filter(a => a.id === accountFilter)
       : accounts.filter(a => a.type !== 'credit_card' && a.type !== 'CREDIT');
 
-    if (scopeAccounts.length === 0) return { dailyClosingBalanceMap: map, transactionBalanceMap: txMap };
+    if (scopeAccounts.length === 0) return map;
 
     const scopeAccountIds = new Set(scopeAccounts.map(a => a.id));
     const todaysBalance = scopeAccounts.reduce((sum, a) => sum + getAccountLiveBalance(a), 0);
@@ -1173,9 +1172,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         map.set(t.due_date, runningBalance);
         lastSeenDate = t.due_date;
       }
-      // Saldo corrente logo após este lançamento específico (antes de descontar seu
-      // próprio efeito, que já está incluído no runningBalance neste ponto).
-      txMap.set(t.id, runningBalance);
       // Desconta o efeito deste lançamento, preparando o saldo "pré-este-dia"
       // para servir de referência ao dia anterior (mais antigo) na iteração seguinte.
       if (t.type === TransactionType.INCOME) {
@@ -1185,7 +1181,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       }
     });
 
-    return { dailyClosingBalanceMap: map, transactionBalanceMap: txMap };
+    return map;
   }, [transactions, accounts, accountFilter]);
 
 
@@ -3231,7 +3227,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Descrição</th>
                   <th className="px-6 py-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Conta / Categoria</th>
                   <th className="px-6 py-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor</th>
-                  <th className="px-6 py-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Saldo</th>
                   <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Situação</th>
                   <th className="px-6 py-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Ações</th>
                 </tr>
@@ -3247,13 +3242,12 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   const isFirstOfDayGroup = txIdx === 0
                     || displayedTransactions[txIdx - 1].due_date !== tx.due_date;
                   const dayClosingBalance = dailyClosingBalanceMap.get(tx.due_date);
-                  const runningBalanceAfterTx = transactionBalanceMap.get(tx.id);
 
                   return (
                     <React.Fragment key={tx.id}>
                     {isFirstOfDayGroup && showDailyBalanceRows && (
                       <tr className="bg-slate-100/70 border-y border-slate-200">
-                        <td colSpan={9} className="py-2 px-0">
+                        <td colSpan={8} className="py-2 px-0">
                           <div className="flex items-center justify-between">
                             <span className="sticky left-6 text-xs font-black text-slate-600 whitespace-nowrap">{formatDateBR(tx.due_date)}</span>
                             {dayClosingBalance !== undefined && (
@@ -3356,15 +3350,6 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           {formatCurrency(tx.amount)}
                         </span>
                       </td>
-                      <td className="px-6 py-5 text-right">
-                        {isPaid && runningBalanceAfterTx !== undefined ? (
-                          <span className={`text-sm font-bold whitespace-nowrap ${runningBalanceAfterTx >= 0 ? 'text-slate-600' : 'text-rose-600'}`}>
-                            {formatCurrency(runningBalanceAfterTx)}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-slate-300">—</span>
-                        )}
-                      </td>
                       <td className="px-6 py-5">
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
                           isPaid
@@ -3412,13 +3397,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         </div>
                       </td>
                     </tr>
-                    {isLastOfDayGroup && showDailyBalanceRows && <tr className="h-2"><td colSpan={9}></td></tr>}
+                    {isLastOfDayGroup && showDailyBalanceRows && <tr className="h-2"><td colSpan={8}></td></tr>}
                     </React.Fragment>
                   );
                 })}
                 {filteredTransactions.length === 0 && !loading && (
                   <tr>
-                     <td colSpan={9} className="py-20 text-center text-slate-400 font-bold uppercase tracking-widest text-xs">Nenhum lançamento no período</td>
+                     <td colSpan={8} className="py-20 text-center text-slate-400 font-bold uppercase tracking-widest text-xs">Nenhum lançamento no período</td>
                   </tr>
                 )}
               </tbody>
