@@ -1151,6 +1151,29 @@ export const supabaseService = {
     return true;
   },
 
+  /**
+   * Exclui lançamentos de um grupo recorrente, com a mesma proteção usada em
+   * updateRecurrenceGroup: NUNCA exclui lançamentos com status PAID, não
+   * importa a opção escolhida. `fromDate` limita a partir de qual vencimento
+   * (inclusive) a exclusão em massa se aplica — passe '2000-01-01' para "todos".
+   */
+  async deleteRecurrenceGroup(groupId: string, fromDate: string): Promise<boolean> {
+    if (!supabase) return false;
+
+    const { error } = await supabase
+      .from('financial_transactions')
+      .delete()
+      .eq('recurrence_group_id', groupId)
+      .gte('due_date', fromDate)
+      .neq('status', 'PAID');
+
+    if (error) {
+      console.error('Error deleting recurrence group:', error);
+      return false;
+    }
+    return true;
+  },
+
   async updateTransactionStatus(transactionId: string, status: TransactionStatus, paymentDate?: string): Promise<boolean> {
     if (!supabase) return false;
 

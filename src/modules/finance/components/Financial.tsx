@@ -61,6 +61,8 @@ import { TransactionType, TransactionStatus } from '../constants';
 import { supabaseService, FinancialAccountInsert } from '../../../../services/supabaseService';
 import { supabase } from '../../../../supabase';
 import { RecurrenceEditModal } from './financial/RecurrenceEditModal';
+import { RecurrenceDeleteModal } from './financial/RecurrenceDeleteModal';
+import { RecurrenceDeleteOption } from './financial/RecurrenceDeleteModal/types';
 import { PayInvoiceModal } from './financial/PayInvoiceModal';
 import { InvoiceDetailsModal } from './financial/InvoiceDetailsModal';
 import { useAccounts } from '../hooks/useAccounts';
@@ -357,6 +359,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   const [markAsPaid, setMarkAsPaid] = useState<boolean>(false);
   const [isSubmittingTransaction, setIsSubmittingTransaction] = useState<boolean>(false);
   const [isAutoFilledFromBank, setIsAutoFilledFromBank] = useState<boolean>(false);
+  const [isRecurrenceDeleteModalOpen, setIsRecurrenceDeleteModalOpen] = useState(false);
+  const [recurrenceDeleteOption, setRecurrenceDeleteOption] = useState<RecurrenceDeleteOption>('single');
+  const [transactionPendingDelete, setTransactionPendingDelete] = useState<FinancialTransaction | null>(null);
 
   // Pay Credit Card Invoice States
   const {
@@ -816,6 +821,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   };
 
   const handleDeleteTransaction = (id: string) => {
+    const tx = transactions.find(t => t.id === id);
+    if (tx?.recurrence_group_id) {
+      setTransactionPendingDelete(tx);
+      setRecurrenceDeleteOption('single');
+      setIsRecurrenceDeleteModalOpen(true);
+      return;
+    }
     setConfirmModalTitle('Excluir Lançamento');
     setConfirmModalMessage('Tem certeza que deseja excluir este lançamento?');
     setConfirmModalConfirmText('Excluir');
@@ -843,6 +855,34 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       }
     });
     setConfirmModalOpen(true);
+  };
+
+  const handleConfirmRecurrenceDelete = async () => {
+    if (!supabase || !transactionPendingDelete) return;
+    setLoading(true);
+    try {
+      let success = false;
+      if (recurrenceDeleteOption === 'single') {
+        const { error } = await supabase.from('financial_transactions').delete().eq('id', transactionPendingDelete.id);
+        success = !error;
+        if (error) console.error('Erro ao excluir lançamento:', error);
+      } else if (recurrenceDeleteOption === 'following') {
+        success = await supabaseService.deleteRecurrenceGroup(transactionPendingDelete.recurrence_group_id!, transactionPendingDelete.due_date);
+      } else if (recurrenceDeleteOption === 'all') {
+        success = await supabaseService.deleteRecurrenceGroup(transactionPendingDelete.recurrence_group_id!, '2000-01-01');
+      }
+
+      if (success) {
+        setSelectedTxIds(prev => prev.filter(item => item !== transactionPendingDelete.id));
+        setIsRecurrenceDeleteModalOpen(false);
+        setTransactionPendingDelete(null);
+        await loadFinancialData();
+      } else {
+        alert('Erro ao excluir lançamento(s) recorrente(s).');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDuplicateTransaction = (tx: FinancialTransaction) => {
@@ -1104,14 +1144,15 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   // retroativamente dia a dia, andando do mais recente pro mais antigo. Isso evita
   // depender de initial_balance, que pode estar desatualizado ou com erro de digitação
   // em alguma conta.
-  const dailyClosingBalanceMap = useMemo(() => {
+  const { dailyClosingBalanceMap, transactionBalanceMap } = useMemo(() => {
     const map = new Map<string, number>();
+    const txMap = new Map<string, number>();
 
     const scopeAccounts = accountFilter !== 'ALL'
       ? accounts.filter(a => a.id === accountFilter)
       : accounts.filter(a => a.type !== 'credit_card' && a.type !== 'CREDIT');
 
-    if (scopeAccounts.length === 0) return map;
+    if (scopeAccounts.length === 0) return { dailyClosingBalanceMap: map, transactionBalanceMap: txMap };
 
     const scopeAccountIds = new Set(scopeAccounts.map(a => a.id));
     const todaysBalance = scopeAccounts.reduce((sum, a) => sum + getAccountLiveBalance(a), 0);
@@ -1132,6 +1173,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         map.set(t.due_date, runningBalance);
         lastSeenDate = t.due_date;
       }
+      // Saldo corrente logo após este lançamento específico (antes de descontar seu
+      // próprio efeito, que já está incluído no runningBalance neste ponto).
+      txMap.set(t.id, runningBalance);
       // Desconta o efeito deste lançamento, preparando o saldo "pré-este-dia"
       // para servir de referência ao dia anterior (mais antigo) na iteração seguinte.
       if (t.type === TransactionType.INCOME) {
@@ -1141,7 +1185,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       }
     });
 
-    return map;
+    return { dailyClosingBalanceMap: map, transactionBalanceMap: txMap };
   }, [transactions, accounts, accountFilter]);
 
 
@@ -3187,6 +3231,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">Descrição</th>
                   <th className="px-6 py-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Conta / Categoria</th>
                   <th className="px-6 py-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Valor</th>
+                  <th className="px-6 py-4 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Saldo</th>
                   <th className="px-6 py-4 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Situação</th>
                   <th className="px-6 py-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">Ações</th>
                 </tr>
@@ -3199,10 +3244,27 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   const interestInfo = calculateInterestAndPenalty(tx);
                   const isLastOfDayGroup = txIdx === displayedTransactions.length - 1
                     || displayedTransactions[txIdx + 1].due_date !== tx.due_date;
+                  const isFirstOfDayGroup = txIdx === 0
+                    || displayedTransactions[txIdx - 1].due_date !== tx.due_date;
                   const dayClosingBalance = dailyClosingBalanceMap.get(tx.due_date);
+                  const runningBalanceAfterTx = transactionBalanceMap.get(tx.id);
 
                   return (
                     <React.Fragment key={tx.id}>
+                    {isFirstOfDayGroup && showDailyBalanceRows && (
+                      <tr className="bg-slate-100/70 border-y border-slate-200">
+                        <td colSpan={9} className="px-6 py-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-slate-600">{formatDateBR(tx.due_date)}</span>
+                            {dayClosingBalance !== undefined && (
+                              <span className="text-xs font-black text-slate-600">
+                                Saldo do Dia: <span className={dayClosingBalance >= 0 ? 'text-emerald-600' : 'text-rose-600'}>{formatCurrency(dayClosingBalance)}</span>
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                     <tr className="hover:bg-slate-50/50 transition-all group">
                       <td className="px-6 py-5 text-center">
                         <input
@@ -3294,6 +3356,15 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                           {formatCurrency(tx.amount)}
                         </span>
                       </td>
+                      <td className="px-6 py-5 text-right">
+                        {isPaid && runningBalanceAfterTx !== undefined ? (
+                          <span className={`text-sm font-bold whitespace-nowrap ${runningBalanceAfterTx >= 0 ? 'text-slate-600' : 'text-rose-600'}`}>
+                            {formatCurrency(runningBalanceAfterTx)}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-300">—</span>
+                        )}
+                      </td>
                       <td className="px-6 py-5">
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
                           isPaid
@@ -3341,21 +3412,13 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         </div>
                       </td>
                     </tr>
-                    {isLastOfDayGroup && showDailyBalanceRows && dayClosingBalance !== undefined && (
-                      <tr className="bg-slate-50/30">
-                        <td colSpan={8} className="px-6 py-1.5 text-center">
-                          <span className="text-[10px] font-semibold text-slate-300 tracking-wide">
-                            Fechamento {formatDateBR(tx.due_date)} · Saldo: {formatCurrency(dayClosingBalance)}
-                          </span>
-                        </td>
-                      </tr>
-                    )}
+                    {isLastOfDayGroup && showDailyBalanceRows && <tr className="h-2"><td colSpan={9}></td></tr>}
                     </React.Fragment>
                   );
                 })}
                 {filteredTransactions.length === 0 && !loading && (
                   <tr>
-                     <td colSpan={8} className="py-20 text-center text-slate-400 font-bold uppercase tracking-widest text-xs">Nenhum lançamento no período</td>
+                     <td colSpan={9} className="py-20 text-center text-slate-400 font-bold uppercase tracking-widest text-xs">Nenhum lançamento no período</td>
                   </tr>
                 )}
               </tbody>
@@ -7941,6 +8004,15 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
         option={recurrenceEditOption}
         onOptionChange={setRecurrenceEditOption}
         onConfirm={() => handleConfirmRecurrenceEdit(editingTransaction, handleCloseModal, setEditingTransaction)}
+      />
+
+      {/* Recurrence Delete Choice Modal */}
+      <RecurrenceDeleteModal
+        isOpen={isRecurrenceDeleteModalOpen}
+        onClose={() => { setIsRecurrenceDeleteModalOpen(false); setTransactionPendingDelete(null); }}
+        option={recurrenceDeleteOption}
+        onOptionChange={setRecurrenceDeleteOption}
+        onConfirm={handleConfirmRecurrenceDelete}
       />
 
       {/* Modal: Pagar Fatura de Cartão de Crédito */}
