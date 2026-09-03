@@ -86,6 +86,7 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
   const [firstDueDateMap, setFirstDueDateMap] = useState<Map<string, string>>(new Map());
   const [accounts, setAccounts] = useState<Array<{ id: string; name: string; bank_name?: string }>>([]);
   const [loadingInstallments, setLoadingInstallments] = useState(false);
+  const [generatingInstallments, setGeneratingInstallments] = useState(false);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
 
@@ -126,6 +127,31 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
   const [submittingAction, setSubmittingAction] = useState(false);
 
   // Fetch rent installments, contract details & accounts
+  const handleGenerateInstallments = async () => {
+    if (!supabase) return;
+    setGeneratingInstallments(true);
+    try {
+      const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+      const { data, error } = await supabase.rpc('generate_rent_installments_for_month', { target_month: firstOfMonth });
+      if (error) throw error;
+      const generated = data?.generated ?? 0;
+      if (showToast) {
+        showToast(
+          generated > 0
+            ? `${generated} parcela(s) de aluguel gerada(s) para este mês!`
+            : 'As parcelas deste mês já estavam geradas.',
+          'success'
+        );
+      }
+      await loadMonthInstallments();
+    } catch (err: any) {
+      console.error('Erro ao gerar parcelas do mês:', err);
+      if (showToast) showToast('Erro ao gerar parcelas do mês.', 'error');
+    } finally {
+      setGeneratingInstallments(false);
+    }
+  };
+
   const loadMonthInstallments = async () => {
     if (!supabase) return;
     setLoadingInstallments(true);
@@ -885,6 +911,15 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
             <p className="text-xs text-slate-400">Clique na linha para expandir a composição completa e gerenciar status do contrato</p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleGenerateInstallments}
+              disabled={generatingInstallments}
+              className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100 hover:bg-blue-100 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RefreshCw size={12} className={generatingInstallments ? 'animate-spin' : ''} />
+              {generatingInstallments ? 'Gerando...' : 'Gerar parcelas do mês'}
+            </button>
             <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
               {currentMonthInstallments.length} parcelas no mês
             </span>
@@ -895,7 +930,7 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
           <div className="p-8 text-center text-slate-400 text-xs">Carregando parcelas de aluguel e contratos...</div>
         ) : currentMonthInstallments.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-xs">
-            Nenhuma parcela de aluguel encontrada para este mês. Importe os contratos do imobia.app.
+            Nenhuma parcela de aluguel encontrada para este mês. Clique em "Gerar parcelas do mês" acima, ou importe os contratos do imobia.app.
           </div>
         ) : (
           <div className="overflow-x-auto">
