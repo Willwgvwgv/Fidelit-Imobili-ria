@@ -1137,6 +1137,52 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     return arr;
   }, [filteredTransactions, dateSortDirection]);
 
+  // Quando a visão é "todas as contas", os lançamentos individuais de cartão de
+  // crédito (que costumam ser dezenas de compras avulsas) são agrupados numa
+  // única linha-resumo por dia+cartão, pra não poluir o extrato bancário normal.
+  // Clicar nessa linha filtra pelo cartão, revelando os lançamentos individuais
+  // (mesmo comportamento do filtro de conta que já existia).
+  const groupedDisplayTransactions = useMemo(() => {
+    if (accountFilter !== 'ALL') return sortedFilteredTransactions;
+
+    const cardAccountIds = new Set(accounts.filter(a => a.type === 'credit_card' || a.type === 'CREDIT').map(a => a.id));
+    if (cardAccountIds.size === 0) return sortedFilteredTransactions;
+
+    const result: FinancialTransaction[] = [];
+    const seenCardGroups = new Map<string, FinancialTransaction>();
+
+    sortedFilteredTransactions.forEach(tx => {
+      if (!tx.account_id || !cardAccountIds.has(tx.account_id)) {
+        result.push(tx);
+        return;
+      }
+      const groupKey = `${tx.account_id}__${tx.due_date}`;
+      const existing = seenCardGroups.get(groupKey);
+      if (existing) {
+        existing.amount += tx.type === TransactionType.INCOME ? -tx.amount : tx.amount;
+        existing.cardSummaryCount = (existing.cardSummaryCount || 1) + 1;
+        // Se algum item do grupo ainda estiver pendente, o resumo mostra pendente
+        if (tx.status !== TransactionStatus.PAID) existing.status = TransactionStatus.PENDING;
+        return;
+      }
+      const account = accounts.find(a => a.id === tx.account_id);
+      const summary: FinancialTransaction = {
+        ...tx,
+        id: `card-summary-${groupKey}`,
+        description: account?.name || 'Cartão de Crédito',
+        amount: tx.type === TransactionType.INCOME ? -tx.amount : tx.amount,
+        type: TransactionType.EXPENSE,
+        isCardSummary: true,
+        cardSummaryCount: 1,
+        category_id: undefined,
+      };
+      seenCardGroups.set(groupKey, summary);
+      result.push(summary);
+    });
+
+    return result;
+  }, [sortedFilteredTransactions, accountFilter, accounts]);
+
   // Calcula o saldo consolidado (ou da conta filtrada) ao final de cada dia, usando
   // apenas lançamentos PAGOS (é o que efetivamente moveu o saldo real da conta).
   // Parte do saldo real ATUAL de cada conta (getAccountLiveBalance — a mesma fonte
@@ -2988,7 +3034,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       setVisibleCount(20);
     };
 
-    const displayedTransactions = sortedFilteredTransactions.slice(0, visibleCount);
+    const displayedTransactions = groupedDisplayTransactions.slice(0, visibleCount);
     const monthFormatted = currentPeriod.toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
     const capitalizedMonth = monthFormatted.charAt(0).toUpperCase() + monthFormatted.slice(1);
 
@@ -3236,7 +3282,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                   const category = categories.find(c => c.id === tx.category_id);
                   const account = accounts.find(a => a.id === tx.account_id);
                   const isPaid = tx.status === TransactionStatus.PAID;
-                  const interestInfo = calculateInterestAndPenalty(tx);
+                  const interestInfo = tx.isCardSummary ? null : calculateInterestAndPenalty(tx);
                   const isLastOfDayGroup = txIdx === displayedTransactions.length - 1
                     || displayedTransactions[txIdx + 1].due_date !== tx.due_date;
                   const isFirstOfDayGroup = txIdx === 0
@@ -3259,6 +3305,36 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         </td>
                       </tr>
                     )}
+                    {tx.isCardSummary ? (
+                      <tr
+                        className="hover:bg-indigo-50/40 transition-all cursor-pointer"
+                        onClick={() => { setAccountFilter(tx.account_id || 'ALL'); setVisibleCount(20); }}
+                      >
+                        <td className="px-6 py-5"></td>
+                        <td className="px-6 py-5 text-sm font-bold text-slate-700 whitespace-nowrap">{formatDateBR(tx.due_date)}</td>
+                        <td className="px-6 py-5 text-sm text-slate-300">—</td>
+                        <td className="px-6 py-5" colSpan={2}>
+                          <div className="flex items-center gap-2">
+                            <CreditCard size={16} className="text-indigo-500 shrink-0" />
+                            <span className="font-bold text-slate-800">{tx.description}</span>
+                            <span className="text-xs text-slate-400 whitespace-nowrap">
+                              ({tx.cardSummaryCount} {tx.cardSummaryCount === 1 ? 'lançamento' : 'lançamentos'})
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-5 text-right">
+                          <span className="text-sm font-bold whitespace-nowrap text-rose-500">{formatCurrency(tx.amount)}</span>
+                        </td>
+                        <td className="px-6 py-5">
+                          <span className={`px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-wide ${isPaid ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                            {isPaid ? 'Liquidado' : 'Pendente'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-5 text-center">
+                          <ChevronRight size={16} className="text-slate-300 inline-block" />
+                        </td>
+                      </tr>
+                    ) : (
                     <tr className="hover:bg-slate-50/50 transition-all group">
                       <td className="px-6 py-5 text-center">
                         <input
@@ -3397,6 +3473,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                         </div>
                       </td>
                     </tr>
+                    )}
                     {isLastOfDayGroup && showDailyBalanceRows && <tr className="h-2"><td colSpan={8}></td></tr>}
                     </React.Fragment>
                   );

@@ -140,6 +140,8 @@ export interface FinancialTransaction {
   total_installments?: number;
   contact_name?: string | null;
   recurrence_group_id?: string | null;
+  isCardSummary?: boolean;
+  cardSummaryCount?: number;
   settled_by_transaction_id?: string | null;
 }
 
