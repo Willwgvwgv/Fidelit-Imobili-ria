@@ -81,6 +81,7 @@ import { Conciliacao } from './Conciliacao';
 import { ImportarExtrato } from './ImportarExtrato';
 import { FluxoCaixa } from './FluxoCaixa';
 import { ImportarImobia } from './ImportarImobia';
+import { ContratosLocacao } from './ContratosLocacao';
 import { Cartoes } from './Cartoes'; // Component from Cartoes.tsx
 import { ContasBancarias } from './ContasBancarias';
 import { ContaBancariaDetalhe } from './ContaBancariaDetalhe';
@@ -7281,11 +7282,21 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
               />
             )}
             {localActiveView === 'financial-contratos' && (
-              <ImportarImobia
-                currentUser={currentUser}
-                showToast={showToast}
-                onImportDone={() => setLocalActiveView('financial-fluxo')}
-              />
+              <div className="space-y-6">
+                <ContratosLocacao currentUser={currentUser} showToast={showToast} />
+                <details className="bg-white rounded-3xl border border-slate-200 shadow-2xs">
+                  <summary className="cursor-pointer select-none px-5 py-4 font-bold text-slate-600 text-sm flex items-center gap-2">
+                    Importar novos contratos (CSV do imobia.app)
+                  </summary>
+                  <div className="px-5 pb-5">
+                    <ImportarImobia
+                      currentUser={currentUser}
+                      showToast={showToast}
+                      onImportDone={() => setLocalActiveView('financial-fluxo')}
+                    />
+                  </div>
+                </details>
+              </div>
             )}
             {localActiveView === 'financial-cartoes' && (
               <Cartoes
