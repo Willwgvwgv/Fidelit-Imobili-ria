@@ -2096,23 +2096,20 @@ const Commissions: React.FC<CommissionsProps> = ({
 
                 {/* Se for Pagamento Parcial, exibe bloco com restante e escolha da data do restante */}
                 {isPartial && (
-                  <div className="bg-amber-50/90 border border-amber-200/90 rounded-xl p-3.5 space-y-2.5 animate-in fade-in duration-200">
+                  <div className="bg-amber-50/90 border border-amber-200/90 rounded-xl p-3.5 space-y-2 animate-in fade-in duration-200">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
-                        <TrendingUp size={15} className="text-amber-600" /> Pagamento Parcial Selecionado
+                        <TrendingUp size={15} className="text-amber-600" /> Restante fica pendente
                       </div>
                       <div className="text-xs font-black text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
-                        Restante: {formatCurrency(remainingVal)}
+                        {formatCurrency(remainingVal)}
                       </div>
                     </div>
-                    <p className="text-[11px] text-amber-800 leading-relaxed">
-                      Será gerado automaticamente um novo lançamento pendente no valor de <strong>{formatCurrency(remainingVal)}</strong> com a previsão de pagamento abaixo.
-                    </p>
-                    
+
                     <div className="space-y-1.5 pt-1">
                       <div className="flex items-center justify-between">
                         <label className="text-[10px] font-bold uppercase tracking-wider text-amber-900 flex items-center gap-1">
-                          <Calendar size={12} className="text-amber-600" /> Data de Pagamento do Restante *
+                          <Calendar size={12} className="text-amber-600" /> Para quando?
                         </label>
                         <div className="flex items-center gap-1">
                           <button 
@@ -2141,6 +2138,8 @@ const Commissions: React.FC<CommissionsProps> = ({
                       <input 
                         type="date"
                         required
+                        min={new Date().toISOString().split('T')[0]}
+                        max={(() => { const d = new Date(); d.setFullYear(d.getFullYear() + 2); return d.toISOString().split('T')[0]; })()}
                         value={remainingForecastDate}
                         onChange={(e) => setRemainingForecastDate(e.target.value)}
                         className="w-full px-3 h-[38px] bg-white border border-amber-300 rounded-lg outline-none text-sm font-bold text-gray-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all shadow-2xs"
