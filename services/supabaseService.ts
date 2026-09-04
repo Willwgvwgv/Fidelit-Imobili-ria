@@ -868,8 +868,7 @@ export const supabaseService = {
             due_date: params.paymentDate,
             payment_date: params.paymentDate,
             notes: params.notes || `Pagamento de comissão vinculado ao rateio ${params.splitId}`,
-            contact_name: splitBrokerName,
-            affects_dre: true // Despesa operacional real da imobiliária
+            contact_name: splitBrokerName
           };
 
           const { data: createdTx, error: createTxErr } = await supabase
