@@ -121,7 +121,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
 
   // Splits & Split UI modes
   const [tempSplits, setTempSplits] = useState<TempSplit[]>([]);
-  const [splitMode, setSplitMode] = useState<'commission' | 'vgv'>('commission');
+  const [splitMode, setSplitMode] = useState<'commission' | 'vgv' | 'fixed'>('commission');
 
   // SAFE EDITING STATES: Tracking existing financial history
   const [hasFinancialMovement, setHasFinancialMovement] = useState<boolean>(false);
@@ -1478,6 +1478,17 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                 >
                   % do VGV
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setSplitMode('fixed')}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                    splitMode === 'fixed'
+                      ? 'bg-indigo-600 text-white'
+                      : 'text-slate-400 hover:text-slate-600 bg-transparent'
+                  }`}
+                >
+                  R$ Fixo
+                </button>
               </div>
 
               <button
@@ -1607,10 +1618,10 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                     </select>
                   </div>
 
-                  {/* Split Percent Input container */}
+                  {/* Split Percent/Value Input container */}
                   <div className="md:col-span-2 space-y-1">
                     <label className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">
-                      {splitMode === 'commission' ? '% DO REPASSE' : '% DO VGV'}
+                      {splitMode === 'commission' ? '% DO REPASSE' : splitMode === 'vgv' ? '% DO VGV' : 'VALOR FIXO (R$)'}
                     </label>
                     <div className="relative">
                       <input
@@ -1620,9 +1631,14 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                         value={
                           splitMode === 'commission'
                             ? (split.percentage === 0 ? '' : split.percentage)
-                            : (() => {
+                            : splitMode === 'vgv'
+                            ? (() => {
                                 const vgvPct = Math.round(((split.percentage * commissionPercentage) / 100 + Number.EPSILON) * 100) / 100;
                                 return vgvPct === 0 ? '' : vgvPct;
+                              })()
+                            : (() => {
+                                const fixedValue = Math.round(((totalCommission * split.percentage) / 100 + Number.EPSILON) * 100) / 100;
+                                return fixedValue === 0 ? '' : fixedValue;
                               })()
                         }
                         onChange={(e) => {
@@ -1630,18 +1646,26 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                           const inputVal = rawVal === '' ? 0 : Number(rawVal);
                           if (splitMode === 'commission') {
                             handleUpdateSplit(idx, { percentage: inputVal });
-                          } else {
+                          } else if (splitMode === 'vgv') {
                             // Convert VGV % back to commission %
                             // (VGV_percentage / commissionPercentage) * 100
                             const commPct = commissionPercentage > 0 
                               ? Math.round(((inputVal / commissionPercentage) * 100 + Number.EPSILON) * 100) / 100 
                               : 0;
                             handleUpdateSplit(idx, { percentage: commPct });
+                          } else {
+                            // Convert R$ fixo back to % da comissão
+                            const pct = totalCommission > 0
+                              ? Math.round(((inputVal / totalCommission) * 100 + Number.EPSILON) * 100) / 100
+                              : 0;
+                            handleUpdateSplit(idx, { percentage: pct });
                           }
                         }}
-                        className="w-full pr-6 pl-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                        className="w-full pr-8 pl-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
                       />
-                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold">%</span>
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold">
+                        {splitMode === 'fixed' ? 'R$' : '%'}
+                      </span>
                     </div>
                   </div>
 
