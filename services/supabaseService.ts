@@ -203,7 +203,7 @@ export const supabaseService = {
   },
 
   // Create a new sale
-  async createSale(sale: Omit<Sale, 'id' | 'splits'>, splits: Omit<BrokerSplit, 'id' | 'sale_id'>[]): Promise<Sale | null> {
+  async createSale(sale: Omit<Sale, 'id' | 'splits'>, splits: Omit<BrokerSplit, 'id' | 'sale_id'>[], launchInFinancial: boolean = true): Promise<Sale | null> {
     console.log('[DEBUG_CREATE_SALE_CALLED]', new Error().stack);
     if (!supabase) return null;
 
@@ -282,14 +282,59 @@ export const supabaseService = {
       return null;
     }
 
+    if (launchInFinancial) {
+      await this.launchSaleSplitsInFinancial(sale, splits, sale.agencyId);
+    }
+
     return { ...sale, id: saleId, splits: splits as BrokerSplit[] };
+  },
+
+  /**
+   * Cria um lançamento financeiro PENDENTE pra cada split de uma venda (inclusive
+   * o da agência), sem conta/categoria de banco vinculada ainda — isso é preenchido
+   * na hora do pagamento real, igual já acontece no fluxo "Lançar no Financeiro"
+   * da tela de Comissões. Não interrompe a criação da venda se falhar (só loga).
+   */
+  async launchSaleSplitsInFinancial(
+    sale: { propertyAddress?: string; agencyId?: string },
+    splits: (Omit<BrokerSplit, 'id' | 'sale_id'> & { brokerName?: string; role?: any; calculatedValue?: number; forecastDate?: string })[],
+    agencyId?: string
+  ): Promise<void> {
+    if (!supabase || !splits || splits.length === 0) return;
+
+    const COMISSOES_RECEBIDAS_CATEGORY = '899c0652-22d9-49c3-b869-fc3b4a9262c2';
+    const COMISSOES_PAGAS_CATEGORY = 'acccc0c8-0fd2-4307-8a01-40b528150dc0';
+
+    const rows = splits
+      .filter(s => (s.calculatedValue || 0) > 0)
+      .map(s => {
+        const isAgency = mapUiRoleToDbRole(s.role || '') === 'agency' || !s.brokerName || s.brokerName === 'Agência (Imobiliária)';
+        return {
+          agency_id: agencyId,
+          type: isAgency ? 'INCOME' : 'EXPENSE',
+          status: 'PENDING',
+          category_id: isAgency ? COMISSOES_RECEBIDAS_CATEGORY : COMISSOES_PAGAS_CATEGORY,
+          due_date: s.forecastDate,
+          amount: s.calculatedValue,
+          description: `Comissão ${isAgency ? 'Agência' : (s.brokerName || 'Corretor')} - ${sale.propertyAddress || ''}`.trim(),
+          contact_name: isAgency ? 'Fidelité Imobiliária' : (s.brokerName || null)
+        };
+      });
+
+    if (rows.length === 0) return;
+
+    const { error } = await supabase.from('financial_transactions').insert(rows);
+    if (error) {
+      console.error('Error launching sale splits in financial:', error);
+    }
   },
 
   // Update sale and its splits using UPSERT strategy for splits
   async updateSale(
     saleId: string, 
     sale: Partial<Sale>, 
-    splits: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[]
+    splits: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[],
+    launchInFinancial: boolean = true
   ): Promise<boolean> {
     console.log('[DEBUG_UPDATE_SALE_CALLED]', { saleId }, new Error().stack);
     if (!supabase) return false;

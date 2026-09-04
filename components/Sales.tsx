@@ -226,10 +226,10 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
     setCurrentSplit({ brokerId: '', percentage: 100, role: SplitRole.BROKER });
   };
 
-  const handleSaveSale = async (saleData: Omit<Sale, 'id' | 'splits'>, splitsData: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[]) => {
+  const handleSaveSale = async (saleData: Omit<Sale, 'id' | 'splits'>, splitsData: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[], launchInFinancial: boolean = true) => {
     setIsSaving(true);
     try {
-      await supabaseService.createSale(saleData as any, splitsData as any);
+      await supabaseService.createSale(saleData as any, splitsData as any, launchInFinancial);
       await onRefresh();
       closeModal();
     } catch (error) {
@@ -240,10 +240,10 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
     }
   };
 
-  const handleUpdateSale = async (saleId: string, saleData: Partial<Sale>, splitsData: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[]) => {
+  const handleUpdateSale = async (saleId: string, saleData: Partial<Sale>, splitsData: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[], launchInFinancial: boolean = true) => {
     setIsSaving(true);
     try {
-      const success = await supabaseService.updateSale(saleId, saleData, splitsData as any);
+      const success = await supabaseService.updateSale(saleId, saleData, splitsData as any, launchInFinancial);
       if (success) {
         await onRefresh();
         closeModal();
@@ -847,10 +847,10 @@ const Sales: React.FC<SalesProps> = ({ sales, onRefresh, currentUser, team }) =>
               <SaleForm
                 agencyId={currentUser.agencyId}
                 team={team}
-                onSave={(saleData, splitsData) =>
+                onSave={(saleData, splitsData, launchInFinancial) =>
                   editingSale
-                    ? handleUpdateSale(editingSale.id, saleData, splitsData)
-                    : handleSaveSale(saleData, splitsData)
+                    ? handleUpdateSale(editingSale.id, saleData, splitsData, launchInFinancial)
+                    : handleSaveSale(saleData, splitsData, launchInFinancial)
                 }
                 onCancel={closeModal}
                 editingSale={editingSale}

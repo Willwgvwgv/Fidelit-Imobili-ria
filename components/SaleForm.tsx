@@ -23,10 +23,10 @@ import { Sale, BrokerSplit, CommissionStatus, SplitRole, User, UserRole } from '
 interface SaleFormProps {
   agencyId: string;
   team: User[];
-  onSave: (saleData: Omit<Sale, 'id' | 'splits'>, splitsData: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[]) => void;
+  onSave: (saleData: Omit<Sale, 'id' | 'splits'>, splitsData: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[], launchInFinancial?: boolean) => void;
   onCancel: () => void;
   editingSale?: Sale | null;
-  onUpdate?: (saleId: string, saleData: Partial<Sale>, splitsData: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[]) => void;
+  onUpdate?: (saleId: string, saleData: Partial<Sale>, splitsData: (Omit<BrokerSplit, 'sale_id'> & { id?: string })[], launchInFinancial?: boolean) => void;
 }
 
 interface TempSplit {
@@ -107,6 +107,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
 
   // Installment
   const [isInstallment, setIsInstallment] = useState(false);
+  const [launchInFinancial, setLaunchInFinancial] = useState(true);
   const [installmentCount, setInstallmentCount] = useState<number>(4);
   const [firstDueDate, setFirstDueDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
@@ -819,9 +820,9 @@ export const SaleForm: React.FC<SaleFormProps> = ({
     console.log('[DEBUG_SAVE_PATH]', { hasEditingSale: !!editingSale, editingSaleId: editingSale?.id, hasOnUpdate: !!onUpdate });
 
     if (editingSale && onUpdate) {
-      onUpdate(editingSale.id, saleData, finalSplits);
+      onUpdate(editingSale.id, saleData, finalSplits, launchInFinancial);
     } else {
-      onSave(saleData, finalSplits);
+      onSave(saleData, finalSplits, launchInFinancial);
     }
   };
 
@@ -1714,7 +1715,16 @@ export const SaleForm: React.FC<SaleFormProps> = ({
       )}
 
       {/* FOOTER ACTIONS */}
-      <div className="p-6 md:p-8 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row justify-end items-center gap-4">
+      <div className="p-6 md:p-8 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <label className="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={launchInFinancial}
+            onChange={(e) => setLaunchInFinancial(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-200 cursor-pointer"
+          />
+          Lançar splits no Financeiro como pendente
+        </label>
         <div className="flex gap-4 w-full sm:w-auto justify-end">
           <button
             type="button"
