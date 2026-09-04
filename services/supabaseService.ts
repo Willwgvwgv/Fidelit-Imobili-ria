@@ -197,7 +197,9 @@ export const supabaseService = {
         installment_number: split.installment_number,
         total_installments: split.total_installments,
         notes: split.notes,
-        discount_value: split.discount_value
+        discount_value: split.discount_value,
+        settled_by_transaction_id: split.settled_by_transaction_id,
+        manually_adjusted: split.manually_adjusted
       }))
     }));
   },
@@ -452,7 +454,8 @@ export const supabaseService = {
         total_installments: Number(s.total_installments) || 1,
         payment_date: isAlreadyPaid ? existingMatchingSplit.payment_date : (s.paymentDate || null),
         payment_method: isAlreadyPaid ? existingMatchingSplit.payment_method : (s.paymentMethod || null),
-        receipt_data: isAlreadyPaid ? existingMatchingSplit.receipt_data : (s.receiptData || null)
+        receipt_data: isAlreadyPaid ? existingMatchingSplit.receipt_data : (s.receiptData || null),
+        manually_adjusted: Boolean(s.manually_adjusted ?? existingMatchingSplit?.manually_adjusted)
       };
 
       if (isAlreadyPaid && existingMatchingSplit.settled_by_transaction_id) {
@@ -851,18 +854,24 @@ export const supabaseService = {
         if (params.transactionId && String(params.transactionId).trim() !== '') {
           resolvedTransactionId = String(params.transactionId).trim();
         } else if (params.newTransactionData && params.newTransactionData.accountId && params.newTransactionData.categoryId) {
-          // Criar a nova transação financeira de despesa vinculada
+          // Criar a nova transação financeira vinculada
           const splitBrokerName = currentSplit.broker_name || 'Comissão / Repasse';
+          const isAgencySplit = splitRole === 'AGENCY' || splitRole === 'AGÊNCIA' || splitRole === 'AGENCIA';
           const defaultDesc = params.newTransactionData.description && params.newTransactionData.description.trim() !== ''
             ? params.newTransactionData.description.trim()
-            : `Repasse ${splitRole === 'PARTNER' || splitRole === 'SÓCIO' || splitRole === 'SOCIO' ? 'Sócio' : splitRole === 'AGENCY' || splitRole === 'AGÊNCIA' || splitRole === 'AGENCIA' ? 'Agência' : 'Comissão'} - ${splitBrokerName} (${params.paymentMethod || 'Repasse'})`;
+            : `Repasse ${splitRole === 'PARTNER' || splitRole === 'SÓCIO' || splitRole === 'SOCIO' ? 'Sócio' : isAgencySplit ? 'Agência' : 'Comissão'} - ${splitBrokerName} (${params.paymentMethod || 'Repasse'})`;
+
+          // A comissão da própria Agência não é uma despesa que sai do caixa — é a receita
+          // que a imobiliária retém. Registrar como EXPENSE/"Comissões Pagas a Corretores"
+          // (como se tivesse sido paga a um terceiro) inflava as despesas indevidamente.
+          const AGENCY_INCOME_CATEGORY = '899c0652-22d9-49c3-b869-fc3b4a9262c2'; // Comissões Recebidas
 
           const newTxPayload = {
             agency_id: params.agencyId || currentSplit.agency_id,
             description: defaultDesc,
             amount: paidVal,
-            type: TransactionType.EXPENSE,
-            category_id: params.newTransactionData.categoryId || null,
+            type: isAgencySplit ? TransactionType.INCOME : TransactionType.EXPENSE,
+            category_id: isAgencySplit ? AGENCY_INCOME_CATEGORY : (params.newTransactionData.categoryId || null),
             account_id: params.newTransactionData.accountId || null,
             status: TransactionStatus.PAID,
             due_date: params.paymentDate,

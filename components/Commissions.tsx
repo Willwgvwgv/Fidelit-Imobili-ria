@@ -554,10 +554,10 @@ const Commissions: React.FC<CommissionsProps> = ({
         return (
           <span 
             className="bg-amber-50 text-amber-800 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 border border-amber-200 shadow-2xs select-none"
-            title="Pagamento Parcial (Trava: parcelas pagas estão protegidas contra edição direta)"
+            title="Algumas parcelas já pagas (por inteiro), outras ainda em aberto (Trava: parcelas pagas estão protegidas contra edição direta)"
           >
             <TrendingUp size={13} className="text-amber-600" /> 
-            <span>PARCIAL</span>
+            <span>EM ANDAMENTO</span>
             <Lock size={11} className="text-amber-600/80 ml-0.5" />
           </span>
         );
@@ -1170,7 +1170,7 @@ const Commissions: React.FC<CommissionsProps> = ({
           ['PAGO', paidCount.toString(), formatCurrencyVal(paidVal)],
           ['PENDENTE', pendingCount.toString(), formatCurrencyVal(pendingVal)],
           ['ATRASADO', overdueCount.toString(), formatCurrencyVal(overdueVal)],
-          ['PARCIAL (Grupos)', partialCount.toString(), formatCurrencyVal(partialVal)],
+          ['EM ANDAMENTO (Grupos)', partialCount.toString(), formatCurrencyVal(partialVal)],
           ['TOTAL GERAL', totalCount.toString(), formatCurrencyVal(totalVal)],
         ],
         theme: 'grid',

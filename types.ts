@@ -47,6 +47,7 @@ export interface BrokerSplit {
   notes?: string;
   discount_value?: number;
   settled_by_transaction_id?: string | null;
+  manually_adjusted?: boolean; // Map to manually_adjusted
 }
 
 export interface Sale {

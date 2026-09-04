@@ -758,8 +758,9 @@ export const SaleForm: React.FC<SaleFormProps> = ({
             (matchingOrig.paymentDate !== null && matchingOrig.paymentDate !== undefined && matchingOrig.paymentDate !== '') ||
             Boolean(matchingOrig.settled_by_transaction_id)
           );
+          const isManuallyAdjusted = Boolean(matchingOrig?.manually_adjusted);
 
-          const calculatedValue = isAlreadyPaid && matchingOrig.calculatedValue
+          const calculatedValue = (isAlreadyPaid || isManuallyAdjusted) && matchingOrig.calculatedValue
             ? matchingOrig.calculatedValue
             : Math.round(((parcela.value * s.percentage) / 100 + Number.EPSILON) * 100) / 100;
 
@@ -777,7 +778,8 @@ export const SaleForm: React.FC<SaleFormProps> = ({
             paymentDate: matchingOrig?.paymentDate || null,
             paymentMethod: matchingOrig?.paymentMethod || null,
             receiptData: matchingOrig?.receiptData || null,
-            settled_by_transaction_id: matchingOrig?.settled_by_transaction_id || undefined
+            settled_by_transaction_id: matchingOrig?.settled_by_transaction_id || undefined,
+            manually_adjusted: isManuallyAdjusted
           });
         });
       });
@@ -793,8 +795,9 @@ export const SaleForm: React.FC<SaleFormProps> = ({
           (matchingOrig.paymentDate !== null && matchingOrig.paymentDate !== undefined && matchingOrig.paymentDate !== '') ||
           Boolean(matchingOrig.settled_by_transaction_id)
         );
+        const isManuallyAdjusted = Boolean(matchingOrig?.manually_adjusted);
 
-        const calculatedValue = isAlreadyPaid && matchingOrig.calculatedValue
+        const calculatedValue = (isAlreadyPaid || isManuallyAdjusted) && matchingOrig.calculatedValue
           ? matchingOrig.calculatedValue
           : Math.round(((totalCommission * s.percentage) / 100 + Number.EPSILON) * 100) / 100;
 
@@ -812,7 +815,8 @@ export const SaleForm: React.FC<SaleFormProps> = ({
           paymentDate: matchingOrig?.paymentDate || null,
           paymentMethod: matchingOrig?.paymentMethod || null,
           receiptData: matchingOrig?.receiptData || null,
-          settled_by_transaction_id: matchingOrig?.settled_by_transaction_id || undefined
+          settled_by_transaction_id: matchingOrig?.settled_by_transaction_id || undefined,
+          manually_adjusted: isManuallyAdjusted
         };
       });
     }
