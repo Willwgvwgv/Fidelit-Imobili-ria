@@ -423,6 +423,20 @@ export const SaleForm: React.FC<SaleFormProps> = ({
     setInstallmentsList(updated);
   };
 
+  // Ajusta o último split de comissão pra fechar em exatamente 100,00%, absorvendo
+  // qualquer resíduo de ponto flutuante (ex: 28.96 + 71.05 = 100.00999999999999)
+  // que fica dos cálculos de % a partir de valor em R$.
+  const handleAutoAdjustSplits = () => {
+    if (tempSplits.length === 0) return;
+    const sumExceptLast = tempSplits.slice(0, -1).reduce((acc, s) => acc + s.percentage, 0);
+    const balancedLastPct = Math.max(0, Math.round((100 - sumExceptLast) * 100) / 100);
+
+    const updated = [...tempSplits];
+    const lastIdx = updated.length - 1;
+    updated[lastIdx] = { ...updated[lastIdx], percentage: balancedLastPct };
+    setTempSplits(updated);
+  };
+
   const handleUpdateInstallmentRow = (index: number, valOrStr: string | number, dueDate: string) => {
     const updated = [...installmentsList];
     let parsedVal = 0;
@@ -589,17 +603,17 @@ export const SaleForm: React.FC<SaleFormProps> = ({
 
   const progressColorClass = useMemo(() => {
     if (totalSplitPercentage === 0) return 'bg-slate-200';
-    if (totalSplitPercentage === 100) return 'bg-emerald-500';
+    if (isSplitsValid) return 'bg-emerald-500';
     if (totalSplitPercentage > 100) return 'bg-red-500';
     return 'bg-amber-500';
-  }, [totalSplitPercentage]);
+  }, [totalSplitPercentage, isSplitsValid]);
 
   const progressLabelColorClass = useMemo(() => {
     if (totalSplitPercentage === 0) return 'text-slate-400';
-    if (totalSplitPercentage === 100) return 'text-emerald-600 font-bold';
+    if (isSplitsValid) return 'text-emerald-600 font-bold';
     if (totalSplitPercentage > 100) return 'text-red-600 font-bold';
     return 'text-amber-500 font-semibold';
-  }, [totalSplitPercentage]);
+  }, [totalSplitPercentage, isSplitsValid]);
 
   const handleClearForm = () => {
     setPropertyAddress('');
@@ -1514,7 +1528,7 @@ export const SaleForm: React.FC<SaleFormProps> = ({
             <div className="flex justify-between items-center text-[10px] uppercase font-black">
               <span className="text-slate-400 tracking-widest">Soma da distribuição</span>
               <span className={progressLabelColorClass}>
-                {totalSplitPercentage}% / 100%
+                {Math.round(totalSplitPercentage * 100) / 100}% / 100%
               </span>
             </div>
             <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden flex">
@@ -1529,10 +1543,22 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                 />
               )}
             </div>
-            {totalSplitPercentage !== 100 && (
-              <div className="flex items-center gap-1.5 text-[10px] font-semibold text-amber-600 pt-1">
-                <AlertCircle size={12} />
-                <span>O repasse total precisa somar exatamente 100% da comissão para aprovação do cadastro.</span>
+            {!isSplitsValid && (
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold text-amber-600">
+                  <AlertCircle size={12} />
+                  <span>O repasse total precisa somar exatamente 100% da comissão para aprovação do cadastro.</span>
+                </div>
+                {tempSplits.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleAutoAdjustSplits}
+                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl transition-all shadow-sm border border-blue-100"
+                  >
+                    <RotateCcw size={11} />
+                    Ajustar automaticamente
+                  </button>
+                )}
               </div>
             )}
           </div>
