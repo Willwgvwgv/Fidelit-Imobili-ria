@@ -1116,8 +1116,8 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                   type="number"
                   step="0.01"
                   placeholder="6"
-                  value={commissionPercentage}
-                  onChange={(e) => setCommissionPercentage(Number(e.target.value))}
+                  value={commissionPercentage === 0 ? '' : commissionPercentage}
+                  onChange={(e) => setCommissionPercentage(e.target.value === '' ? 0 : Number(e.target.value))}
                   className="w-full pr-8 pl-4 py-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm font-bold text-slate-800 shadow-sm"
                 />
                 <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">%</span>
@@ -1618,11 +1618,15 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                         step="0.01"
                         value={
                           splitMode === 'commission'
-                            ? split.percentage
-                            : Math.round(((split.percentage * commissionPercentage) / 100 + Number.EPSILON) * 100) / 100
+                            ? (split.percentage === 0 ? '' : split.percentage)
+                            : (() => {
+                                const vgvPct = Math.round(((split.percentage * commissionPercentage) / 100 + Number.EPSILON) * 100) / 100;
+                                return vgvPct === 0 ? '' : vgvPct;
+                              })()
                         }
                         onChange={(e) => {
-                          const inputVal = Number(e.target.value);
+                          const rawVal = e.target.value;
+                          const inputVal = rawVal === '' ? 0 : Number(rawVal);
                           if (splitMode === 'commission') {
                             handleUpdateSplit(idx, { percentage: inputVal });
                           } else {
