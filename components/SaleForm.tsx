@@ -1125,14 +1125,34 @@ export const SaleForm: React.FC<SaleFormProps> = ({
               </div>
             </div>
 
-            {/* Total calculated value Card */}
-            <div className="bg-[#eff6ff] border border-blue-100 rounded-2xl p-4 flex flex-col justify-center h-[76px] mt-1">
-              <span className="text-[9px] font-black uppercase tracking-wider text-blue-600 block text-center">
-                VALOR TOTAL GERADO DE COMISSÃO
+            {/* Total value: pode digitar direto, calcula o % sozinho */}
+            <div className="bg-[#eff6ff] border border-blue-100 rounded-2xl p-3 flex flex-col justify-center mt-1">
+              <span className="text-[9px] font-black uppercase tracking-wider text-blue-600 block text-center mb-1">
+                VALOR TOTAL DA COMISSÃO
               </span>
-              <p className="text-xl font-black text-blue-800 text-center mt-1">
-                {formatCurrency(totalCommission)}
-              </p>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400 text-sm font-bold">R$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="0"
+                  value={totalCommission === 0 ? '' : totalCommission}
+                  onChange={(e) => {
+                    const rawVal = e.target.value;
+                    const targetValue = rawVal === '' ? 0 : Number(rawVal);
+                    if (vgv > 0) {
+                      // Calcula o percentual com precisão alta (6 casas), pra bater o valor exato
+                      // pedido, em vez de arredondar em 2 casas e deixar sobra de centavos.
+                      const preciseNewPct = Math.round(((targetValue / vgv) * 100 + Number.EPSILON) * 1000000) / 1000000;
+                      setCommissionPercentage(preciseNewPct);
+                    }
+                  }}
+                  className="w-full pl-9 pr-3 py-2 bg-white border border-blue-200 rounded-xl text-lg font-black text-blue-800 text-center focus:ring-2 focus:ring-blue-200 outline-none transition-all"
+                />
+              </div>
+              <span className="text-[9px] text-blue-500 text-center mt-1">
+                = {commissionPercentage === 0 ? '0' : commissionPercentage}% do VGV
+              </span>
             </div>
           </div>
         </div>
