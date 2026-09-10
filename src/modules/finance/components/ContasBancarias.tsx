@@ -120,14 +120,16 @@ export const ContasBancarias: React.FC<ContasBancariasProps> = ({
         try {
           const { data: rentData } = await supabase
             .from('rent_installments')
-            .select('expected_amount, status, due_date')
+            .select('expected_fee, status, due_date')
             .or('status.eq.pending,status.eq.overdue')
             .gte('due_date', todayStr)
             .lte('due_date', futureDateStr);
 
           if (rentData && rentData.length > 0) {
             rentData.forEach((item: any) => {
-              recSum += Number(item.expected_amount || 0);
+              // Soma só a comissão (expected_fee), não o valor total do aluguel —
+              // o resto é repasse ao proprietário, não é receita da imobiliária.
+              recSum += Number(item.expected_fee || 0);
               recCount += 1;
             });
           }
