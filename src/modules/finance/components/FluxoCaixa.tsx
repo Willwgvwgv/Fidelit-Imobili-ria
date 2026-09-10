@@ -83,6 +83,8 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
   );
 
   const [currentMonthInstallments, setCurrentMonthInstallments] = useState<RentInstallmentRow[]>([]);
+  const [rentSearchTerm, setRentSearchTerm] = useState('');
+  const [rentStatusFilter, setRentStatusFilter] = useState<'all' | 'received' | 'overdue' | 'pending'>('all');
   const [firstDueDateMap, setFirstDueDateMap] = useState<Map<string, string>>(new Map());
   const [accounts, setAccounts] = useState<Array<{ id: string; name: string; bank_name?: string }>>([]);
   const [loadingInstallments, setLoadingInstallments] = useState(false);
@@ -322,6 +324,30 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
       totalSegurosTaxas,
     };
   }, [currentMonthInstallments]);
+
+  // Lista de parcelas filtrada por busca (inquilino/imóvel/proprietário) e por status
+  const filteredInstallments = useMemo(() => {
+    let list = currentMonthInstallments;
+
+    if (rentStatusFilter === 'received') {
+      list = list.filter(item => item.status === 'received');
+    } else if (rentStatusFilter === 'overdue') {
+      list = list.filter(item => item.status === 'overdue' || (item.status === 'pending' && new Date(item.due_date) < new Date()));
+    } else if (rentStatusFilter === 'pending') {
+      list = list.filter(item => item.status === 'pending' && !(new Date(item.due_date) < new Date()));
+    }
+
+    const term = rentSearchTerm.trim().toLowerCase();
+    if (term) {
+      list = list.filter(item =>
+        (item.tenant_name || '').toLowerCase().includes(term) ||
+        (item.property_address || '').toLowerCase().includes(term) ||
+        (item.owner_name || '').toLowerCase().includes(term)
+      );
+    }
+
+    return list;
+  }, [currentMonthInstallments, rentSearchTerm, rentStatusFilter]);
 
   // Chart 1: Simulated 30-day projected balance trend
   const trendData30d = useMemo(() => {
@@ -854,45 +880,45 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
       </div>
 
       {/* Indicador em Destaque: Receita Real da Fidelité vs Valores de Passagem */}
-      <div className="bg-gradient-to-r from-emerald-950 via-slate-900 to-teal-950 rounded-3xl p-6 text-white shadow-md border border-emerald-800/40 space-y-5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-emerald-800/50">
+      <div className="bg-emerald-50 rounded-3xl p-6 shadow-2xs border border-emerald-100 space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-emerald-100">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-emerald-500/20 border border-emerald-400/30 rounded-2xl text-emerald-400">
+            <div className="p-3 bg-white border border-emerald-200 rounded-2xl text-emerald-600 shadow-2xs">
               <Sparkles size={24} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-black uppercase tracking-widest text-emerald-300">Análise de Receita Real</span>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold border border-emerald-400/30">Mês Corrente</span>
+                <span className="text-xs font-black uppercase tracking-widest text-emerald-700">Análise de Receita Real</span>
+                <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold border border-emerald-200">Mês Corrente</span>
               </div>
-              <h4 className="text-lg font-bold text-white tracking-tight">Receita Real da Fidelité vs. Valores de Passagem</h4>
+              <h4 className="text-lg font-bold text-slate-800 tracking-tight">Receita Real da Fidelité vs. Valores de Passagem</h4>
             </div>
           </div>
-          <div className="text-xs text-emerald-200/80 max-w-md">
-            <span className="font-bold text-white">Importante:</span> Apenas a <strong>Taxa de Administração (Comissão Fidelité)</strong> compõe a receita líquida própria da imobiliária. Repasses aos proprietários e seguros são valores de passagem transitórios.
+          <div className="text-xs text-slate-500 max-w-md">
+            <span className="font-bold text-slate-700">Importante:</span> Apenas a <strong>Taxa de Administração (Comissão Fidelité)</strong> compõe a receita líquida própria da imobiliária. Repasses aos proprietários e seguros são valores de passagem transitórios.
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-4 border border-emerald-400/30">
-            <span className="text-[11px] font-bold text-emerald-300 uppercase tracking-wider block">Receita Real da Fidelité (Taxa Adm)</span>
-            <div className="text-2xl font-black text-emerald-400 mt-1">
+          <div className="bg-white rounded-2xl p-4 border border-emerald-200 shadow-2xs">
+            <span className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider block">Receita Real da Fidelité (Taxa Adm)</span>
+            <div className="text-2xl font-black text-emerald-600 mt-1">
               R$ {rentRevenueStats.totalRealFeeRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <span className="text-[10px] text-emerald-200/70 mt-1 block">Comissão líquida prevista no mês</span>
+            <span className="text-[10px] text-slate-400 mt-1 block">Comissão líquida prevista no mês</span>
           </div>
 
-          <div className="bg-white/5 backdrop-blur-xs rounded-2xl p-4 border border-white/10">
-            <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">Repasse aos Proprietários (Passagem)</span>
-            <div className="text-2xl font-black text-white mt-1">
+          <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Repasse aos Proprietários (Passagem)</span>
+            <div className="text-2xl font-black text-slate-800 mt-1">
               R$ {rentRevenueStats.totalOwnerRepasse.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <span className="text-[10px] text-slate-400 mt-1 block">Destinado aos locadores</span>
           </div>
 
-          <div className="bg-white/5 backdrop-blur-xs rounded-2xl p-4 border border-white/10">
-            <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">Seguros & Taxas (Passagem)</span>
-            <div className="text-2xl font-black text-amber-300 mt-1">
+          <div className="bg-white rounded-2xl p-4 border border-amber-200 shadow-2xs">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Seguros & Taxas (Passagem)</span>
+            <div className="text-2xl font-black text-amber-600 mt-1">
               R$ {rentRevenueStats.totalSegurosTaxas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <span className="text-[10px] text-slate-400 mt-1 block">Seguro locatício, incêndio e taxas</span>
@@ -926,11 +952,46 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
           </div>
         </div>
 
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 pb-1">
+          <input
+            type="text"
+            value={rentSearchTerm}
+            onChange={(e) => setRentSearchTerm(e.target.value)}
+            placeholder="Buscar por inquilino, imóvel ou proprietário..."
+            className="flex-1 text-xs px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-blue-200"
+          />
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {([
+              { key: 'all', label: 'Todos' },
+              { key: 'received', label: 'Pagos' },
+              { key: 'overdue', label: 'Atrasados' },
+              { key: 'pending', label: 'Pendentes' },
+            ] as const).map(tab => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setRentStatusFilter(tab.key)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-full transition-all cursor-pointer ${
+                  rentStatusFilter === tab.key
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {loadingInstallments ? (
           <div className="p-8 text-center text-slate-400 text-xs">Carregando parcelas de aluguel e contratos...</div>
         ) : currentMonthInstallments.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-xs">
             Nenhuma parcela de aluguel encontrada para este mês. Clique em "Gerar parcelas do mês" acima, ou importe os contratos do imobia.app.
+          </div>
+        ) : filteredInstallments.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-xs">
+            Nenhuma parcela encontrada com esse filtro/busca.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -948,7 +1009,7 @@ export const FluxoCaixa: React.FC<FluxoCaixaProps> = ({ currentUser, transaction
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {currentMonthInstallments.map((item) => {
+                {filteredInstallments.map((item) => {
                   const isReceived = item.status === 'received';
                   const isPartial = item.status === 'partial';
                   const isCancelled = item.status === 'cancelled';
