@@ -39,9 +39,9 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
     return y === selYear && m === selMonthIdx;
   };
 
-  // 1. Vencidos (global)
+  // 1. Vencidos (global) — só despesas; receita atrasada não é "dívida", é dinheiro a receber em atraso
   const txsVencidos = transactions.filter(
-    (t) => t.status === TransactionStatus.PENDING && t.due_date < hoje
+    (t) => t.status === TransactionStatus.PENDING && t.type === 'EXPENSE' && t.due_date < hoje
   );
 
   // 2. Vence Hoje (global)
@@ -57,10 +57,11 @@ export const FinancialKpiHeaderCards: React.FC<FinancialKpiHeaderCardsProps> = (
       getDaysDiff(t.due_date, hoje) <= 7
   );
 
-  // 4. A Vencer / A Receber (mês selecionado, excluindo hoje e próximos 7 dias pra não duplicar)
+  // 4. A Vencer / A Receber (mês selecionado, excluindo hoje e próximos 7 dias pra não duplicar) — só receitas
   const txsAVencerReceber = transactions.filter(
     (t) =>
       t.status === TransactionStatus.PENDING &&
+      t.type === 'INCOME' &&
       isInSelectedMonth(t.due_date) &&
       getDaysDiff(t.due_date, hoje) >= 8
   );
