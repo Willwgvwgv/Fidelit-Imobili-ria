@@ -122,6 +122,10 @@ export const SaleForm: React.FC<SaleFormProps> = ({
   // Splits & Split UI modes
   const [tempSplits, setTempSplits] = useState<TempSplit[]>([]);
   const [splitMode, setSplitMode] = useState<'commission' | 'vgv' | 'fixed'>('commission');
+  // Texto bruto digitado por linha no modo "R$ Fixo" — evita que o campo se auto-corrija
+  // a cada tecla (o valor exibido normalmente é recalculado a partir da porcentagem, o que
+  // atrapalha decimais e digitação em andamento).
+  const [fixedInputText, setFixedInputText] = useState<Record<number, string>>({});
 
   // SAFE EDITING STATES: Tracking existing financial history
   const [hasFinancialMovement, setHasFinancialMovement] = useState<boolean>(false);
@@ -1661,6 +1665,11 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                                 return vgvPct === 0 ? '' : vgvPct;
                               })()
                             : (() => {
+                                // Modo R$ Fixo: enquanto o usuário está digitando nesta linha,
+                                // mostra exatamente o texto digitado (fixedInputText), não o
+                                // valor recalculado a partir da porcentagem — assim decimais e
+                                // digitação em andamento não são sobrescritos a cada tecla.
+                                if (fixedInputText[idx] !== undefined) return fixedInputText[idx];
                                 const fixedValue = Math.round(((totalCommission * split.percentage) / 100 + Number.EPSILON) * 100) / 100;
                                 return fixedValue === 0 ? '' : fixedValue;
                               })()
@@ -1678,11 +1687,24 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                               : 0;
                             handleUpdateSplit(idx, { percentage: commPct });
                           } else {
+                            // Guarda o texto exato digitado pra não perder o que está sendo escrito
+                            setFixedInputText(prev => ({ ...prev, [idx]: rawVal }));
                             // Convert R$ fixo back to % da comissão
                             const pct = totalCommission > 0
                               ? Math.round(((inputVal / totalCommission) * 100 + Number.EPSILON) * 100) / 100
                               : 0;
                             handleUpdateSplit(idx, { percentage: pct });
+                          }
+                        }}
+                        onBlur={() => {
+                          if (splitMode === 'fixed' && fixedInputText[idx] !== undefined) {
+                            // Ao sair do campo, limpa o texto local e volta a exibir o valor
+                            // recalculado (já sincronizado com a porcentagem salva)
+                            setFixedInputText(prev => {
+                              const next = { ...prev };
+                              delete next[idx];
+                              return next;
+                            });
                           }
                         }}
                         className="w-full pr-8 pl-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
