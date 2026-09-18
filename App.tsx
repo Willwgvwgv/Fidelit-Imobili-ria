@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
@@ -7,6 +6,7 @@ import Commissions from './components/Commissions';
 import Team from './components/Team';
 import Reports from './components/Reports';
 import Financial from './src/modules/finance/components/Financial';
+import BIFinanceiro from './src/modules/finance/components/BIFinanceiro';
 import { User, Sale, UserRole, CommissionStatus, SplitRole } from './types';
 import { LogIn, Key, Loader2, Database, AlertTriangle, Check } from 'lucide-react';
 import { supabaseService } from './services/supabaseService';
@@ -245,6 +245,8 @@ const App: React.FC = () => {
         );
       case 'reports':
         return <Reports sales={sales} team={team} currentUser={currentUser} />;
+      case 'financial-bi':
+        return <BIFinanceiro currentUser={currentUser} />;
       case 'financial':
       case 'financial-extrato':
       case 'financial-fluxo':
