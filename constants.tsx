@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { 
   LayoutDashboard, 
@@ -147,6 +146,7 @@ export const NAV_ITEMS = [
     icon: <Landmark size={20} />, 
     roles: [UserRole.ADMIN],
     subItems: [
+      { id: 'financial-bi', label: 'BI Financeiro', icon: <BarChart3 size={18} /> },
       { id: 'financial-extrato', label: 'Extrato', icon: <FileText size={18} /> },
       { id: 'financial-fluxo', label: 'Fluxo de Caixa', icon: <PieChart size={18} /> },
       { id: 'financial-cartoes', label: 'Cartões', icon: <CreditCard size={18} /> },
