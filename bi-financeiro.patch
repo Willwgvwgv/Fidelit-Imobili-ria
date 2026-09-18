@@ -1,0 +1,2782 @@
+From bd5a21aab2b9a356339cfae28419b992f385c3fa Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 18 Sep 2026 14:18:59 -0300
+Subject: [PATCH] =?UTF-8?q?feat(bi):=20add=20BI=20Financeiro=20=E2=80=94?=
+ =?UTF-8?q?=20managerial=20financial=20dashboard?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+New read-only analytics layer over existing financial_transactions data
+(same table used by Extrato/Fluxo de Caixa/Contas Bancárias). Does not
+modify any existing financial screen, rule, or data.
+
+- New route "financial-bi" (BI Financeiro), added as first item under the
+  existing Financeiro menu, wired additively in App.tsx/constants.tsx.
+- src/modules/finance/bi/calculations.ts: single source of truth for every
+  number in the dashboard (status/overdue rules match the ones already used
+  in FinancialKpiHeaderCards.tsx; internal transfers, identified by category
+  "Transferência entre Contas" or is_transfer=true, are excluded from all
+  income/expense sums to avoid double counting).
+- Sections: Resumo Financeiro + Filtros combináveis, Contas a Receber,
+  Contas a Pagar, Contas Futuras (7/15/30/60/90d + fluxo de caixa futuro),
+  Atrasados, Análise por Categoria (drill-down), Fluxo de Caixa, Tabela de
+  Lançamentos (busca/ordenação/paginação), Análise Mensal, Indicadores
+  Gerenciais. Every consolidated number opens a drill-down modal showing the
+  underlying lançamentos.
+- Uses only real categories from financial_categories (no invented
+  categories) and the existing read-only supabaseService methods.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01U5F5Aq7pyPjnd3ssJjVjov
+---
+ App.tsx                                       |   3 +
+ constants.tsx                                 |   1 +
+ package-lock.json                             | 363 ++++++++++++++
+ src/modules/finance/bi/calculations.ts        | 460 ++++++++++++++++++
+ .../finance/bi/components/DetalheModal.tsx    | 114 +++++
+ .../finance/bi/components/FiltersBar.tsx      | 159 ++++++
+ .../finance/bi/components/SummaryCards.tsx    |  93 ++++
+ .../finance/bi/sections/AtrasadosSection.tsx  | 140 ++++++
+ .../finance/bi/sections/CategoriaSection.tsx  | 117 +++++
+ .../finance/bi/sections/FluxoCaixaSection.tsx |  94 ++++
+ .../finance/bi/sections/FuturasSection.tsx    |  95 ++++
+ .../bi/sections/IndicadoresSection.tsx        |  49 ++
+ .../bi/sections/LancamentosSection.tsx        | 182 +++++++
+ .../finance/bi/sections/MensalSection.tsx     |  83 ++++
+ .../bi/sections/ReceberPagarSection.tsx       | 122 +++++
+ src/modules/finance/bi/types.ts               |  95 ++++
+ .../finance/components/BIFinanceiro.tsx       | 278 +++++++++++
+ 17 files changed, 2448 insertions(+)
+ create mode 100644 src/modules/finance/bi/calculations.ts
+ create mode 100644 src/modules/finance/bi/components/DetalheModal.tsx
+ create mode 100644 src/modules/finance/bi/components/FiltersBar.tsx
+ create mode 100644 src/modules/finance/bi/components/SummaryCards.tsx
+ create mode 100644 src/modules/finance/bi/sections/AtrasadosSection.tsx
+ create mode 100644 src/modules/finance/bi/sections/CategoriaSection.tsx
+ create mode 100644 src/modules/finance/bi/sections/FluxoCaixaSection.tsx
+ create mode 100644 src/modules/finance/bi/sections/FuturasSection.tsx
+ create mode 100644 src/modules/finance/bi/sections/IndicadoresSection.tsx
+ create mode 100644 src/modules/finance/bi/sections/LancamentosSection.tsx
+ create mode 100644 src/modules/finance/bi/sections/MensalSection.tsx
+ create mode 100644 src/modules/finance/bi/sections/ReceberPagarSection.tsx
+ create mode 100644 src/modules/finance/bi/types.ts
+ create mode 100644 src/modules/finance/components/BIFinanceiro.tsx
+
+diff --git a/App.tsx b/App.tsx
+index 337e793..2f7b88d 100644
+--- a/App.tsx
++++ b/App.tsx
+@@ -7,6 +7,7 @@ import Commissions from './components/Commissions';
+ import Team from './components/Team';
+ import Reports from './components/Reports';
+ import Financial from './src/modules/finance/components/Financial';
++import BIFinanceiro from './src/modules/finance/components/BIFinanceiro';
+ import { User, Sale, UserRole, CommissionStatus, SplitRole } from './types';
+ import { LogIn, Key, Loader2, Database, AlertTriangle, Check } from 'lucide-react';
+ import { supabaseService } from './services/supabaseService';
+@@ -245,6 +246,8 @@ const App: React.FC = () => {
+         );
+       case 'reports':
+         return <Reports sales={sales} team={team} currentUser={currentUser} />;
++      case 'financial-bi':
++        return <BIFinanceiro currentUser={currentUser} />;
+       case 'financial':
+       case 'financial-extrato':
+       case 'financial-fluxo':
+diff --git a/constants.tsx b/constants.tsx
+index 0fbbdc9..1bb1874 100644
+--- a/constants.tsx
++++ b/constants.tsx
+@@ -147,6 +147,7 @@ export const NAV_ITEMS = [
+     icon: <Landmark size={20} />, 
+     roles: [UserRole.ADMIN],
+     subItems: [
++      { id: 'financial-bi', label: 'BI Financeiro', icon: <BarChart3 size={18} /> },
+       { id: 'financial-extrato', label: 'Extrato', icon: <FileText size={18} /> },
+       { id: 'financial-fluxo', label: 'Fluxo de Caixa', icon: <PieChart size={18} /> },
+       { id: 'financial-cartoes', label: 'Cartões', icon: <CreditCard size={18} /> },
+diff --git a/package-lock.json b/package-lock.json
+index 3bd46de..090e981 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -8,9 +8,13 @@
+       "name": "comissone---gestão-de-comissões",
+       "version": "0.0.0",
+       "dependencies": {
++        "@sentry/react": "^10.69.0",
+         "@supabase/supabase-js": "^2.105.0",
++        "jspdf": "^4.2.1",
++        "jspdf-autotable": "^5.0.8",
+         "lucide-react": "^0.563.0",
+         "motion": "^12.38.0",
++        "ofx-js": "^1.1.1",
+         "react": "^19.2.4",
+         "react-dom": "^19.2.4",
+         "recharts": "^3.7.0",
+@@ -259,6 +263,15 @@
+         "@babel/core": "^7.0.0-0"
+       }
+     },
++    "node_modules/@babel/runtime": {
++      "version": "7.29.7",
++      "resolved": "https://registry.npmjs.org/@babel/runtime/-/runtime-7.29.7.tgz",
++      "integrity": "sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=6.9.0"
++      }
++    },
+     "node_modules/@babel/template": {
+       "version": "7.28.6",
+       "resolved": "https://registry.npmjs.org/@babel/template/-/template-7.28.6.tgz",
+@@ -1192,6 +1205,112 @@
+         "win32"
+       ]
+     },
++    "node_modules/@sentry/browser": {
++      "version": "10.75.0",
++      "resolved": "https://registry.npmjs.org/@sentry/browser/-/browser-10.75.0.tgz",
++      "integrity": "sha512-CKGSJLWISQ6LgMaGnMpY+XvwWQ2iiHTayUs6SGLIvYeaGo2GTjS/Z4pnbCVHb2t1VxLZksyehgcC6ZYGJeQpzQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@sentry/browser-utils": "10.75.0",
++        "@sentry/conventions": "^0.16.0",
++        "@sentry/core": "10.75.0",
++        "@sentry/feedback": "10.75.0",
++        "@sentry/replay": "10.75.0",
++        "@sentry/replay-canvas": "10.75.0"
++      },
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@sentry/browser-utils": {
++      "version": "10.75.0",
++      "resolved": "https://registry.npmjs.org/@sentry/browser-utils/-/browser-utils-10.75.0.tgz",
++      "integrity": "sha512-yZfdQ87RLat/7retF8zA6Z9zCAT12IyaPvIiu+bbi1E1V1OqDpS8MKNa/6LF69Ap7DVTORi9ITEgjlAqTXF0xQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@sentry/conventions": "^0.16.0",
++        "@sentry/core": "10.75.0"
++      },
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@sentry/conventions": {
++      "version": "0.16.0",
++      "resolved": "https://registry.npmjs.org/@sentry/conventions/-/conventions-0.16.0.tgz",
++      "integrity": "sha512-fO9PLmHdVURcSPUpWCItWAtgKiMwGdJHbovoSEyLplX5sxs2ugvI4CBPTrkkgqhObnZOD0CnWBKDzSVQYBKEyQ==",
++      "license": "MIT",
++      "engines": {
++        "node": ">=14"
++      }
++    },
++    "node_modules/@sentry/core": {
++      "version": "10.75.0",
++      "resolved": "https://registry.npmjs.org/@sentry/core/-/core-10.75.0.tgz",
++      "integrity": "sha512-5wDQpQqjJ6RHdPR+z6Q+47XlwoxRKBv0yyB0LKHqL/1azPOQbR+nllyLmmQDcoJpaksuLSmLA1q6hFX7gjDT2w==",
++      "license": "MIT",
++      "dependencies": {
++        "@sentry/conventions": "^0.16.0"
++      },
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@sentry/feedback": {
++      "version": "10.75.0",
++      "resolved": "https://registry.npmjs.org/@sentry/feedback/-/feedback-10.75.0.tgz",
++      "integrity": "sha512-YLVAFQXELJAOg7ke4oLkd8t5l0fJUockLlTQJg/2Trh7SB5Q4mkSwlnAkEAqDQ618vnpFsG/tnYMwtfZeffHjA==",
++      "license": "MIT",
++      "dependencies": {
++        "@sentry/core": "10.75.0"
++      },
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@sentry/react": {
++      "version": "10.75.0",
++      "resolved": "https://registry.npmjs.org/@sentry/react/-/react-10.75.0.tgz",
++      "integrity": "sha512-ghWv99h7k4WgMucqBhf4jZn+G0Owm5gCBCVKOKu88UDCWUd9aVJ8FGosAkATp/x/ogcZTnqG2dcXBD+1U+BJeA==",
++      "license": "MIT",
++      "dependencies": {
++        "@sentry/browser": "10.75.0",
++        "@sentry/conventions": "^0.16.0",
++        "@sentry/core": "10.75.0"
++      },
++      "engines": {
++        "node": ">=18"
++      },
++      "peerDependencies": {
++        "react": "^16.14.0 || 17.x || 18.x || 19.x"
++      }
++    },
++    "node_modules/@sentry/replay": {
++      "version": "10.75.0",
++      "resolved": "https://registry.npmjs.org/@sentry/replay/-/replay-10.75.0.tgz",
++      "integrity": "sha512-p4xxEo/ayiMZG9tygr09YjqYAd52uq8Qi0EVoRRgUe70nQda0HVPVW519JLq0G+Th/5O5sKME9y1layLU3xlPg==",
++      "license": "MIT",
++      "dependencies": {
++        "@sentry/browser-utils": "10.75.0",
++        "@sentry/core": "10.75.0"
++      },
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@sentry/replay-canvas": {
++      "version": "10.75.0",
++      "resolved": "https://registry.npmjs.org/@sentry/replay-canvas/-/replay-canvas-10.75.0.tgz",
++      "integrity": "sha512-LNokI5Ud22nZ/o2il/2SfbNIARupWrbS6Mh9jZroZTjD38FN0Oi9vIexj6h1HN81C6+lP2Tmpaj+fl3/wOizzA==",
++      "license": "MIT",
++      "dependencies": {
++        "@sentry/core": "10.75.0",
++        "@sentry/replay": "10.75.0"
++      },
++      "engines": {
++        "node": ">=18"
++      }
++    },
+     "node_modules/@standard-schema/spec": {
+       "version": "1.1.0",
+       "resolved": "https://registry.npmjs.org/@standard-schema/spec/-/spec-1.1.0.tgz",
+@@ -1686,6 +1805,26 @@
+         "undici-types": "~6.21.0"
+       }
+     },
++    "node_modules/@types/pako": {
++      "version": "2.0.4",
++      "resolved": "https://registry.npmjs.org/@types/pako/-/pako-2.0.4.tgz",
++      "integrity": "sha512-VWDCbrLeVXJM9fihYodcLiIv0ku+AlOa/TQ1SvYOaBuyrSKgEcro95LJyIsJ4vSo6BXIxOKxiJAat04CmST9Fw==",
++      "license": "MIT"
++    },
++    "node_modules/@types/raf": {
++      "version": "3.4.3",
++      "resolved": "https://registry.npmjs.org/@types/raf/-/raf-3.4.3.tgz",
++      "integrity": "sha512-c4YAvMedbPZ5tEyxzQdMoOhhJ4RD3rngZIdwC2/qDN3d7JpEhB6fiBRKVY1lg5B7Wk+uPBjn5f39j1/2MY1oOw==",
++      "license": "MIT",
++      "optional": true
++    },
++    "node_modules/@types/trusted-types": {
++      "version": "2.0.7",
++      "resolved": "https://registry.npmjs.org/@types/trusted-types/-/trusted-types-2.0.7.tgz",
++      "integrity": "sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==",
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/@types/use-sync-external-store": {
+       "version": "0.0.6",
+       "resolved": "https://registry.npmjs.org/@types/use-sync-external-store/-/use-sync-external-store-0.0.6.tgz",
+@@ -1731,6 +1870,16 @@
+         "node": ">=0.8"
+       }
+     },
++    "node_modules/base64-arraybuffer": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/base64-arraybuffer/-/base64-arraybuffer-1.0.2.tgz",
++      "integrity": "sha512-I3yl4r9QB5ZRY3XuJVEPfc2XhZO6YweFPI+UovAzn+8/hb3oJ6lnysaFcjVpkCPfVWFUDvoZ8kmVDP7WyRtYtQ==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">= 0.6.0"
++      }
++    },
+     "node_modules/baseline-browser-mapping": {
+       "version": "2.10.23",
+       "resolved": "https://registry.npmjs.org/baseline-browser-mapping/-/baseline-browser-mapping-2.10.23.tgz",
+@@ -1799,6 +1948,26 @@
+       ],
+       "license": "CC-BY-4.0"
+     },
++    "node_modules/canvg": {
++      "version": "3.0.11",
++      "resolved": "https://registry.npmjs.org/canvg/-/canvg-3.0.11.tgz",
++      "integrity": "sha512-5ON+q7jCTgMp9cjpu4Jo6XbvfYwSB2Ow3kzHKfIyJfaCAOHLbdKPQqGKgfED/R5B+3TFFfe8pegYA+b423SRyA==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "@babel/runtime": "^7.12.5",
++        "@types/raf": "^3.4.0",
++        "core-js": "^3.8.3",
++        "raf": "^3.4.1",
++        "regenerator-runtime": "^0.13.7",
++        "rgbcolor": "^1.0.1",
++        "stackblur-canvas": "^2.0.0",
++        "svg-pathdata": "^6.0.3"
++      },
++      "engines": {
++        "node": ">=10.0.0"
++      }
++    },
+     "node_modules/cfb": {
+       "version": "1.2.2",
+       "resolved": "https://registry.npmjs.org/cfb/-/cfb-1.2.2.tgz",
+@@ -1837,6 +2006,21 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/core-js": {
++      "version": "3.50.0",
++      "resolved": "https://registry.npmjs.org/core-js/-/core-js-3.50.0.tgz",
++      "integrity": "sha512-BRWgOLKkFeCgRudR6zrs8p9XJZcE14grzKMMssoYrk6krtuEZ7MTKPIY5RzOnqsEKIR9kst7wNzphttraT+Yqw==",
++      "hasInstallScript": true,
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": "*"
++      },
++      "funding": {
++        "type": "opencollective",
++        "url": "https://opencollective.com/core-js"
++      }
++    },
+     "node_modules/crc-32": {
+       "version": "1.2.2",
+       "resolved": "https://registry.npmjs.org/crc-32/-/crc-32-1.2.2.tgz",
+@@ -1849,6 +2033,16 @@
+         "node": ">=0.8"
+       }
+     },
++    "node_modules/css-line-break": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/css-line-break/-/css-line-break-2.1.0.tgz",
++      "integrity": "sha512-FHcKFCZcAha3LwfVBhCQbW2nCNbkZXn7KVUJcsT5/P8YmfsVja0FMPJr0B903j/E69HUphKiV9iQArX8SDYA4w==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "utrie": "^1.0.2"
++      }
++    },
+     "node_modules/d3-array": {
+       "version": "3.2.4",
+       "resolved": "https://registry.npmjs.org/d3-array/-/d3-array-3.2.4.tgz",
+@@ -2004,6 +2198,16 @@
+         "node": ">=8"
+       }
+     },
++    "node_modules/dompurify": {
++      "version": "3.4.15",
++      "resolved": "https://registry.npmjs.org/dompurify/-/dompurify-3.4.15.tgz",
++      "integrity": "sha512-EUBjM+B+lkDE41iE82DDSCfkoPGfXx8IxFxPMjNzm/Uk4xDet77rTN9wqlxlVg71kK7XGuUMv6wUxJUwwv+Xyw==",
++      "license": "(MPL-2.0 OR Apache-2.0)",
++      "optional": true,
++      "optionalDependencies": {
++        "@types/trusted-types": "^2.0.7"
++      }
++    },
+     "node_modules/electron-to-chromium": {
+       "version": "1.5.344",
+       "resolved": "https://registry.npmjs.org/electron-to-chromium/-/electron-to-chromium-1.5.344.tgz",
+@@ -2093,6 +2297,17 @@
+       "integrity": "sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==",
+       "license": "MIT"
+     },
++    "node_modules/fast-png": {
++      "version": "6.4.0",
++      "resolved": "https://registry.npmjs.org/fast-png/-/fast-png-6.4.0.tgz",
++      "integrity": "sha512-kAqZq1TlgBjZcLr5mcN6NP5Rv4V2f22z00c3g8vRrwkcqjerx7BEhPbOnWCPqaHUl2XWQBJQvOT/FQhdMT7X/Q==",
++      "license": "MIT",
++      "dependencies": {
++        "@types/pako": "^2.0.3",
++        "iobuffer": "^5.3.2",
++        "pako": "^2.1.0"
++      }
++    },
+     "node_modules/fdir": {
+       "version": "6.5.0",
+       "resolved": "https://registry.npmjs.org/fdir/-/fdir-6.5.0.tgz",
+@@ -2111,6 +2326,12 @@
+         }
+       }
+     },
++    "node_modules/fflate": {
++      "version": "0.8.3",
++      "resolved": "https://registry.npmjs.org/fflate/-/fflate-0.8.3.tgz",
++      "integrity": "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==",
++      "license": "MIT"
++    },
+     "node_modules/frac": {
+       "version": "1.1.2",
+       "resolved": "https://registry.npmjs.org/frac/-/frac-1.1.2.tgz",
+@@ -2179,6 +2400,20 @@
+       "dev": true,
+       "license": "ISC"
+     },
++    "node_modules/html2canvas": {
++      "version": "1.4.1",
++      "resolved": "https://registry.npmjs.org/html2canvas/-/html2canvas-1.4.1.tgz",
++      "integrity": "sha512-fPU6BHNpsyIhr8yyMpTLLxAbkaK8ArIBcmZIRiBLiDhjeqvXolaEmDGmELFuX9I4xDcaKKcJl+TKZLqruBbmWA==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "css-line-break": "^2.1.0",
++        "text-segmentation": "^1.0.3"
++      },
++      "engines": {
++        "node": ">=8.0.0"
++      }
++    },
+     "node_modules/iceberg-js": {
+       "version": "0.8.1",
+       "resolved": "https://registry.npmjs.org/iceberg-js/-/iceberg-js-0.8.1.tgz",
+@@ -2207,6 +2442,12 @@
+         "node": ">=12"
+       }
+     },
++    "node_modules/iobuffer": {
++      "version": "5.4.0",
++      "resolved": "https://registry.npmjs.org/iobuffer/-/iobuffer-5.4.0.tgz",
++      "integrity": "sha512-DRebOWuqDvxunfkNJAlc3IzWIPD5xVxwUNbHr7xKB8E6aLJxIPfNX3CoMJghcFjpv6RWQsrcJbghtEwSPoJqMA==",
++      "license": "MIT"
++    },
+     "node_modules/jiti": {
+       "version": "2.7.0",
+       "resolved": "https://registry.npmjs.org/jiti/-/jiti-2.7.0.tgz",
+@@ -2250,6 +2491,32 @@
+         "node": ">=6"
+       }
+     },
++    "node_modules/jspdf": {
++      "version": "4.2.1",
++      "resolved": "https://registry.npmjs.org/jspdf/-/jspdf-4.2.1.tgz",
++      "integrity": "sha512-YyAXyvnmjTbR4bHQRLzex3CuINCDlQnBqoSYyjJwTP2x9jDLuKDzy7aKUl0hgx3uhcl7xzg32agn5vlie6HIlQ==",
++      "license": "MIT",
++      "dependencies": {
++        "@babel/runtime": "^7.28.6",
++        "fast-png": "^6.2.0",
++        "fflate": "^0.8.1"
++      },
++      "optionalDependencies": {
++        "canvg": "^3.0.11",
++        "core-js": "^3.6.0",
++        "dompurify": "^3.3.1",
++        "html2canvas": "^1.0.0-rc.5"
++      }
++    },
++    "node_modules/jspdf-autotable": {
++      "version": "5.0.8",
++      "resolved": "https://registry.npmjs.org/jspdf-autotable/-/jspdf-autotable-5.0.8.tgz",
++      "integrity": "sha512-Hy05N86yBO7CXBrnSLOge7i1ZYpKH2DjQ94iybaP7vBhSInjvRBgDc99ngKzSbSO8Jc98ZCally8I6n0tj2RJQ==",
++      "license": "MIT",
++      "peerDependencies": {
++        "jspdf": "^2 || ^3 || ^4"
++      }
++    },
+     "node_modules/lightningcss": {
+       "version": "1.32.0",
+       "resolved": "https://registry.npmjs.org/lightningcss/-/lightningcss-1.32.0.tgz",
+@@ -2614,6 +2881,35 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/ofx-js": {
++      "version": "1.1.1",
++      "resolved": "https://registry.npmjs.org/ofx-js/-/ofx-js-1.1.1.tgz",
++      "integrity": "sha512-4ITJY2LuEq1fTV4FrsUgeVyEZOGz4vw9otaqPj1V2hfjN2c4RWYj8VVX6f3u6pSCwCie/ZH15VsGftWv08IsfQ==",
++      "license": "MIT"
++    },
++    "node_modules/pako": {
++      "version": "2.2.0",
++      "resolved": "https://registry.npmjs.org/pako/-/pako-2.2.0.tgz",
++      "integrity": "sha512-zJq6RP/5q+TO2OpFV3FHzlPnFjmkb7Nc99a5SNjJE+uu/PkpChs+NIZSSzbBoD+6kjiISXjfYdwj1ZRQ81dz/w==",
++      "funding": [
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/puzrin"
++        },
++        {
++          "type": "github",
++          "url": "https://github.com/sponsors/nodeca"
++        }
++      ],
++      "license": "(MIT AND Zlib)"
++    },
++    "node_modules/performance-now": {
++      "version": "2.1.0",
++      "resolved": "https://registry.npmjs.org/performance-now/-/performance-now-2.1.0.tgz",
++      "integrity": "sha512-7EAHlyLHI56VEIdK57uwHdHKIaAGbnXPiw0yWbarQZOKaKpvUIgW0jWRVLiatnM+XXlSwsanIBH/hzGMJulMow==",
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/picocolors": {
+       "version": "1.1.1",
+       "resolved": "https://registry.npmjs.org/picocolors/-/picocolors-1.1.1.tgz",
+@@ -2663,6 +2959,16 @@
+         "node": "^10 || ^12 || >=14"
+       }
+     },
++    "node_modules/raf": {
++      "version": "3.4.1",
++      "resolved": "https://registry.npmjs.org/raf/-/raf-3.4.1.tgz",
++      "integrity": "sha512-Sq4CW4QhwOHE8ucn6J34MqtZCeWFP2aQSmrlroYgqAV1PjStIhJXxYuTgUIfkEk7zTLjmIjLmU5q+fbD1NnOJA==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "performance-now": "^2.1.0"
++      }
++    },
+     "node_modules/react": {
+       "version": "19.2.5",
+       "resolved": "https://registry.npmjs.org/react/-/react-19.2.5.tgz",
+@@ -2769,12 +3075,29 @@
+         "redux": "^5.0.0"
+       }
+     },
++    "node_modules/regenerator-runtime": {
++      "version": "0.13.11",
++      "resolved": "https://registry.npmjs.org/regenerator-runtime/-/regenerator-runtime-0.13.11.tgz",
++      "integrity": "sha512-kY1AZVr2Ra+t+piVaJ4gxaFaReZVH40AKNo7UCX6W+dEwBo/2oZJzqfuN1qLq1oL45o56cPaTXELwrTh8Fpggg==",
++      "license": "MIT",
++      "optional": true
++    },
+     "node_modules/reselect": {
+       "version": "5.1.1",
+       "resolved": "https://registry.npmjs.org/reselect/-/reselect-5.1.1.tgz",
+       "integrity": "sha512-K/BG6eIky/SBpzfHZv/dd+9JBFiS4SWV7FIujVyJRux6e45+73RaUHXLmIR1f7WOMaQ0U1km6qwklRQxpJJY0w==",
+       "license": "MIT"
+     },
++    "node_modules/rgbcolor": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/rgbcolor/-/rgbcolor-1.0.1.tgz",
++      "integrity": "sha512-9aZLIrhRaD97sgVhtJOW6ckOEh6/GnvQtdVNfdZ6s67+3/XwLS9lBcQYzEEhYVeUowN7pRzMLsyGhK2i/xvWbw==",
++      "license": "MIT OR SEE LICENSE IN FEEL-FREE.md",
++      "optional": true,
++      "engines": {
++        "node": ">= 0.8.15"
++      }
++    },
+     "node_modules/rollup": {
+       "version": "4.60.2",
+       "resolved": "https://registry.npmjs.org/rollup/-/rollup-4.60.2.tgz",
+@@ -2858,6 +3181,26 @@
+         "node": ">=0.8"
+       }
+     },
++    "node_modules/stackblur-canvas": {
++      "version": "2.7.0",
++      "resolved": "https://registry.npmjs.org/stackblur-canvas/-/stackblur-canvas-2.7.0.tgz",
++      "integrity": "sha512-yf7OENo23AGJhBriGx0QivY5JP6Y1HbrrDI6WLt6C5auYZXlQrheoY8hD4ibekFKz1HOfE48Ww8kMWMnJD/zcQ==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=0.1.14"
++      }
++    },
++    "node_modules/svg-pathdata": {
++      "version": "6.0.3",
++      "resolved": "https://registry.npmjs.org/svg-pathdata/-/svg-pathdata-6.0.3.tgz",
++      "integrity": "sha512-qsjeeq5YjBZ5eMdFuUa4ZosMLxgr5RZ+F+Y1OrDhuOCEInRMA3x74XdBtggJcj9kOeInz0WE+LgCPDkZFlBYJw==",
++      "license": "MIT",
++      "optional": true,
++      "engines": {
++        "node": ">=12.0.0"
++      }
++    },
+     "node_modules/tailwindcss": {
+       "version": "4.3.1",
+       "resolved": "https://registry.npmjs.org/tailwindcss/-/tailwindcss-4.3.1.tgz",
+@@ -2879,6 +3222,16 @@
+         "url": "https://opencollective.com/webpack"
+       }
+     },
++    "node_modules/text-segmentation": {
++      "version": "1.0.3",
++      "resolved": "https://registry.npmjs.org/text-segmentation/-/text-segmentation-1.0.3.tgz",
++      "integrity": "sha512-iOiPUo/BGnZ6+54OsWxZidGCsdU8YbE4PSpdPinp7DeMtUJNJBoJ/ouUSTJjHkh1KntHaltHl/gDs2FC4i5+Nw==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "utrie": "^1.0.2"
++      }
++    },
+     "node_modules/tiny-invariant": {
+       "version": "1.3.3",
+       "resolved": "https://registry.npmjs.org/tiny-invariant/-/tiny-invariant-1.3.3.tgz",
+@@ -2968,6 +3321,16 @@
+         "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0"
+       }
+     },
++    "node_modules/utrie": {
++      "version": "1.0.2",
++      "resolved": "https://registry.npmjs.org/utrie/-/utrie-1.0.2.tgz",
++      "integrity": "sha512-1MLa5ouZiOmQzUbjbu9VmjLzn1QLXBhwpUa7kdLUQK+KQ5KA9I1vk5U4YHe/X2Ch7PYnJfWuWT+VbuxbGwljhw==",
++      "license": "MIT",
++      "optional": true,
++      "dependencies": {
++        "base64-arraybuffer": "^1.0.2"
++      }
++    },
+     "node_modules/victory-vendor": {
+       "version": "37.3.6",
+       "resolved": "https://registry.npmjs.org/victory-vendor/-/victory-vendor-37.3.6.tgz",
+diff --git a/src/modules/finance/bi/calculations.ts b/src/modules/finance/bi/calculations.ts
+new file mode 100644
+index 0000000..586fc80
+--- /dev/null
++++ b/src/modules/finance/bi/calculations.ts
+@@ -0,0 +1,460 @@
++/**
++ * BI Financeiro — motor de cálculo.
++ *
++ * Este arquivo é a ÚNICA fonte de verdade para todas as somas/indicadores do BI.
++ * Todas as seções da interface devem chamar estas funções em vez de somar `amount`
++ * diretamente, para garantir que a mesma regra de "o que conta como dinheiro real"
++ * seja aplicada em todo o dashboard e que nenhum lançamento seja contado duas vezes.
++ *
++ * Fonte dos dados: tabela `financial_transactions` (via supabaseService.getFinancialTransactions()),
++ * que é exatamente a mesma tabela usada pelas telas Extrato / Fluxo de Caixa / Contas Bancárias
++ * já existentes no Comissione. Nenhuma outra tabela é usada para os totais do BI.
++ *
++ * Regra de exclusão de transferências internas entre contas (para não inflar
++ * entradas/saídas com dinheiro que só está migrando de uma conta da própria
++ * imobiliária para outra): um lançamento é tratado como transferência interna
++ * quando `is_transfer === true` OU quando sua categoria tem o nome exato
++ * "Transferência entre Contas" (o campo is_transfer está presente em apenas 1
++ * das 645 linhas hoje, então o nome da categoria é o sinal confiável).
++ * Transferências continuam aparecendo na Tabela de Lançamentos (seção 9),
++ * mas são excluídas de todas as somas de entradas/saídas/saldo.
++ */
++
++import { FinancialTransaction, FinancialCategory } from '../../../../types';
++import { BIFilters, DateRange, FutureWindowResult, CategoriaAnalise, FluxoDia, MesAnalise } from './types';
++import { getLocalTodayStr } from '../utils/dates';
++
++export const TRANSFER_CATEGORY_NAME = 'Transferência entre Contas';
++
++// ---------------------------------------------------------------------------
++// Status / classificação de um lançamento
++// ---------------------------------------------------------------------------
++
++export const isPaid = (tx: FinancialTransaction): boolean => tx.status === 'PAID';
++export const isPending = (tx: FinancialTransaction): boolean => tx.status === 'PENDING';
++
++/** Atrasado = PENDING com vencimento estritamente anterior a hoje (regra já usada em FinancialKpiHeaderCards.tsx). */
++export const isOverdue = (tx: FinancialTransaction, today: string): boolean =>
++  isPending(tx) && !!tx.due_date && tx.due_date < today;
++
++export const isTransfer = (tx: FinancialTransaction, categoriesById: Map<string, FinancialCategory>): boolean => {
++  if (tx.is_transfer === true) return true;
++  const cat = tx.category_id ? categoriesById.get(tx.category_id) : undefined;
++  return cat?.name === TRANSFER_CATEGORY_NAME;
++};
++
++/** Valor "realizado" de um lançamento pago: usa paid_amount quando informado, senão o valor original. */
++export const realizedAmount = (tx: FinancialTransaction): number => {
++  const v = tx.paid_amount != null ? Number(tx.paid_amount) : Number(tx.amount);
++  return isNaN(v) ? 0 : v;
++};
++
++export const amountOf = (tx: FinancialTransaction): number => {
++  const v = Number(tx.amount);
++  return isNaN(v) ? 0 : v;
++};
++
++// ---------------------------------------------------------------------------
++// Período
++// ---------------------------------------------------------------------------
++
++const pad2 = (n: number) => String(n).padStart(2, '0');
++const toISO = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
++
++export const getTodayStr = getLocalTodayStr;
++
++export function resolvePeriodoRange(filters: BIFilters, today: string): DateRange {
++  const [y, m, d] = today.split('-').map(Number);
++  const base = new Date(y, m - 1, d, 12, 0, 0);
++
++  switch (filters.periodo) {
++    case 'todos':
++      return { start: null, end: null };
++    case 'hoje':
++      return { start: today, end: today };
++    case 'semana': {
++      const dow = base.getDay(); // 0 = domingo
++      const start = new Date(base);
++      start.setDate(base.getDate() - dow);
++      const end = new Date(base);
++      end.setDate(base.getDate() + (6 - dow));
++      return { start: toISO(start), end: toISO(end) };
++    }
++    case 'mes': {
++      const start = new Date(y, m - 1, 1, 12, 0, 0);
++      const end = new Date(y, m, 0, 12, 0, 0);
++      return { start: toISO(start), end: toISO(end) };
++    }
++    case 'mes_anterior': {
++      const start = new Date(y, m - 2, 1, 12, 0, 0);
++      const end = new Date(y, m - 1, 0, 12, 0, 0);
++      return { start: toISO(start), end: toISO(end) };
++    }
++    case 'proximo_mes': {
++      const start = new Date(y, m, 1, 12, 0, 0);
++      const end = new Date(y, m + 1, 0, 12, 0, 0);
++      return { start: toISO(start), end: toISO(end) };
++    }
++    case 'ano': {
++      const start = new Date(y, 0, 1, 12, 0, 0);
++      const end = new Date(y, 11, 31, 12, 0, 0);
++      return { start: toISO(start), end: toISO(end) };
++    }
++    case 'personalizado':
++      return {
++        start: filters.dataInicioCustom || null,
++        end: filters.dataFimCustom || null,
++      };
++    default:
++      return { start: null, end: null };
++  }
++}
++
++const inRange = (dateStr: string | null | undefined, range: DateRange): boolean => {
++  if (!dateStr) return false;
++  if (range.start && dateStr < range.start) return false;
++  if (range.end && dateStr > range.end) return false;
++  return true;
++};
++
++// ---------------------------------------------------------------------------
++// Aplicação combinada dos filtros do BI (seção 2) sobre a lista bruta.
++// O filtro de Período é aplicado sobre due_date (vencimento) — a mesma
++// convenção já usada pelas telas existentes (ex.: getFinancialTransactions
++// com startDate/endDate, FinancialKpiHeaderCards). Isso é documentado nas
++// limitações entregues ao usuário.
++// ---------------------------------------------------------------------------
++
++export interface FilterContext {
++  categoriesById: Map<string, FinancialCategory>;
++  today: string;
++}
++
++export function buildFilterContext(categories: FinancialCategory[], today: string): FilterContext {
++  return {
++    categoriesById: new Map(categories.map((c) => [c.id, c])),
++    today,
++  };
++}
++
++export function applyBIFilters(
++  transactions: FinancialTransaction[],
++  filters: BIFilters,
++  ctx: FilterContext,
++  opts: { includeTransfers?: boolean; ignorePeriod?: boolean } = {}
++): FinancialTransaction[] {
++  const range = resolvePeriodoRange(filters, ctx.today);
++  const includeTransfers = opts.includeTransfers ?? false;
++  const ignorePeriod = opts.ignorePeriod ?? false;
++
++  return transactions.filter((tx) => {
++    if (!includeTransfers && isTransfer(tx, ctx.categoriesById)) return false;
++
++    if (!ignorePeriod && (range.start || range.end)) {
++      if (!inRange(tx.due_date, range)) return false;
++    }
++
++    if (filters.tipo !== 'todos' && tx.type !== filters.tipo) return false;
++
++    if (filters.status !== 'todos') {
++      const overdue = isOverdue(tx, ctx.today);
++      if (filters.status === 'pago_recebido' && !isPaid(tx)) return false;
++      if (filters.status === 'em_aberto' && !(isPending(tx) && !overdue)) return false;
++      if (filters.status === 'atrasado' && !overdue) return false;
++      if (filters.status === 'pendente' && !isPending(tx)) return false;
++    }
++
++    if (filters.categoriaId !== 'todas' && tx.category_id !== filters.categoriaId) return false;
++
++    if (filters.pessoa !== 'todas' && (tx.contact_name || '') !== filters.pessoa) return false;
++
++    return true;
++  });
++}
++
++// ---------------------------------------------------------------------------
++// Resumo Financeiro (seção 1)
++// ---------------------------------------------------------------------------
++
++export interface ContasResumo {
++  previsto: number;
++  recebidoOuPago: number;
++  emAberto: number;
++  atrasado: number;
++  qtdTotal: number;
++  qtdAtrasados: number;
++}
++
++export function summarizeByType(
++  filtered: FinancialTransaction[],
++  type: 'INCOME' | 'EXPENSE',
++  today: string
++): ContasResumo {
++  const rows = filtered.filter((t) => t.type === type);
++  const previsto = rows.reduce((a, t) => a + amountOf(t), 0);
++  const recebidoOuPago = rows.filter(isPaid).reduce((a, t) => a + realizedAmount(t), 0);
++  const atrasadoRows = rows.filter((t) => isOverdue(t, today));
++  const atrasado = atrasadoRows.reduce((a, t) => a + amountOf(t), 0);
++  const emAbertoRows = rows.filter((t) => isPending(t) && !isOverdue(t, today));
++  const emAberto = emAbertoRows.reduce((a, t) => a + amountOf(t), 0);
++  return {
++    previsto,
++    recebidoOuPago,
++    emAberto,
++    atrasado,
++    qtdTotal: rows.length,
++    qtdAtrasados: atrasadoRows.length,
++  };
++}
++
++export interface SaldoRealizado {
++  entradas: number;
++  saidas: number;
++  saldo: number;
++}
++
++export function saldoRealizado(filtered: FinancialTransaction[]): SaldoRealizado {
++  const entradas = filtered.filter((t) => t.type === 'INCOME' && isPaid(t)).reduce((a, t) => a + realizedAmount(t), 0);
++  const saidas = filtered.filter((t) => t.type === 'EXPENSE' && isPaid(t)).reduce((a, t) => a + realizedAmount(t), 0);
++  return { entradas, saidas, saldo: entradas - saidas };
++}
++
++export function saldoProjetado(filtered: FinancialTransaction[], today: string): SaldoRealizado {
++  const entradas = filtered
++    .filter((t) => t.type === 'INCOME' && isPending(t) && t.due_date >= today)
++    .reduce((a, t) => a + amountOf(t), 0);
++  const saidas = filtered
++    .filter((t) => t.type === 'EXPENSE' && isPending(t) && t.due_date >= today)
++    .reduce((a, t) => a + amountOf(t), 0);
++  return { entradas, saidas, saldo: entradas - saidas };
++}
++
++// ---------------------------------------------------------------------------
++// Contas Futuras (seção 5) — sempre a partir de HOJE, independente do filtro de período,
++// pois é uma métrica inerentemente prospectiva ("o que vem por aí a partir de agora").
++// ---------------------------------------------------------------------------
++
++export function futureWindow(
++  allNonTransfer: FinancialTransaction[],
++  type: 'INCOME' | 'EXPENSE',
++  dias: 7 | 15 | 30 | 60 | 90,
++  today: string
++): { valor: number; qtd: number } {
++  const limit = new Date(today + 'T12:00:00');
++  limit.setDate(limit.getDate() + dias);
++  const limitStr = toISO(limit);
++  const rows = allNonTransfer.filter(
++    (t) => t.type === type && isPending(t) && t.due_date >= today && t.due_date <= limitStr
++  );
++  return { valor: rows.reduce((a, t) => a + amountOf(t), 0), qtd: rows.length };
++}
++
++export function buildFutureWindows(allNonTransfer: FinancialTransaction[], today: string): FutureWindowResult[] {
++  const janelas: Array<7 | 15 | 30 | 60 | 90> = [7, 15, 30, 60, 90];
++  return janelas.map((dias) => {
++    const inc = futureWindow(allNonTransfer, 'INCOME', dias, today);
++    const exp = futureWindow(allNonTransfer, 'EXPENSE', dias, today);
++    return { dias, entradas: inc.valor, saidas: exp.valor, qtdEntradas: inc.qtd, qtdSaidas: exp.qtd };
++  });
++}
++
++/** Tabela de fluxo de caixa futuro: Data | Entradas previstas | Saídas previstas | Saldo projetado (acumulado). */
++export function buildProjectedCashFlowTable(
++  allNonTransfer: FinancialTransaction[],
++  today: string,
++  saldoInicial: number,
++  maxDias = 90
++): FluxoDia[] {
++  const limit = new Date(today + 'T12:00:00');
++  limit.setDate(limit.getDate() + maxDias);
++  const limitStr = toISO(limit);
++
++  const future = allNonTransfer.filter((t) => isPending(t) && t.due_date >= today && t.due_date <= limitStr);
++
++  const byDay = new Map<string, { entradas: number; saidas: number }>();
++  for (const t of future) {
++    const cur = byDay.get(t.due_date) || { entradas: 0, saidas: 0 };
++    if (t.type === 'INCOME') cur.entradas += amountOf(t);
++    else if (t.type === 'EXPENSE') cur.saidas += amountOf(t);
++    byDay.set(t.due_date, cur);
++  }
++
++  const dates = Array.from(byDay.keys()).sort();
++  let acumulado = saldoInicial;
++  return dates.map((data) => {
++    const { entradas, saidas } = byDay.get(data)!;
++    const saldoDoDia = entradas - saidas;
++    acumulado += saldoDoDia;
++    return { data, entradasPrevistas: entradas, saidasPrevistas: saidas, saldoDoDia, saldoAcumulado: acumulado };
++  });
++}
++
++// ---------------------------------------------------------------------------
++// Atrasados (seção 6)
++// ---------------------------------------------------------------------------
++
++export function daysLate(dueDate: string, today: string): number {
++  const d1 = new Date(today + 'T12:00:00');
++  const d2 = new Date(dueDate + 'T12:00:00');
++  return Math.max(0, Math.floor((d1.getTime() - d2.getTime()) / 86400000));
++}
++
++export function getOverdue(
++  allNonTransfer: FinancialTransaction[],
++  type: 'INCOME' | 'EXPENSE',
++  today: string
++): FinancialTransaction[] {
++  return allNonTransfer.filter((t) => t.type === type && isOverdue(t, today));
++}
++
++// ---------------------------------------------------------------------------
++// Análise por Categoria (seção 7)
++// ---------------------------------------------------------------------------
++
++export function analyzeByCategory(
++  filtered: FinancialTransaction[],
++  categories: FinancialCategory[],
++  type: 'INCOME' | 'EXPENSE',
++  today: string
++): CategoriaAnalise[] {
++  const rows = filtered.filter((t) => t.type === type);
++  const totalTipo = rows.reduce((a, t) => a + amountOf(t), 0);
++  const categoriesById = new Map(categories.map((c) => [c.id, c]));
++
++  const byCat = new Map<string, FinancialTransaction[]>();
++  for (const t of rows) {
++    const key = t.category_id || '__sem_categoria__';
++    if (!byCat.has(key)) byCat.set(key, []);
++    byCat.get(key)!.push(t);
++  }
++
++  const result: CategoriaAnalise[] = [];
++  for (const [catId, txs] of byCat.entries()) {
++    const nome = catId === '__sem_categoria__' ? 'Sem categoria' : categoriesById.get(catId)?.name || 'Categoria removida';
++    const valorTotal = txs.reduce((a, t) => a + amountOf(t), 0);
++    const pagoRecebido = txs.filter(isPaid).reduce((a, t) => a + realizedAmount(t), 0);
++    const atrasado = txs.filter((t) => isOverdue(t, today)).reduce((a, t) => a + amountOf(t), 0);
++    const emAberto = txs.filter((t) => isPending(t) && !isOverdue(t, today)).reduce((a, t) => a + amountOf(t), 0);
++    result.push({
++      categoriaId: catId,
++      categoriaNome: nome,
++      tipo: type,
++      valorTotal,
++      percentualDoTotal: totalTipo > 0 ? (valorTotal / totalTipo) * 100 : 0,
++      quantidadeLancamentos: txs.length,
++      pagoRecebido,
++      emAberto,
++      atrasado,
++    });
++  }
++
++  return result.sort((a, b) => b.valorTotal - a.valorTotal);
++}
++
++// ---------------------------------------------------------------------------
++// Análise Mensal (seção 10)
++// ---------------------------------------------------------------------------
++
++const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
++
++export function buildMonthlyAnalysis(allNonTransfer: FinancialTransaction[], maxMeses = 12): MesAnalise[] {
++  const byMonth = new Map<string, FinancialTransaction[]>();
++  for (const t of allNonTransfer) {
++    if (!t.due_date) continue;
++    const key = t.due_date.slice(0, 7); // YYYY-MM
++    if (!byMonth.has(key)) byMonth.set(key, []);
++    byMonth.get(key)!.push(t);
++  }
++
++  const keys = Array.from(byMonth.keys()).sort().slice(-maxMeses);
++
++  return keys.map((chave) => {
++    const txs = byMonth.get(chave)!;
++    const [y, m] = chave.split('-').map(Number);
++    const entradasPrevistas = txs.filter((t) => t.type === 'INCOME').reduce((a, t) => a + amountOf(t), 0);
++    const saidasPrevistas = txs.filter((t) => t.type === 'EXPENSE').reduce((a, t) => a + amountOf(t), 0);
++    const recebido = txs.filter((t) => t.type === 'INCOME' && isPaid(t)).reduce((a, t) => a + realizedAmount(t), 0);
++    const pago = txs.filter((t) => t.type === 'EXPENSE' && isPaid(t)).reduce((a, t) => a + realizedAmount(t), 0);
++    return {
++      chave,
++      label: `${MONTH_LABELS[m - 1]}/${y}`,
++      entradasPrevistas,
++      saidasPrevistas,
++      resultadoPrevisto: entradasPrevistas - saidasPrevistas,
++      recebido,
++      pago,
++      resultadoRealizado: recebido - pago,
++    };
++  });
++}
++
++// ---------------------------------------------------------------------------
++// Indicadores Gerenciais (seção 11)
++// ---------------------------------------------------------------------------
++
++export interface IndicadoresGerenciais {
++  totalRecebidoPeriodo: number;
++  totalPagoPeriodo: number;
++  totalEmAberto: number;
++  totalAtrasado: number;
++  totalFuturoReceber90d: number;
++  totalFuturoPagar90d: number;
++  percentualRecebido: number;
++  percentualPago: number;
++  qtdContasVencidas: number;
++  qtdContasEmAberto: number;
++}
++
++export function buildIndicadores(
++  filtered: FinancialTransaction[],
++  allNonTransfer: FinancialTransaction[],
++  today: string
++): IndicadoresGerenciais {
++  const receberResumo = summarizeByType(filtered, 'INCOME', today);
++  const pagarResumo = summarizeByType(filtered, 'EXPENSE', today);
++  const fut90Receber = futureWindow(allNonTransfer, 'INCOME', 90, today);
++  const fut90Pagar = futureWindow(allNonTransfer, 'EXPENSE', 90, today);
++
++  return {
++    totalRecebidoPeriodo: receberResumo.recebidoOuPago,
++    totalPagoPeriodo: pagarResumo.recebidoOuPago,
++    totalEmAberto: receberResumo.emAberto + pagarResumo.emAberto,
++    totalAtrasado: receberResumo.atrasado + pagarResumo.atrasado,
++    totalFuturoReceber90d: fut90Receber.valor,
++    totalFuturoPagar90d: fut90Pagar.valor,
++    percentualRecebido: receberResumo.previsto > 0 ? (receberResumo.recebidoOuPago / receberResumo.previsto) * 100 : 0,
++    percentualPago: pagarResumo.previsto > 0 ? (pagarResumo.recebidoOuPago / pagarResumo.previsto) * 100 : 0,
++    qtdContasVencidas: receberResumo.qtdAtrasados + pagarResumo.qtdAtrasados,
++    qtdContasEmAberto:
++      filtered.filter((t) => isPending(t) && !isOverdue(t, today)).length,
++  };
++}
++
++// ---------------------------------------------------------------------------
++// Evolução temporal (usado nos gráficos das seções 3, 4 e 8)
++// ---------------------------------------------------------------------------
++
++export interface PontoEvolucao {
++  data: string;
++  valor: number;
++  acumulado: number;
++}
++
++/** Evolução (por vencimento) do valor pago/recebido, em ordem cronológica, com acumulado. */
++export function buildEvolutionSeries(
++  filtered: FinancialTransaction[],
++  type: 'INCOME' | 'EXPENSE'
++): PontoEvolucao[] {
++  const rows = filtered.filter((t) => t.type === type && isPaid(t));
++  const byDay = new Map<string, number>();
++  for (const t of rows) {
++    byDay.set(t.due_date, (byDay.get(t.due_date) || 0) + realizedAmount(t));
++  }
++  const dates = Array.from(byDay.keys()).sort();
++  let acumulado = 0;
++  return dates.map((data) => {
++    const valor = byDay.get(data)!;
++    acumulado += valor;
++    return { data, valor, acumulado };
++  });
++}
+diff --git a/src/modules/finance/bi/components/DetalheModal.tsx b/src/modules/finance/bi/components/DetalheModal.tsx
+new file mode 100644
+index 0000000..3341110
+--- /dev/null
++++ b/src/modules/finance/bi/components/DetalheModal.tsx
+@@ -0,0 +1,114 @@
++import React from 'react';
++import { X, ArrowUpCircle, ArrowDownCircle, ArrowLeftRight } from 'lucide-react';
++import { FinancialTransaction, FinancialCategory } from '../../../../../types';
++import { formatCurrency } from '../../utils/currency';
++import { formatDateBR } from '../../utils/dates';
++import { isPaid, isOverdue, getTodayStr, isTransfer } from '../calculations';
++
++interface DetalheModalProps {
++  titulo: string;
++  transactions: FinancialTransaction[];
++  categoriesById: Map<string, FinancialCategory>;
++  onClose: () => void;
++}
++
++const statusBadge = (tx: FinancialTransaction, today: string, categoriesById: Map<string, FinancialCategory>) => {
++  if (isTransfer(tx, categoriesById)) {
++    return <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">Transferência</span>;
++  }
++  if (isPaid(tx)) {
++    return (
++      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
++        {tx.type === 'INCOME' ? 'Recebido' : 'Pago'}
++      </span>
++    );
++  }
++  if (isOverdue(tx, today)) {
++    return <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600">Atrasado</span>;
++  }
++  return <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">Em aberto</span>;
++};
++
++/**
++ * Modal genérico de drill-down: usado por qualquer número consolidado do BI
++ * (card, categoria, fatia de gráfico, linha de tabela) para mostrar os
++ * lançamentos reais que compõem aquele valor. Garante o princípio de que
++ * "nenhum número do BI é uma caixa preta".
++ */
++export const DetalheModal: React.FC<DetalheModalProps> = ({ titulo, transactions, categoriesById, onClose }) => {
++  const today = getTodayStr();
++  const total = transactions.reduce((a, t) => a + Number(t.amount || 0), 0);
++
++  return (
++    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
++      <div
++        className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden"
++        onClick={(e) => e.stopPropagation()}
++      >
++        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
++          <div>
++            <h3 className="text-sm font-bold text-slate-800">{titulo}</h3>
++            <p className="text-xs text-slate-400 mt-0.5">
++              {transactions.length} lançamento{transactions.length === 1 ? '' : 's'} · Total {formatCurrency(total)}
++            </p>
++          </div>
++          <button
++            type="button"
++            onClick={onClose}
++            className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
++          >
++            <X size={16} />
++          </button>
++        </div>
++
++        <div className="overflow-y-auto flex-1">
++          {transactions.length === 0 ? (
++            <div className="p-8 text-center text-sm text-slate-400">Nenhum lançamento encontrado.</div>
++          ) : (
++            <table className="w-full text-sm">
++              <thead className="bg-slate-50 sticky top-0">
++                <tr className="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
++                  <th className="px-4 py-2">Vencimento</th>
++                  <th className="px-4 py-2">Descrição</th>
++                  <th className="px-4 py-2">Categoria</th>
++                  <th className="px-4 py-2">Pessoa</th>
++                  <th className="px-4 py-2 text-right">Valor</th>
++                  <th className="px-4 py-2">Status</th>
++                </tr>
++              </thead>
++              <tbody>
++                {transactions
++                  .slice()
++                  .sort((a, b) => (a.due_date < b.due_date ? 1 : -1))
++                  .map((t) => {
++                    const cat = t.category_id ? categoriesById.get(t.category_id) : undefined;
++                    return (
++                      <tr key={t.id} className="border-t border-slate-50 hover:bg-slate-50/60">
++                        <td className="px-4 py-2 text-slate-500 whitespace-nowrap">{formatDateBR(t.due_date)}</td>
++                        <td className="px-4 py-2 text-slate-700">{t.description}</td>
++                        <td className="px-4 py-2 text-slate-500">{cat?.name || '—'}</td>
++                        <td className="px-4 py-2 text-slate-500">{t.contact_name || '—'}</td>
++                        <td
++                          className={`px-4 py-2 text-right font-semibold whitespace-nowrap ${
++                            t.type === 'INCOME' ? 'text-emerald-700' : 'text-red-600'
++                          }`}
++                        >
++                          {t.type === 'INCOME' ? '+' : '-'} {formatCurrency(Number(t.amount))}
++                        </td>
++                        <td className="px-4 py-2">{statusBadge(t, today, categoriesById)}</td>
++                      </tr>
++                    );
++                  })}
++              </tbody>
++            </table>
++          )}
++        </div>
++      </div>
++    </div>
++  );
++};
++
++export const iconForType = (type: 'INCOME' | 'EXPENSE') =>
++  type === 'INCOME' ? <ArrowUpCircle size={14} className="text-emerald-600" /> : <ArrowDownCircle size={14} className="text-red-500" />;
++
++export const transferIcon = <ArrowLeftRight size={14} className="text-slate-400" />;
+diff --git a/src/modules/finance/bi/components/FiltersBar.tsx b/src/modules/finance/bi/components/FiltersBar.tsx
+new file mode 100644
+index 0000000..83bfd39
+--- /dev/null
++++ b/src/modules/finance/bi/components/FiltersBar.tsx
+@@ -0,0 +1,159 @@
++import React, { useMemo } from 'react';
++import { Filter, X, Calendar } from 'lucide-react';
++import { FinancialCategory, FinancialTransaction } from '../../../../../types';
++import { BIFilters, DEFAULT_FILTERS, PeriodoPreset, TipoFiltro, StatusFiltro } from '../types';
++
++interface FiltersBarProps {
++  filters: BIFilters;
++  onChange: (f: BIFilters) => void;
++  categories: FinancialCategory[];
++  transactions: FinancialTransaction[];
++}
++
++const PERIODO_OPTIONS: { value: PeriodoPreset; label: string }[] = [
++  { value: 'hoje', label: 'Hoje' },
++  { value: 'semana', label: 'Esta semana' },
++  { value: 'mes', label: 'Este mês' },
++  { value: 'mes_anterior', label: 'Mês anterior' },
++  { value: 'proximo_mes', label: 'Próximo mês' },
++  { value: 'ano', label: 'Este ano' },
++  { value: 'personalizado', label: 'Personalizado' },
++  { value: 'todos', label: 'Todo o período' },
++];
++
++const TIPO_OPTIONS: { value: TipoFiltro; label: string }[] = [
++  { value: 'todos', label: 'Todos' },
++  { value: 'INCOME', label: 'Contas a receber' },
++  { value: 'EXPENSE', label: 'Contas a pagar' },
++];
++
++const STATUS_OPTIONS: { value: StatusFiltro; label: string }[] = [
++  { value: 'todos', label: 'Todos' },
++  { value: 'pago_recebido', label: 'Pago / Recebido' },
++  { value: 'em_aberto', label: 'Em aberto' },
++  { value: 'atrasado', label: 'Atrasado' },
++  { value: 'pendente', label: 'Pendente (aberto + atrasado)' },
++];
++
++const baseSelect =
++  'w-full text-sm border border-slate-200 rounded-xl px-3 py-2 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400';
++
++export const FiltersBar: React.FC<FiltersBarProps> = ({ filters, onChange, categories, transactions }) => {
++  const pessoas = useMemo(() => {
++    const set = new Set<string>();
++    transactions.forEach((t) => {
++      if (t.contact_name) set.add(t.contact_name);
++    });
++    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'));
++  }, [transactions]);
++
++  const categoriasFiltradas = useMemo(() => {
++    let list = categories;
++    if (filters.tipo !== 'todos') list = list.filter((c) => c.type === filters.tipo);
++    return [...list].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
++  }, [categories, filters.tipo]);
++
++  const set = <K extends keyof BIFilters>(key: K, value: BIFilters[K]) => {
++    onChange({ ...filters, [key]: value });
++  };
++
++  const isDefault = JSON.stringify(filters) === JSON.stringify(DEFAULT_FILTERS);
++
++  return (
++    <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs p-4 md:p-5">
++      <div className="flex items-center justify-between mb-3">
++        <div className="flex items-center gap-2 text-slate-700 font-semibold text-sm">
++          <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
++            <Filter size={15} />
++          </div>
++          Filtros
++        </div>
++        {!isDefault && (
++          <button
++            type="button"
++            onClick={() => onChange(DEFAULT_FILTERS)}
++            className="flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-xl transition-colors"
++          >
++            <X size={13} /> Limpar filtros
++          </button>
++        )}
++      </div>
++
++      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
++        <div>
++          <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Período</label>
++          <select className={baseSelect} value={filters.periodo} onChange={(e) => set('periodo', e.target.value as PeriodoPreset)}>
++            {PERIODO_OPTIONS.map((o) => (
++              <option key={o.value} value={o.value}>{o.label}</option>
++            ))}
++          </select>
++        </div>
++
++        <div>
++          <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Tipo</label>
++          <select className={baseSelect} value={filters.tipo} onChange={(e) => set('tipo', e.target.value as TipoFiltro)}>
++            {TIPO_OPTIONS.map((o) => (
++              <option key={o.value} value={o.value}>{o.label}</option>
++            ))}
++          </select>
++        </div>
++
++        <div>
++          <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Status</label>
++          <select className={baseSelect} value={filters.status} onChange={(e) => set('status', e.target.value as StatusFiltro)}>
++            {STATUS_OPTIONS.map((o) => (
++              <option key={o.value} value={o.value}>{o.label}</option>
++            ))}
++          </select>
++        </div>
++
++        <div>
++          <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Categoria</label>
++          <select className={baseSelect} value={filters.categoriaId} onChange={(e) => set('categoriaId', e.target.value)}>
++            <option value="todas">Todas</option>
++            {categoriasFiltradas.map((c) => (
++              <option key={c.id} value={c.id}>{c.name}</option>
++            ))}
++          </select>
++        </div>
++
++        <div>
++          <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Pessoa</label>
++          <select className={baseSelect} value={filters.pessoa} onChange={(e) => set('pessoa', e.target.value)}>
++            <option value="todas">Todas</option>
++            {pessoas.map((p) => (
++              <option key={p} value={p}>{p}</option>
++            ))}
++          </select>
++        </div>
++
++        {filters.periodo === 'personalizado' && (
++          <div className="col-span-2 sm:col-span-1 lg:col-span-1">
++            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-1 flex items-center gap-1">
++              <Calendar size={11} /> Intervalo
++            </label>
++            <div className="flex gap-1.5">
++              <input
++                type="date"
++                className={baseSelect + ' px-2'}
++                value={filters.dataInicioCustom}
++                onChange={(e) => set('dataInicioCustom', e.target.value)}
++              />
++              <input
++                type="date"
++                className={baseSelect + ' px-2'}
++                value={filters.dataFimCustom}
++                onChange={(e) => set('dataFimCustom', e.target.value)}
++              />
++            </div>
++          </div>
++        )}
++      </div>
++
++      <p className="mt-3 text-[11px] text-slate-400">
++        O filtro de período é aplicado sobre a data de vencimento dos lançamentos. Forma de pagamento não é exibida como filtro
++        porque não existe esse campo na tabela de lançamentos financeiros do Comissione hoje.
++      </p>
++    </div>
++  );
++};
+diff --git a/src/modules/finance/bi/components/SummaryCards.tsx b/src/modules/finance/bi/components/SummaryCards.tsx
+new file mode 100644
+index 0000000..108c438
+--- /dev/null
++++ b/src/modules/finance/bi/components/SummaryCards.tsx
+@@ -0,0 +1,93 @@
++import React from 'react';
++import { ArrowUpCircle, ArrowDownCircle, Scale, TrendingUp } from 'lucide-react';
++import { formatCurrency } from '../../utils/currency';
++import { ContasResumo, SaldoRealizado } from '../calculations';
++
++export type SummaryDrillKind =
++  | 'receber-previsto' | 'receber-recebido' | 'receber-aberto' | 'receber-atrasado'
++  | 'pagar-previsto' | 'pagar-pago' | 'pagar-aberto' | 'pagar-atrasado'
++  | 'realizado-entradas' | 'realizado-saidas' | 'projetado-entradas' | 'projetado-saidas';
++
++interface SummaryCardsProps {
++  receber: ContasResumo;
++  pagar: ContasResumo;
++  realizado: SaldoRealizado;
++  projetado: SaldoRealizado;
++  onDrill: (kind: SummaryDrillKind) => void;
++}
++
++const MiniStat: React.FC<{ label: string; value: number; onClick?: () => void; tone?: 'blue' | 'slate' }> = ({
++  label,
++  value,
++  onClick,
++  tone = 'slate',
++}) => (
++  <button
++    type="button"
++    onClick={onClick}
++    disabled={!onClick}
++    className={`text-left flex flex-col gap-0.5 rounded-xl px-2.5 py-2 transition-colors ${
++      onClick ? 'hover:bg-blue-50 cursor-pointer' : 'cursor-default'
++    }`}
++  >
++    <span className="text-[10.5px] font-medium text-slate-400 uppercase tracking-wide">{label}</span>
++    <span className={`text-sm font-bold ${tone === 'blue' ? 'text-blue-700' : 'text-slate-700'}`}>{formatCurrency(value)}</span>
++  </button>
++);
++
++const CardShell: React.FC<{
++  title: string;
++  icon: React.ReactNode;
++  iconBg: string;
++  children: React.ReactNode;
++}> = ({ title, icon, iconBg, children }) => (
++  <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs p-5 flex flex-col gap-3">
++    <div className="flex items-center gap-2.5">
++      <div className={`w-8 h-8 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>{icon}</div>
++      <h3 className="text-sm font-bold text-slate-700">{title}</h3>
++    </div>
++    <div className="grid grid-cols-2 gap-1">{children}</div>
++  </div>
++);
++
++export const SummaryCards: React.FC<SummaryCardsProps> = ({ receber, pagar, realizado, projetado, onDrill }) => {
++  return (
++    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
++      <CardShell title="Contas a Receber" icon={<ArrowUpCircle size={16} className="text-blue-600" />} iconBg="bg-blue-50">
++        <MiniStat label="Previsto" value={receber.previsto} onClick={() => onDrill('receber-previsto')} />
++        <MiniStat label="Recebido" value={receber.recebidoOuPago} tone="blue" onClick={() => onDrill('receber-recebido')} />
++        <MiniStat label="Em aberto" value={receber.emAberto} onClick={() => onDrill('receber-aberto')} />
++        <MiniStat label="Atrasado" value={receber.atrasado} onClick={() => onDrill('receber-atrasado')} />
++      </CardShell>
++
++      <CardShell title="Contas a Pagar" icon={<ArrowDownCircle size={16} className="text-blue-600" />} iconBg="bg-blue-50">
++        <MiniStat label="Previsto" value={pagar.previsto} onClick={() => onDrill('pagar-previsto')} />
++        <MiniStat label="Pago" value={pagar.recebidoOuPago} tone="blue" onClick={() => onDrill('pagar-pago')} />
++        <MiniStat label="Em aberto" value={pagar.emAberto} onClick={() => onDrill('pagar-aberto')} />
++        <MiniStat label="Atrasado" value={pagar.atrasado} onClick={() => onDrill('pagar-atrasado')} />
++      </CardShell>
++
++      <CardShell title="Saldo (Realizado)" icon={<Scale size={16} className="text-blue-600" />} iconBg="bg-blue-50">
++        <MiniStat label="Entradas" value={realizado.entradas} onClick={() => onDrill('realizado-entradas')} />
++        <MiniStat label="Saídas" value={realizado.saidas} onClick={() => onDrill('realizado-saidas')} />
++        <div className="col-span-2 mt-1 pt-2 border-t border-slate-100">
++          <span className="text-[10.5px] font-medium text-slate-400 uppercase tracking-wide">Saldo realizado</span>
++          <div className={`text-lg font-bold ${realizado.saldo >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
++            {formatCurrency(realizado.saldo)}
++          </div>
++        </div>
++      </CardShell>
++
++      <CardShell title="Saldo Projetado" icon={<TrendingUp size={16} className="text-blue-600" />} iconBg="bg-blue-50">
++        <MiniStat label="Entradas futuras" value={projetado.entradas} onClick={() => onDrill('projetado-entradas')} />
++        <MiniStat label="Saídas futuras" value={projetado.saidas} onClick={() => onDrill('projetado-saidas')} />
++        <div className="col-span-2 mt-1 pt-2 border-t border-slate-100">
++          <span className="text-[10.5px] font-medium text-slate-400 uppercase tracking-wide">Saldo projetado</span>
++          <div className={`text-lg font-bold ${projetado.saldo >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
++            {formatCurrency(projetado.saldo)}
++          </div>
++        </div>
++      </CardShell>
++    </div>
++  );
++};
+diff --git a/src/modules/finance/bi/sections/AtrasadosSection.tsx b/src/modules/finance/bi/sections/AtrasadosSection.tsx
+new file mode 100644
+index 0000000..3a27a3e
+--- /dev/null
++++ b/src/modules/finance/bi/sections/AtrasadosSection.tsx
+@@ -0,0 +1,140 @@
++import React, { useMemo, useState } from 'react';
++import { AlertTriangle, ArrowUpDown } from 'lucide-react';
++import { FinancialTransaction, FinancialCategory } from '../../../../../types';
++import { formatCurrency } from '../../utils/currency';
++import { formatDateBR } from '../../utils/dates';
++import { daysLate, getTodayStr } from '../calculations';
++
++interface AtrasadosSectionProps {
++  atrasadosReceber: FinancialTransaction[];
++  atrasadosPagar: FinancialTransaction[];
++  categoriesById: Map<string, FinancialCategory>;
++  onRowClick: (tx: FinancialTransaction) => void;
++}
++
++type SortKey = 'dias' | 'valor' | 'vencimento';
++
++const SubTable: React.FC<{
++  titulo: string;
++  rows: FinancialTransaction[];
++  categoriesById: Map<string, FinancialCategory>;
++  today: string;
++  onRowClick: (tx: FinancialTransaction) => void;
++  tone: 'blue' | 'red';
++}> = ({ titulo, rows, categoriesById, today, onRowClick, tone }) => {
++  const [sortKey, setSortKey] = useState<SortKey>('dias');
++  const [asc, setAsc] = useState(false);
++
++  const sorted = useMemo(() => {
++    const arr = [...rows];
++    arr.sort((a, b) => {
++      let diff = 0;
++      if (sortKey === 'dias') diff = daysLate(a.due_date, today) - daysLate(b.due_date, today);
++      else if (sortKey === 'valor') diff = Number(a.amount) - Number(b.amount);
++      else diff = a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : 0;
++      return asc ? diff : -diff;
++    });
++    return arr;
++  }, [rows, sortKey, asc, today]);
++
++  const total = rows.reduce((a, t) => a + Number(t.amount || 0), 0);
++
++  const toggleSort = (key: SortKey) => {
++    if (sortKey === key) setAsc(!asc);
++    else {
++      setSortKey(key);
++      setAsc(false);
++    }
++  };
++
++  const headerBtn = (label: string, key: SortKey) => (
++    <button type="button" onClick={() => toggleSort(key)} className="flex items-center gap-1 hover:text-slate-700">
++      {label} <ArrowUpDown size={10} />
++    </button>
++  );
++
++  return (
++    <div>
++      <div className="flex items-center justify-between mb-2">
++        <p className="text-xs font-bold text-slate-600">{titulo}</p>
++        <p className={`text-xs font-bold ${tone === 'red' ? 'text-red-600' : 'text-blue-700'}`}>
++          {rows.length} lançamento(s) · {formatCurrency(total)}
++        </p>
++      </div>
++      <div className="border border-slate-100 rounded-xl overflow-hidden">
++        {sorted.length === 0 ? (
++          <div className="p-5 text-center text-xs text-slate-400">Nenhum lançamento atrasado. 🎉</div>
++        ) : (
++          <div className="max-h-64 overflow-y-auto">
++            <table className="w-full text-sm">
++              <thead className="bg-slate-50 sticky top-0">
++                <tr className="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
++                  <th className="px-3 py-2">Pessoa</th>
++                  <th className="px-3 py-2">Categoria</th>
++                  <th className="px-3 py-2 text-right">{headerBtn('Valor', 'valor')}</th>
++                  <th className="px-3 py-2">{headerBtn('Vencimento', 'vencimento')}</th>
++                  <th className="px-3 py-2 text-right">{headerBtn('Dias atraso', 'dias')}</th>
++                </tr>
++              </thead>
++              <tbody>
++                {sorted.map((t) => {
++                  const cat = t.category_id ? categoriesById.get(t.category_id) : undefined;
++                  return (
++                    <tr key={t.id} className="border-t border-slate-50 hover:bg-red-50/30 cursor-pointer" onClick={() => onRowClick(t)}>
++                      <td className="px-3 py-2 text-slate-700">{t.contact_name || '—'}</td>
++                      <td className="px-3 py-2 text-slate-500">{cat?.name || '—'}</td>
++                      <td className="px-3 py-2 text-right font-semibold text-slate-800">{formatCurrency(Number(t.amount))}</td>
++                      <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{formatDateBR(t.due_date)}</td>
++                      <td className="px-3 py-2 text-right">
++                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600">
++                          {daysLate(t.due_date, today)}d
++                        </span>
++                      </td>
++                    </tr>
++                  );
++                })}
++              </tbody>
++            </table>
++          </div>
++        )}
++      </div>
++    </div>
++  );
++};
++
++export const AtrasadosSection: React.FC<AtrasadosSectionProps> = ({
++  atrasadosReceber,
++  atrasadosPagar,
++  categoriesById,
++  onRowClick,
++}) => {
++  const today = getTodayStr();
++  return (
++    <div className="bg-white border border-red-100 rounded-2xl shadow-2xs p-5 md:p-6">
++      <div className="flex items-center gap-2.5 mb-4">
++        <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center">
++          <AlertTriangle size={16} className="text-red-600" />
++        </div>
++        <h3 className="text-sm font-bold text-slate-700">Atenção — Contas em atraso</h3>
++      </div>
++      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
++        <SubTable
++          titulo="Recebimentos atrasados"
++          rows={atrasadosReceber}
++          categoriesById={categoriesById}
++          today={today}
++          onRowClick={onRowClick}
++          tone="blue"
++        />
++        <SubTable
++          titulo="Pagamentos atrasados"
++          rows={atrasadosPagar}
++          categoriesById={categoriesById}
++          today={today}
++          onRowClick={onRowClick}
++          tone="red"
++        />
++      </div>
++    </div>
++  );
++};
+diff --git a/src/modules/finance/bi/sections/CategoriaSection.tsx b/src/modules/finance/bi/sections/CategoriaSection.tsx
+new file mode 100644
+index 0000000..b16df32
+--- /dev/null
++++ b/src/modules/finance/bi/sections/CategoriaSection.tsx
+@@ -0,0 +1,117 @@
++import React, { useState } from 'react';
++import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
++import { Tags, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
++import { formatCurrency } from '../../utils/currency';
++import { CategoriaAnalise } from '../types';
++
++interface CategoriaSectionProps {
++  entradas: CategoriaAnalise[];
++  saidas: CategoriaAnalise[];
++  onSelectCategoria: (c: CategoriaAnalise) => void;
++}
++
++const BARS_COLOR_INCOME = '#2563eb';
++const BARS_COLOR_EXPENSE = '#60a5fa';
++
++const CategoriaLista: React.FC<{
++  titulo: string;
++  icon: React.ReactNode;
++  data: CategoriaAnalise[];
++  color: string;
++  onSelect: (c: CategoriaAnalise) => void;
++}> = ({ titulo, icon, data, color, onSelect }) => {
++  const chartData = data.slice(0, 8).map((c) => ({ name: c.categoriaNome, valor: c.valorTotal, raw: c }));
++
++  return (
++    <div>
++      <div className="flex items-center gap-2 mb-3">
++        {icon}
++        <p className="text-xs font-bold text-slate-600">{titulo}</p>
++      </div>
++
++      <div className="h-64 mb-3">
++        {chartData.length === 0 ? (
++          <div className="h-full flex items-center justify-center text-xs text-slate-400">Sem lançamentos no período.</div>
++        ) : (
++          <ResponsiveContainer width="100%" height="100%">
++            <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 16 }}>
++              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
++              <XAxis type="number" tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 10, fill: '#94a3b8' }} />
++              <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 10, fill: '#475569' }} />
++              <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ borderRadius: 12, fontSize: 12 }} />
++              <Bar
++                dataKey="valor"
++                radius={[0, 6, 6, 0]}
++                cursor="pointer"
++                onClick={(d: any) => onSelect(d.raw)}
++              >
++                {chartData.map((_, i) => (
++                  <Cell key={i} fill={color} fillOpacity={1 - i * 0.07} />
++                ))}
++              </Bar>
++            </BarChart>
++          </ResponsiveContainer>
++        )}
++      </div>
++
++      <div className="border border-slate-100 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
++        <table className="w-full text-xs">
++          <thead className="bg-slate-50 sticky top-0">
++            <tr className="text-left text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide">
++              <th className="px-3 py-1.5">Categoria</th>
++              <th className="px-3 py-1.5 text-right">Valor</th>
++              <th className="px-3 py-1.5 text-right">%</th>
++              <th className="px-3 py-1.5 text-right">Qtd</th>
++            </tr>
++          </thead>
++          <tbody>
++            {data.map((c) => (
++              <tr
++                key={c.categoriaId}
++                className="border-t border-slate-50 hover:bg-blue-50/40 cursor-pointer"
++                onClick={() => onSelect(c)}
++              >
++                <td className="px-3 py-1.5 text-slate-700">{c.categoriaNome}</td>
++                <td className="px-3 py-1.5 text-right font-semibold text-slate-800">{formatCurrency(c.valorTotal)}</td>
++                <td className="px-3 py-1.5 text-right text-slate-500">{c.percentualDoTotal.toFixed(1)}%</td>
++                <td className="px-3 py-1.5 text-right text-slate-500">{c.quantidadeLancamentos}</td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++      </div>
++    </div>
++  );
++};
++
++export const CategoriaSection: React.FC<CategoriaSectionProps> = ({ entradas, saidas, onSelectCategoria }) => {
++  return (
++    <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs p-5 md:p-6">
++      <div className="flex items-center gap-2.5 mb-1">
++        <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
++          <Tags size={16} className="text-blue-600" />
++        </div>
++        <h3 className="text-sm font-bold text-slate-700">Análise por Categoria</h3>
++      </div>
++      <p className="text-xs text-slate-400 mb-5">
++        Categorias exatamente como cadastradas no Comissione. Clique em uma categoria (na lista ou no gráfico) para ver os lançamentos.
++      </p>
++      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
++        <CategoriaLista
++          titulo="Entradas por categoria"
++          icon={<ArrowUpCircle size={14} className="text-blue-600" />}
++          data={entradas}
++          color={BARS_COLOR_INCOME}
++          onSelect={onSelectCategoria}
++        />
++        <CategoriaLista
++          titulo="Saídas por categoria"
++          icon={<ArrowDownCircle size={14} className="text-blue-600" />}
++          data={saidas}
++          color={BARS_COLOR_EXPENSE}
++          onSelect={onSelectCategoria}
++        />
++      </div>
++    </div>
++  );
++};
+diff --git a/src/modules/finance/bi/sections/FluxoCaixaSection.tsx b/src/modules/finance/bi/sections/FluxoCaixaSection.tsx
+new file mode 100644
+index 0000000..1f9ae42
+--- /dev/null
++++ b/src/modules/finance/bi/sections/FluxoCaixaSection.tsx
+@@ -0,0 +1,94 @@
++import React, { useMemo } from 'react';
++import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
++import { Activity } from 'lucide-react';
++import { formatCurrency } from '../../utils/currency';
++import { SaldoRealizado } from '../calculations';
++import { MesAnalise } from '../types';
++
++interface FluxoCaixaSectionProps {
++  realizado: SaldoRealizado;
++  projetado: SaldoRealizado;
++  mensal: MesAnalise[];
++}
++
++export const FluxoCaixaSection: React.FC<FluxoCaixaSectionProps> = ({ realizado, projetado, mensal }) => {
++  const chartData = useMemo(
++    () =>
++      mensal.map((m) => ({
++        label: m.label,
++        entradas: m.recebido,
++        saidas: m.pago,
++        saldo: m.resultadoRealizado,
++      })),
++    [mensal]
++  );
++
++  return (
++    <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs p-5 md:p-6">
++      <div className="flex items-center gap-2.5 mb-4">
++        <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
++          <Activity size={16} className="text-blue-600" />
++        </div>
++        <h3 className="text-sm font-bold text-slate-700">Fluxo de Caixa</h3>
++      </div>
++
++      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
++        <div className="rounded-xl border border-slate-100 p-4">
++          <p className="text-xs font-bold text-slate-600 mb-2">Realizado</p>
++          <div className="flex justify-between text-sm mb-1">
++            <span className="text-slate-500">Entradas recebidas</span>
++            <span className="font-semibold text-blue-700">{formatCurrency(realizado.entradas)}</span>
++          </div>
++          <div className="flex justify-between text-sm mb-1">
++            <span className="text-slate-500">Saídas pagas</span>
++            <span className="font-semibold text-red-600">{formatCurrency(realizado.saidas)}</span>
++          </div>
++          <div className="flex justify-between text-sm pt-2 border-t border-slate-50 mt-2">
++            <span className="text-slate-600 font-semibold">Saldo</span>
++            <span className={`font-bold ${realizado.saldo >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
++              {formatCurrency(realizado.saldo)}
++            </span>
++          </div>
++        </div>
++
++        <div className="rounded-xl border border-slate-100 p-4">
++          <p className="text-xs font-bold text-slate-600 mb-2">Projetado</p>
++          <div className="flex justify-between text-sm mb-1">
++            <span className="text-slate-500">Entradas futuras</span>
++            <span className="font-semibold text-blue-700">{formatCurrency(projetado.entradas)}</span>
++          </div>
++          <div className="flex justify-between text-sm mb-1">
++            <span className="text-slate-500">Saídas futuras</span>
++            <span className="font-semibold text-red-600">{formatCurrency(projetado.saidas)}</span>
++          </div>
++          <div className="flex justify-between text-sm pt-2 border-t border-slate-50 mt-2">
++            <span className="text-slate-600 font-semibold">Saldo projetado</span>
++            <span className={`font-bold ${projetado.saldo >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
++              {formatCurrency(projetado.saldo)}
++            </span>
++          </div>
++        </div>
++      </div>
++
++      <p className="text-xs font-semibold text-slate-500 mb-2">Evolução mensal (entradas x saídas realizadas)</p>
++      <div className="h-64">
++        {chartData.length === 0 ? (
++          <div className="h-full flex items-center justify-center text-xs text-slate-400">Sem dados suficientes ainda.</div>
++        ) : (
++          <ResponsiveContainer width="100%" height="100%">
++            <ComposedChart data={chartData} margin={{ left: 0, right: 10 }}>
++              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
++              <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} />
++              <YAxis tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 10, fill: '#94a3b8' }} width={70} />
++              <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ borderRadius: 12, fontSize: 12 }} />
++              <Legend wrapperStyle={{ fontSize: 11 }} />
++              <Bar dataKey="entradas" name="Entradas" fill="#93c5fd" radius={[4, 4, 0, 0]} />
++              <Bar dataKey="saidas" name="Saídas" fill="#1d4ed8" radius={[4, 4, 0, 0]} />
++              <Line type="monotone" dataKey="saldo" name="Saldo" stroke="#0f172a" strokeWidth={2} dot={false} />
++            </ComposedChart>
++          </ResponsiveContainer>
++        )}
++      </div>
++    </div>
++  );
++};
+diff --git a/src/modules/finance/bi/sections/FuturasSection.tsx b/src/modules/finance/bi/sections/FuturasSection.tsx
+new file mode 100644
+index 0000000..819a43c
+--- /dev/null
++++ b/src/modules/finance/bi/sections/FuturasSection.tsx
+@@ -0,0 +1,95 @@
++import React from 'react';
++import { CalendarClock } from 'lucide-react';
++import { formatCurrency } from '../../utils/currency';
++import { formatDateBR } from '../../utils/dates';
++import { FutureWindowResult, FluxoDia } from '../types';
++
++interface FuturasSectionProps {
++  windows: FutureWindowResult[];
++  cashFlowTable: FluxoDia[];
++  onDrillWindow: (dias: number, tipo: 'INCOME' | 'EXPENSE') => void;
++  onDrillDay: (data: string) => void;
++}
++
++const WindowCard: React.FC<{
++  w: FutureWindowResult;
++  onDrillEntradas: () => void;
++  onDrillSaidas: () => void;
++}> = ({ w, onDrillEntradas, onDrillSaidas }) => (
++  <div className="border border-slate-100 rounded-xl p-3.5 flex flex-col gap-2 min-w-[150px]">
++    <p className="text-xs font-bold text-slate-600">Próximos {w.dias} dias</p>
++    <button type="button" onClick={onDrillEntradas} className="text-left hover:bg-blue-50/50 rounded-lg px-1.5 py-1 -mx-1.5 transition-colors">
++      <p className="text-[10px] text-slate-400 uppercase tracking-wide">A receber ({w.qtdEntradas})</p>
++      <p className="text-sm font-bold text-blue-700">{formatCurrency(w.entradas)}</p>
++    </button>
++    <button type="button" onClick={onDrillSaidas} className="text-left hover:bg-red-50/50 rounded-lg px-1.5 py-1 -mx-1.5 transition-colors">
++      <p className="text-[10px] text-slate-400 uppercase tracking-wide">A pagar ({w.qtdSaidas})</p>
++      <p className="text-sm font-bold text-red-600">{formatCurrency(w.saidas)}</p>
++    </button>
++    <div className="pt-1.5 border-t border-slate-50">
++      <p className="text-[10px] text-slate-400 uppercase tracking-wide">Saldo do período</p>
++      <p className={`text-sm font-bold ${w.entradas - w.saidas >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
++        {formatCurrency(w.entradas - w.saidas)}
++      </p>
++    </div>
++  </div>
++);
++
++export const FuturasSection: React.FC<FuturasSectionProps> = ({ windows, cashFlowTable, onDrillWindow, onDrillDay }) => {
++  return (
++    <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs p-5 md:p-6">
++      <div className="flex items-center gap-2.5 mb-1">
++        <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
++          <CalendarClock size={16} className="text-blue-600" />
++        </div>
++        <h3 className="text-sm font-bold text-slate-700">Contas Futuras</h3>
++      </div>
++      <p className="text-xs text-slate-400 mb-4">O que ainda está previsto para acontecer, a partir de hoje.</p>
++
++      <div className="flex gap-3 overflow-x-auto pb-2 mb-6">
++        {windows.map((w) => (
++          <WindowCard
++            key={w.dias}
++            w={w}
++            onDrillEntradas={() => onDrillWindow(w.dias, 'INCOME')}
++            onDrillSaidas={() => onDrillWindow(w.dias, 'EXPENSE')}
++          />
++        ))}
++      </div>
++
++      <p className="text-xs font-semibold text-slate-500 mb-2">Fluxo de caixa futuro (próximos 90 dias, por data de vencimento)</p>
++      <div className="max-h-72 overflow-y-auto border border-slate-100 rounded-xl">
++        {cashFlowTable.length === 0 ? (
++          <div className="p-6 text-center text-xs text-slate-400">Não há lançamentos futuros pendentes nos próximos 90 dias.</div>
++        ) : (
++          <table className="w-full text-sm">
++            <thead className="bg-slate-50 sticky top-0">
++              <tr className="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
++                <th className="px-4 py-2">Data</th>
++                <th className="px-4 py-2 text-right">Entradas previstas</th>
++                <th className="px-4 py-2 text-right">Saídas previstas</th>
++                <th className="px-4 py-2 text-right">Saldo projetado (acum.)</th>
++              </tr>
++            </thead>
++            <tbody>
++              {cashFlowTable.map((row) => (
++                <tr
++                  key={row.data}
++                  className="border-t border-slate-50 hover:bg-blue-50/40 cursor-pointer"
++                  onClick={() => onDrillDay(row.data)}
++                >
++                  <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{formatDateBR(row.data)}</td>
++                  <td className="px-4 py-2 text-right text-blue-700 font-medium">{formatCurrency(row.entradasPrevistas)}</td>
++                  <td className="px-4 py-2 text-right text-red-600 font-medium">{formatCurrency(row.saidasPrevistas)}</td>
++                  <td className={`px-4 py-2 text-right font-bold ${row.saldoAcumulado >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
++                    {formatCurrency(row.saldoAcumulado)}
++                  </td>
++                </tr>
++              ))}
++            </tbody>
++          </table>
++        )}
++      </div>
++    </div>
++  );
++};
+diff --git a/src/modules/finance/bi/sections/IndicadoresSection.tsx b/src/modules/finance/bi/sections/IndicadoresSection.tsx
+new file mode 100644
+index 0000000..375fe26
+--- /dev/null
++++ b/src/modules/finance/bi/sections/IndicadoresSection.tsx
+@@ -0,0 +1,49 @@
++import React from 'react';
++import { Gauge } from 'lucide-react';
++import { formatCurrency } from '../../utils/currency';
++import { IndicadoresGerenciais } from '../calculations';
++
++interface IndicadoresSectionProps {
++  ind: IndicadoresGerenciais;
++}
++
++const Indicador: React.FC<{ label: string; value: string; tone?: 'blue' | 'red' | 'emerald' | 'slate' }> = ({
++  label,
++  value,
++  tone = 'slate',
++}) => {
++  const toneCls =
++    tone === 'blue' ? 'text-blue-700' : tone === 'red' ? 'text-red-600' : tone === 'emerald' ? 'text-emerald-700' : 'text-slate-800';
++  return (
++    <div className="rounded-xl border border-slate-100 p-3.5">
++      <p className="text-[10.5px] font-medium text-slate-400 uppercase tracking-wide mb-1">{label}</p>
++      <p className={`text-lg font-bold ${toneCls}`}>{value}</p>
++    </div>
++  );
++};
++
++export const IndicadoresSection: React.FC<IndicadoresSectionProps> = ({ ind }) => {
++  return (
++    <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs p-5 md:p-6">
++      <div className="flex items-center gap-2.5 mb-4">
++        <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
++          <Gauge size={16} className="text-blue-600" />
++        </div>
++        <h3 className="text-sm font-bold text-slate-700">Indicadores Gerenciais</h3>
++      </div>
++
++      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
++        <Indicador label="Total recebido no período" value={formatCurrency(ind.totalRecebidoPeriodo)} tone="blue" />
++        <Indicador label="Total pago no período" value={formatCurrency(ind.totalPagoPeriodo)} />
++        <Indicador label="Total em aberto" value={formatCurrency(ind.totalEmAberto)} />
++        <Indicador label="Total atrasado" value={formatCurrency(ind.totalAtrasado)} tone="red" />
++        <Indicador label="Futuro a receber (90d)" value={formatCurrency(ind.totalFuturoReceber90d)} tone="emerald" />
++        <Indicador label="Futuro a pagar (90d)" value={formatCurrency(ind.totalFuturoPagar90d)} />
++        <Indicador label="% recebido" value={`${ind.percentualRecebido.toFixed(1)}%`} tone="emerald" />
++        <Indicador label="% pago" value={`${ind.percentualPago.toFixed(1)}%`} />
++        <Indicador label="Qtd. contas vencidas" value={String(ind.qtdContasVencidas)} tone="red" />
++        <Indicador label="Qtd. contas em aberto" value={String(ind.qtdContasEmAberto)} />
++      </div>
++    </div>
++  );
++};
+diff --git a/src/modules/finance/bi/sections/LancamentosSection.tsx b/src/modules/finance/bi/sections/LancamentosSection.tsx
+new file mode 100644
+index 0000000..139bce0
+--- /dev/null
++++ b/src/modules/finance/bi/sections/LancamentosSection.tsx
+@@ -0,0 +1,182 @@
++import React, { useMemo, useState } from 'react';
++import { List, Search, ArrowUpDown, ChevronLeft, ChevronRight, ArrowLeftRight } from 'lucide-react';
++import { FinancialTransaction, FinancialCategory } from '../../../../../types';
++import { formatCurrency } from '../../utils/currency';
++import { formatDateBR } from '../../utils/dates';
++import { isPaid, isOverdue, isTransfer, getTodayStr } from '../calculations';
++
++interface LancamentosSectionProps {
++  transactions: FinancialTransaction[];
++  categoriesById: Map<string, FinancialCategory>;
++  onRowClick: (tx: FinancialTransaction) => void;
++}
++
++type SortKey = 'due_date' | 'amount' | 'description';
++const PAGE_SIZE = 20;
++
++const statusLabel = (tx: FinancialTransaction, today: string, categoriesById: Map<string, FinancialCategory>) => {
++  if (isTransfer(tx, categoriesById)) return { text: 'Transferência', cls: 'bg-slate-100 text-slate-600' };
++  if (isPaid(tx)) return { text: tx.type === 'INCOME' ? 'Recebido' : 'Pago', cls: 'bg-emerald-50 text-emerald-700' };
++  if (isOverdue(tx, today)) return { text: 'Atrasado', cls: 'bg-red-50 text-red-600' };
++  return { text: 'Em aberto', cls: 'bg-amber-50 text-amber-700' };
++};
++
++export const LancamentosSection: React.FC<LancamentosSectionProps> = ({ transactions, categoriesById, onRowClick }) => {
++  const [search, setSearch] = useState('');
++  const [sortKey, setSortKey] = useState<SortKey>('due_date');
++  const [asc, setAsc] = useState(false);
++  const [page, setPage] = useState(0);
++  const today = getTodayStr();
++
++  const filtered = useMemo(() => {
++    const q = search.trim().toLowerCase();
++    if (!q) return transactions;
++    return transactions.filter((t) => {
++      const cat = t.category_id ? categoriesById.get(t.category_id)?.name : '';
++      return (
++        t.description?.toLowerCase().includes(q) ||
++        t.contact_name?.toLowerCase().includes(q) ||
++        cat?.toLowerCase().includes(q)
++      );
++    });
++  }, [transactions, search, categoriesById]);
++
++  const sorted = useMemo(() => {
++    const arr = [...filtered];
++    arr.sort((a, b) => {
++      let diff = 0;
++      if (sortKey === 'due_date') diff = a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : 0;
++      else if (sortKey === 'amount') diff = Number(a.amount) - Number(b.amount);
++      else diff = (a.description || '').localeCompare(b.description || '', 'pt-BR');
++      return asc ? diff : -diff;
++    });
++    return arr;
++  }, [filtered, sortKey, asc]);
++
++  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
++  const pageSafe = Math.min(page, totalPages - 1);
++  const paged = sorted.slice(pageSafe * PAGE_SIZE, pageSafe * PAGE_SIZE + PAGE_SIZE);
++
++  const toggleSort = (key: SortKey) => {
++    setPage(0);
++    if (sortKey === key) setAsc(!asc);
++    else {
++      setSortKey(key);
++      setAsc(false);
++    }
++  };
++
++  const headerBtn = (label: string, key: SortKey) => (
++    <button type="button" onClick={() => toggleSort(key)} className="flex items-center gap-1 hover:text-slate-700">
++      {label} <ArrowUpDown size={10} />
++    </button>
++  );
++
++  return (
++    <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs p-5 md:p-6">
++      <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
++        <div className="flex items-center gap-2.5">
++          <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
++            <List size={16} className="text-blue-600" />
++          </div>
++          <div>
++            <h3 className="text-sm font-bold text-slate-700">Tabela de Lançamentos</h3>
++            <p className="text-[11px] text-slate-400">{sorted.length} lançamento(s) com os filtros atuais</p>
++          </div>
++        </div>
++        <div className="relative">
++          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
++          <input
++            type="text"
++            placeholder="Buscar por descrição, pessoa ou categoria..."
++            value={search}
++            onChange={(e) => {
++              setSearch(e.target.value);
++              setPage(0);
++            }}
++            className="pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-xl w-72 max-w-full focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
++          />
++        </div>
++      </div>
++
++      <div className="border border-slate-100 rounded-xl overflow-hidden overflow-x-auto">
++        <table className="w-full text-sm min-w-[820px]">
++          <thead className="bg-slate-50">
++            <tr className="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
++              <th className="px-3 py-2">{headerBtn('Vencimento', 'due_date')}</th>
++              <th className="px-3 py-2">Tipo</th>
++              <th className="px-3 py-2">Categoria</th>
++              <th className="px-3 py-2">{headerBtn('Descrição', 'description')}</th>
++              <th className="px-3 py-2">Pessoa</th>
++              <th className="px-3 py-2 text-right">{headerBtn('Valor', 'amount')}</th>
++              <th className="px-3 py-2">Status</th>
++              <th className="px-3 py-2">Pagto/Receb.</th>
++            </tr>
++          </thead>
++          <tbody>
++            {paged.map((t) => {
++              const cat = t.category_id ? categoriesById.get(t.category_id) : undefined;
++              const st = statusLabel(t, today, categoriesById);
++              const transfer = isTransfer(t, categoriesById);
++              return (
++                <tr key={t.id} className="border-t border-slate-50 hover:bg-blue-50/40 cursor-pointer" onClick={() => onRowClick(t)}>
++                  <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{formatDateBR(t.due_date)}</td>
++                  <td className="px-3 py-2">
++                    {transfer ? (
++                      <ArrowLeftRight size={13} className="text-slate-400" />
++                    ) : (
++                      <span className={t.type === 'INCOME' ? 'text-blue-700 font-semibold text-xs' : 'text-slate-500 font-semibold text-xs'}>
++                        {t.type === 'INCOME' ? 'Receita' : 'Despesa'}
++                      </span>
++                    )}
++                  </td>
++                  <td className="px-3 py-2 text-slate-500">{cat?.name || '—'}</td>
++                  <td className="px-3 py-2 text-slate-700 max-w-[220px] truncate">{t.description}</td>
++                  <td className="px-3 py-2 text-slate-500">{t.contact_name || '—'}</td>
++                  <td className={`px-3 py-2 text-right font-semibold whitespace-nowrap ${t.type === 'INCOME' ? 'text-blue-700' : 'text-slate-700'}`}>
++                    {formatCurrency(Number(t.amount))}
++                  </td>
++                  <td className="px-3 py-2">
++                    <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full ${st.cls}`}>{st.text}</span>
++                  </td>
++                  <td className="px-3 py-2 text-slate-400 whitespace-nowrap">{formatDateBR(t.payment_date) || '—'}</td>
++                </tr>
++              );
++            })}
++            {paged.length === 0 && (
++              <tr>
++                <td colSpan={8} className="px-4 py-8 text-center text-xs text-slate-400">
++                  Nenhum lançamento encontrado com os filtros atuais.
++                </td>
++              </tr>
++            )}
++          </tbody>
++        </table>
++      </div>
++
++      <div className="flex items-center justify-between mt-3 text-xs text-slate-500">
++        <span>
++          Página {pageSafe + 1} de {totalPages}
++        </span>
++        <div className="flex gap-2">
++          <button
++            type="button"
++            disabled={pageSafe === 0}
++            onClick={() => setPage(pageSafe - 1)}
++            className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center disabled:opacity-30 hover:bg-slate-50"
++          >
++            <ChevronLeft size={14} />
++          </button>
++          <button
++            type="button"
++            disabled={pageSafe >= totalPages - 1}
++            onClick={() => setPage(pageSafe + 1)}
++            className="w-7 h-7 rounded-lg border border-slate-200 flex items-center justify-center disabled:opacity-30 hover:bg-slate-50"
++          >
++            <ChevronRight size={14} />
++          </button>
++        </div>
++      </div>
++    </div>
++  );
++};
+diff --git a/src/modules/finance/bi/sections/MensalSection.tsx b/src/modules/finance/bi/sections/MensalSection.tsx
+new file mode 100644
+index 0000000..2709a88
+--- /dev/null
++++ b/src/modules/finance/bi/sections/MensalSection.tsx
+@@ -0,0 +1,83 @@
++import React from 'react';
++import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
++import { CalendarRange } from 'lucide-react';
++import { formatCurrency } from '../../utils/currency';
++import { MesAnalise } from '../types';
++
++interface MensalSectionProps {
++  meses: MesAnalise[];
++}
++
++export const MensalSection: React.FC<MensalSectionProps> = ({ meses }) => {
++  return (
++    <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs p-5 md:p-6">
++      <div className="flex items-center gap-2.5 mb-1">
++        <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
++          <CalendarRange size={16} className="text-blue-600" />
++        </div>
++        <h3 className="text-sm font-bold text-slate-700">Análise Mensal</h3>
++      </div>
++      <p className="text-xs text-slate-400 mb-5">
++        Comparação previsto x realizado por mês de vencimento (até 12 meses com dados disponíveis).
++      </p>
++
++      <div className="h-64 mb-5">
++        {meses.length === 0 ? (
++          <div className="h-full flex items-center justify-center text-xs text-slate-400">Sem dados suficientes.</div>
++        ) : (
++          <ResponsiveContainer width="100%" height="100%">
++            <BarChart data={meses} margin={{ left: 0, right: 10 }}>
++              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
++              <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} />
++              <YAxis tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 10, fill: '#94a3b8' }} width={70} />
++              <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ borderRadius: 12, fontSize: 12 }} />
++              <Legend wrapperStyle={{ fontSize: 11 }} />
++              <Bar dataKey="entradasPrevistas" name="Entradas previstas" fill="#93c5fd" radius={[4, 4, 0, 0]} />
++              <Bar dataKey="saidasPrevistas" name="Saídas previstas" fill="#1d4ed8" radius={[4, 4, 0, 0]} />
++            </BarChart>
++          </ResponsiveContainer>
++        )}
++      </div>
++
++      <div className="border border-slate-100 rounded-xl overflow-x-auto">
++        <table className="w-full text-sm min-w-[680px]">
++          <thead className="bg-slate-50">
++            <tr className="text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
++              <th className="px-3 py-2">Mês</th>
++              <th className="px-3 py-2 text-right">Entradas (previsto)</th>
++              <th className="px-3 py-2 text-right">Saídas (previsto)</th>
++              <th className="px-3 py-2 text-right">Resultado (previsto)</th>
++              <th className="px-3 py-2 text-right">Recebido</th>
++              <th className="px-3 py-2 text-right">Pago</th>
++              <th className="px-3 py-2 text-right">Resultado realizado</th>
++            </tr>
++          </thead>
++          <tbody>
++            {meses.map((m) => (
++              <tr key={m.chave} className="border-t border-slate-50">
++                <td className="px-3 py-2 font-semibold text-slate-700">{m.label}</td>
++                <td className="px-3 py-2 text-right text-slate-600">{formatCurrency(m.entradasPrevistas)}</td>
++                <td className="px-3 py-2 text-right text-slate-600">{formatCurrency(m.saidasPrevistas)}</td>
++                <td className={`px-3 py-2 text-right font-semibold ${m.resultadoPrevisto >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
++                  {formatCurrency(m.resultadoPrevisto)}
++                </td>
++                <td className="px-3 py-2 text-right text-blue-700">{formatCurrency(m.recebido)}</td>
++                <td className="px-3 py-2 text-right text-slate-600">{formatCurrency(m.pago)}</td>
++                <td className={`px-3 py-2 text-right font-semibold ${m.resultadoRealizado >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
++                  {formatCurrency(m.resultadoRealizado)}
++                </td>
++              </tr>
++            ))}
++            {meses.length === 0 && (
++              <tr>
++                <td colSpan={7} className="px-3 py-6 text-center text-xs text-slate-400">
++                  Sem meses com lançamentos.
++                </td>
++              </tr>
++            )}
++          </tbody>
++        </table>
++      </div>
++    </div>
++  );
++};
+diff --git a/src/modules/finance/bi/sections/ReceberPagarSection.tsx b/src/modules/finance/bi/sections/ReceberPagarSection.tsx
+new file mode 100644
+index 0000000..3f91c4c
+--- /dev/null
++++ b/src/modules/finance/bi/sections/ReceberPagarSection.tsx
+@@ -0,0 +1,122 @@
++import React from 'react';
++import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
++import { ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
++import { formatCurrency } from '../../utils/currency';
++import { formatDateBR } from '../../utils/dates';
++import { ContasResumo, PontoEvolucao } from '../calculations';
++
++interface ReceberPagarSectionProps {
++  tipo: 'INCOME' | 'EXPENSE';
++  resumo: ContasResumo;
++  evolucao: PontoEvolucao[];
++  onDrill: (kind: 'recebido_pago' | 'aberto' | 'atrasado') => void;
++}
++
++const CORES = { pago: '#2563eb', aberto: '#93c5fd', atrasado: '#ef4444' };
++
++const StatCell: React.FC<{ label: string; value: string; onClick?: () => void }> = ({ label, value, onClick }) => (
++  <button
++    type="button"
++    onClick={onClick}
++    disabled={!onClick}
++    className={`text-left rounded-xl border border-slate-100 px-3 py-2.5 ${onClick ? 'hover:border-blue-200 hover:bg-blue-50/50 cursor-pointer' : ''} transition-colors`}
++  >
++    <p className="text-[10.5px] font-medium text-slate-400 uppercase tracking-wide">{label}</p>
++    <p className="text-base font-bold text-slate-800 mt-0.5">{value}</p>
++  </button>
++);
++
++export const ReceberPagarSection: React.FC<ReceberPagarSectionProps> = ({ tipo, resumo, evolucao, onDrill }) => {
++  const isReceita = tipo === 'INCOME';
++  const titulo = isReceita ? 'Contas a Receber' : 'Contas a Pagar';
++  const rotuloRealizado = isReceita ? 'Total recebido' : 'Total pago';
++
++  const pieData = [
++    { name: isReceita ? 'Recebido' : 'Pago', value: resumo.recebidoOuPago, color: CORES.pago },
++    { name: 'Em aberto', value: resumo.emAberto, color: CORES.aberto },
++    { name: 'Atrasado', value: resumo.atrasado, color: CORES.atrasado },
++  ].filter((d) => d.value > 0);
++
++  return (
++    <div className="bg-white border border-slate-200 rounded-2xl shadow-2xs p-5 md:p-6">
++      <div className="flex items-center gap-2.5 mb-4">
++        <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
++          {isReceita ? <ArrowUpCircle size={16} className="text-blue-600" /> : <ArrowDownCircle size={16} className="text-blue-600" />}
++        </div>
++        <h3 className="text-sm font-bold text-slate-700">{titulo}</h3>
++      </div>
++
++      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-5">
++        <StatCell label={rotuloRealizado} value={formatCurrency(resumo.recebidoOuPago)} onClick={() => onDrill('recebido_pago')} />
++        <StatCell label={isReceita ? 'Total a receber' : 'Total a pagar'} value={formatCurrency(resumo.previsto)} />
++        <StatCell label="Total vencido" value={formatCurrency(resumo.atrasado)} onClick={() => onDrill('atrasado')} />
++        <StatCell label="Total em aberto" value={formatCurrency(resumo.emAberto)} onClick={() => onDrill('aberto')} />
++      </div>
++
++      <div className="flex gap-4 text-xs text-slate-500 mb-5">
++        <span>
++          <strong className="text-slate-700">{resumo.qtdTotal}</strong> lançamento(s) no período
++        </span>
++        <span>
++          <strong className="text-red-600">{resumo.qtdAtrasados}</strong> atrasado(s)
++        </span>
++      </div>
++
++      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
++        <div className="lg:col-span-2">
++          <p className="text-xs font-semibold text-slate-500 mb-2">
++            Evolução de {isReceita ? 'recebimentos' : 'pagamentos'} ao longo do tempo
++          </p>
++          <div className="h-56">
++            {evolucao.length === 0 ? (
++              <div className="h-full flex items-center justify-center text-xs text-slate-400">Sem dados pagos no período selecionado.</div>
++            ) : (
++              <ResponsiveContainer width="100%" height="100%">
++                <AreaChart data={evolucao} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
++                  <defs>
++                    <linearGradient id={`grad-${tipo}`} x1="0" y1="0" x2="0" y2="1">
++                      <stop offset="5%" stopColor="#2563eb" stopOpacity={0.35} />
++                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
++                    </linearGradient>
++                  </defs>
++                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
++                  <XAxis dataKey="data" tickFormatter={formatDateBR} tick={{ fontSize: 10, fill: '#94a3b8' }} />
++                  <YAxis tickFormatter={(v) => formatCurrency(v)} tick={{ fontSize: 10, fill: '#94a3b8' }} width={70} />
++                  <Tooltip
++                    formatter={(v: number) => formatCurrency(v)}
++                    labelFormatter={(l) => formatDateBR(String(l))}
++                    contentStyle={{ borderRadius: 12, borderColor: '#e2e8f0', fontSize: 12 }}
++                  />
++                  <Area type="monotone" dataKey="acumulado" name="Acumulado" stroke="#2563eb" fill={`url(#grad-${tipo})`} strokeWidth={2} />
++                </AreaChart>
++              </ResponsiveContainer>
++            )}
++          </div>
++        </div>
++
++        <div>
++          <p className="text-xs font-semibold text-slate-500 mb-2">
++            {isReceita ? 'Recebido' : 'Pago'} x Em aberto x Atrasado
++          </p>
++          <div className="h-56">
++            {pieData.length === 0 ? (
++              <div className="h-full flex items-center justify-center text-xs text-slate-400">Sem valores no período.</div>
++            ) : (
++              <ResponsiveContainer width="100%" height="100%">
++                <PieChart>
++                  <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={45} outerRadius={70} paddingAngle={2}>
++                    {pieData.map((d, i) => (
++                      <Cell key={i} fill={d.color} />
++                    ))}
++                  </Pie>
++                  <Tooltip formatter={(v: number) => formatCurrency(v)} contentStyle={{ borderRadius: 12, fontSize: 12 }} />
++                  <Legend wrapperStyle={{ fontSize: 11 }} />
++                </PieChart>
++              </ResponsiveContainer>
++            )}
++          </div>
++        </div>
++      </div>
++    </div>
++  );
++};
+diff --git a/src/modules/finance/bi/types.ts b/src/modules/finance/bi/types.ts
+new file mode 100644
+index 0000000..b068415
+--- /dev/null
++++ b/src/modules/finance/bi/types.ts
+@@ -0,0 +1,95 @@
++/**
++ * BI Financeiro — tipos exclusivos desta camada de análise.
++ * Não reutiliza nem modifica os tipos das telas financeiras existentes;
++ * apenas consome FinancialTransaction / FinancialCategory / FinancialAccount já definidos em ../../../../types.
++ */
++
++export type PeriodoPreset =
++  | 'hoje'
++  | 'semana'
++  | 'mes'
++  | 'mes_anterior'
++  | 'proximo_mes'
++  | 'ano'
++  | 'personalizado'
++  | 'todos';
++
++export type TipoFiltro = 'todos' | 'INCOME' | 'EXPENSE';
++
++/**
++ * Status "de negócio" exibido nos filtros do BI.
++ * Mapeados a partir dos dois únicos status reais existentes no banco (PENDING / PAID) + due_date.
++ * Não existe status CANCELLED nos dados reais hoje — ver limitações no relatório final.
++ */
++export type StatusFiltro = 'todos' | 'pago_recebido' | 'em_aberto' | 'atrasado' | 'pendente';
++
++export interface BIFilters {
++  periodo: PeriodoPreset;
++  dataInicioCustom: string; // YYYY-MM-DD, usado quando periodo === 'personalizado'
++  dataFimCustom: string;
++  tipo: TipoFiltro;
++  status: StatusFiltro;
++  categoriaId: string | 'todas';
++  pessoa: string | 'todas';
++}
++
++export const DEFAULT_FILTERS: BIFilters = {
++  periodo: 'mes',
++  dataInicioCustom: '',
++  dataFimCustom: '',
++  tipo: 'todos',
++  status: 'todos',
++  categoriaId: 'todas',
++  pessoa: 'todas',
++};
++
++export interface DateRange {
++  start: string | null; // null = sem limite inferior
++  end: string | null; // null = sem limite superior
++}
++
++/** Janela usada na seção "Contas Futuras" e nos indicadores gerenciais. */
++export interface FutureWindowResult {
++  dias: 7 | 15 | 30 | 60 | 90;
++  entradas: number;
++  saidas: number;
++  qtdEntradas: number;
++  qtdSaidas: number;
++}
++
++export interface CategoriaAnalise {
++  categoriaId: string;
++  categoriaNome: string;
++  tipo: 'INCOME' | 'EXPENSE';
++  valorTotal: number;
++  percentualDoTotal: number;
++  quantidadeLancamentos: number;
++  pagoRecebido: number;
++  emAberto: number;
++  atrasado: number;
++}
++
++export interface FluxoDia {
++  data: string;
++  entradasPrevistas: number;
++  saidasPrevistas: number;
++  saldoDoDia: number;
++  saldoAcumulado: number;
++}
++
++export interface MesAnalise {
++  chave: string; // YYYY-MM
++  label: string; // "Set/2026"
++  entradasPrevistas: number;
++  saidasPrevistas: number;
++  resultadoPrevisto: number;
++  recebido: number;
++  pago: number;
++  resultadoRealizado: number;
++}
++
++/** Motivo pelo qual um conjunto de lançamentos está sendo exibido num drill-down. */
++export interface DrillDownContext {
++  titulo: string;
++  transacaoIds: string[];
++}
+diff --git a/src/modules/finance/components/BIFinanceiro.tsx b/src/modules/finance/components/BIFinanceiro.tsx
+new file mode 100644
+index 0000000..25a2841
+--- /dev/null
++++ b/src/modules/finance/components/BIFinanceiro.tsx
+@@ -0,0 +1,278 @@
++import React, { useEffect, useMemo, useState } from 'react';
++import { Loader2, BarChart3 } from 'lucide-react';
++import { User, FinancialTransaction, FinancialCategory } from '../../../../types';
++import { supabaseService } from '../../../../services/supabaseService';
++import { getLocalTodayStr } from '../utils/dates';
++
++import { BIFilters, DEFAULT_FILTERS } from '../bi/types';
++import {
++  buildFilterContext,
++  applyBIFilters,
++  summarizeByType,
++  saldoRealizado,
++  saldoProjetado,
++  buildFutureWindows,
++  buildProjectedCashFlowTable,
++  getOverdue,
++  analyzeByCategory,
++  buildMonthlyAnalysis,
++  buildIndicadores,
++  buildEvolutionSeries,
++  isTransfer,
++  isPaid,
++  isPending,
++  isOverdue,
++} from '../bi/calculations';
++
++import { FiltersBar } from '../bi/components/FiltersBar';
++import { SummaryCards, SummaryDrillKind } from '../bi/components/SummaryCards';
++import { DetalheModal } from '../bi/components/DetalheModal';
++import { ReceberPagarSection } from '../bi/sections/ReceberPagarSection';
++import { FuturasSection } from '../bi/sections/FuturasSection';
++import { AtrasadosSection } from '../bi/sections/AtrasadosSection';
++import { CategoriaSection } from '../bi/sections/CategoriaSection';
++import { FluxoCaixaSection } from '../bi/sections/FluxoCaixaSection';
++import { LancamentosSection } from '../bi/sections/LancamentosSection';
++import { MensalSection } from '../bi/sections/MensalSection';
++import { IndicadoresSection } from '../bi/sections/IndicadoresSection';
++
++interface BIFinanceiroProps {
++  currentUser: User;
++}
++
++interface Drill {
++  titulo: string;
++  transactions: FinancialTransaction[];
++}
++
++/**
++ * Dashboard Financeiro Gerencial (BI Financeiro).
++ *
++ * Camada de VISUALIZAÇÃO E ANÁLISE, somente leitura. Não cria, edita nem apaga
++ * nenhum lançamento, categoria ou conta — usa exclusivamente os métodos de
++ * leitura já existentes em supabaseService (os mesmos usados pelas telas
++ * Extrato / Fluxo de Caixa / Contas Bancárias), então não há risco de quebrar
++ * nenhuma regra financeira já implementada no sistema.
++ */
++const BIFinanceiro: React.FC<BIFinanceiroProps> = () => {
++  const [transactions, setTransactions] = useState<FinancialTransaction[]>([]);
++  const [categories, setCategories] = useState<FinancialCategory[]>([]);
++  const [loading, setLoading] = useState(true);
++  const [filters, setFilters] = useState<BIFilters>(DEFAULT_FILTERS);
++  const [drill, setDrill] = useState<Drill | null>(null);
++
++  useEffect(() => {
++    let active = true;
++    (async () => {
++      setLoading(true);
++      const [tx, cats] = await Promise.all([
++        supabaseService.getFinancialTransactions(),
++        supabaseService.getFinancialCategories(),
++      ]);
++      if (!active) return;
++      setTransactions(tx || []);
++      setCategories(cats || []);
++      setLoading(false);
++    })();
++    return () => {
++      active = false;
++    };
++  }, []);
++
++  const today = getLocalTodayStr();
++  const ctx = useMemo(() => buildFilterContext(categories, today), [categories, today]);
++  const categoriesById = ctx.categoriesById;
++
++  // Conjuntos derivados — todos calculados a partir do MESMO array bruto `transactions`,
++  // aplicando sempre a mesma função applyBIFilters, para garantir consistência entre seções.
++  const filtered = useMemo(() => applyBIFilters(transactions, filters, ctx), [transactions, filters, ctx]);
++  const filteredWithTransfers = useMemo(
++    () => applyBIFilters(transactions, filters, ctx, { includeTransfers: true }),
++    [transactions, filters, ctx]
++  );
++  const filteredIgnorePeriod = useMemo(
++    () => applyBIFilters(transactions, filters, ctx, { ignorePeriod: true }),
++    [transactions, filters, ctx]
++  );
++
++  const receberResumo = useMemo(() => summarizeByType(filtered, 'INCOME', today), [filtered, today]);
++  const pagarResumo = useMemo(() => summarizeByType(filtered, 'EXPENSE', today), [filtered, today]);
++  const realizado = useMemo(() => saldoRealizado(filtered), [filtered]);
++  const projetado = useMemo(() => saldoProjetado(filteredIgnorePeriod, today), [filteredIgnorePeriod, today]);
++
++  const evolReceber = useMemo(() => buildEvolutionSeries(filtered, 'INCOME'), [filtered]);
++  const evolPagar = useMemo(() => buildEvolutionSeries(filtered, 'EXPENSE'), [filtered]);
++
++  const futureWindows = useMemo(() => buildFutureWindows(filteredIgnorePeriod, today), [filteredIgnorePeriod, today]);
++  const cashFlowTable = useMemo(
++    () => buildProjectedCashFlowTable(filteredIgnorePeriod, today, 0, 90),
++    [filteredIgnorePeriod, today]
++  );
++
++  const atrasadosReceber = useMemo(() => getOverdue(filteredIgnorePeriod, 'INCOME', today), [filteredIgnorePeriod, today]);
++  const atrasadosPagar = useMemo(() => getOverdue(filteredIgnorePeriod, 'EXPENSE', today), [filteredIgnorePeriod, today]);
++
++  const catEntradas = useMemo(() => analyzeByCategory(filtered, categories, 'INCOME', today), [filtered, categories, today]);
++  const catSaidas = useMemo(() => analyzeByCategory(filtered, categories, 'EXPENSE', today), [filtered, categories, today]);
++
++  const nonTransferAll = useMemo(() => transactions.filter((t) => !isTransfer(t, categoriesById)), [transactions, categoriesById]);
++  const mensal = useMemo(() => buildMonthlyAnalysis(nonTransferAll, 12), [nonTransferAll]);
++
++  const indicadores = useMemo(() => buildIndicadores(filtered, filteredIgnorePeriod, today), [filtered, filteredIgnorePeriod, today]);
++
++  // ---------------------------------------------------------------------
++  // Drill-down handlers — cada um reaplica exatamente o mesmo predicado usado
++  // no cálculo agregado correspondente, para que o total do modal bata com o card.
++  // ---------------------------------------------------------------------
++
++  const openDrillSummary = (kind: SummaryDrillKind) => {
++    const map: Record<string, { titulo: string; rows: FinancialTransaction[] }> = {
++      'receber-previsto': { titulo: 'Contas a Receber — Previsto', rows: filtered.filter((t) => t.type === 'INCOME') },
++      'receber-recebido': { titulo: 'Contas a Receber — Recebido', rows: filtered.filter((t) => t.type === 'INCOME' && isPaid(t)) },
++      'receber-aberto': {
++        titulo: 'Contas a Receber — Em aberto',
++        rows: filtered.filter((t) => t.type === 'INCOME' && isPending(t) && !isOverdue(t, today)),
++      },
++      'receber-atrasado': {
++        titulo: 'Contas a Receber — Atrasado',
++        rows: filtered.filter((t) => t.type === 'INCOME' && isOverdue(t, today)),
++      },
++      'pagar-previsto': { titulo: 'Contas a Pagar — Previsto', rows: filtered.filter((t) => t.type === 'EXPENSE') },
++      'pagar-pago': { titulo: 'Contas a Pagar — Pago', rows: filtered.filter((t) => t.type === 'EXPENSE' && isPaid(t)) },
++      'pagar-aberto': {
++        titulo: 'Contas a Pagar — Em aberto',
++        rows: filtered.filter((t) => t.type === 'EXPENSE' && isPending(t) && !isOverdue(t, today)),
++      },
++      'pagar-atrasado': {
++        titulo: 'Contas a Pagar — Atrasado',
++        rows: filtered.filter((t) => t.type === 'EXPENSE' && isOverdue(t, today)),
++      },
++      'realizado-entradas': { titulo: 'Saldo Realizado — Entradas', rows: filtered.filter((t) => t.type === 'INCOME' && isPaid(t)) },
++      'realizado-saidas': { titulo: 'Saldo Realizado — Saídas', rows: filtered.filter((t) => t.type === 'EXPENSE' && isPaid(t)) },
++      'projetado-entradas': {
++        titulo: 'Saldo Projetado — Entradas futuras',
++        rows: filteredIgnorePeriod.filter((t) => t.type === 'INCOME' && isPending(t) && t.due_date >= today),
++      },
++      'projetado-saidas': {
++        titulo: 'Saldo Projetado — Saídas futuras',
++        rows: filteredIgnorePeriod.filter((t) => t.type === 'EXPENSE' && isPending(t) && t.due_date >= today),
++      },
++    };
++    const found = map[kind];
++    if (found) setDrill({ titulo: found.titulo, transactions: found.rows });
++  };
++
++  const openDrillReceberPagar = (tipo: 'INCOME' | 'EXPENSE', kind: 'recebido_pago' | 'aberto' | 'atrasado') => {
++    const label = tipo === 'INCOME' ? 'Contas a Receber' : 'Contas a Pagar';
++    let rows: FinancialTransaction[] = [];
++    let sub = '';
++    if (kind === 'recebido_pago') {
++      rows = filtered.filter((t) => t.type === tipo && isPaid(t));
++      sub = tipo === 'INCOME' ? 'Recebido' : 'Pago';
++    } else if (kind === 'aberto') {
++      rows = filtered.filter((t) => t.type === tipo && isPending(t) && !isOverdue(t, today));
++      sub = 'Em aberto';
++    } else {
++      rows = filtered.filter((t) => t.type === tipo && isOverdue(t, today));
++      sub = 'Atrasado';
++    }
++    setDrill({ titulo: `${label} — ${sub}`, transactions: rows });
++  };
++
++  const openDrillWindow = (dias: number, tipo: 'INCOME' | 'EXPENSE') => {
++    const limit = new Date(today + 'T12:00:00');
++    limit.setDate(limit.getDate() + dias);
++    const limitStr = limit.toISOString().split('T')[0];
++    const rows = filteredIgnorePeriod.filter(
++      (t) => t.type === tipo && isPending(t) && t.due_date >= today && t.due_date <= limitStr
++    );
++    setDrill({
++      titulo: `${tipo === 'INCOME' ? 'A receber' : 'A pagar'} — próximos ${dias} dias`,
++      transactions: rows,
++    });
++  };
++
++  const openDrillDay = (data: string) => {
++    const rows = filteredIgnorePeriod.filter((t) => t.due_date === data && isPending(t));
++    setDrill({ titulo: `Lançamentos previstos para ${data.split('-').reverse().join('/')}`, transactions: rows });
++  };
++
++  const openDrillCategoria = (c: { categoriaId: string; categoriaNome: string; tipo: string }) => {
++    const rows = filtered.filter((t) => (t.category_id || '__sem_categoria__') === c.categoriaId && t.type === c.tipo);
++    setDrill({ titulo: `Categoria — ${c.categoriaNome}`, transactions: rows });
++  };
++
++  const openDrillSingle = (tx: FinancialTransaction) => {
++    setDrill({ titulo: 'Detalhes do lançamento', transactions: [tx] });
++  };
++
++  if (loading) {
++    return (
++      <div className="flex flex-col items-center justify-center py-24 gap-3 text-slate-400">
++        <Loader2 size={28} className="animate-spin text-blue-500" />
++        <p className="text-sm">Carregando dados financeiros...</p>
++      </div>
++    );
++  }
++
++  return (
++    <div className="bg-slate-50 min-h-full -m-4 md:-m-6 p-4 md:p-6">
++      <div className="max-w-[1600px] mx-auto space-y-5">
++        <div className="flex items-center gap-3">
++          <div className="w-10 h-10 rounded-2xl bg-blue-600 flex items-center justify-center shadow-sm">
++            <BarChart3 size={20} className="text-white" />
++          </div>
++          <div>
++            <h1 className="text-lg font-bold text-slate-800">BI Financeiro</h1>
++            <p className="text-xs text-slate-400">
++              Painel analítico da situação financeira da imobiliária — dados reais do Comissione, atualizados agora.
++            </p>
++          </div>
++        </div>
++
++        <FiltersBar filters={filters} onChange={setFilters} categories={categories} transactions={transactions} />
++
++        <SummaryCards receber={receberResumo} pagar={pagarResumo} realizado={realizado} projetado={projetado} onDrill={openDrillSummary} />
++
++        <ReceberPagarSection
++          tipo="INCOME"
++          resumo={receberResumo}
++          evolucao={evolReceber}
++          onDrill={(kind) => openDrillReceberPagar('INCOME', kind)}
++        />
++
++        <ReceberPagarSection
++          tipo="EXPENSE"
++          resumo={pagarResumo}
++          evolucao={evolPagar}
++          onDrill={(kind) => openDrillReceberPagar('EXPENSE', kind)}
++        />
++
++        <FuturasSection windows={futureWindows} cashFlowTable={cashFlowTable} onDrillWindow={openDrillWindow} onDrillDay={openDrillDay} />
++
++        <AtrasadosSection
++          atrasadosReceber={atrasadosReceber}
++          atrasadosPagar={atrasadosPagar}
++          categoriesById={categoriesById}
++          onRowClick={openDrillSingle}
++        />
++
++        <CategoriaSection entradas={catEntradas} saidas={catSaidas} onSelectCategoria={openDrillCategoria} />
++
++        <FluxoCaixaSection realizado={realizado} projetado={projetado} mensal={mensal} />
++
++        <LancamentosSection transactions={filteredWithTransfers} categoriesById={categoriesById} onRowClick={openDrillSingle} />
++
++        <MensalSection meses={mensal} />
++
++        <IndicadoresSection ind={indicadores} />
++      </div>
++
++      {drill && (
++        <DetalheModal titulo={drill.titulo} transactions={drill.transactions} categoriesById={categoriesById} onClose={() => setDrill(null)} />
++      )}
++    </div>
++  );
++};
++
++export default BIFinanceiro;
+-- 
+2.43.0
+
