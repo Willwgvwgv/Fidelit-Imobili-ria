@@ -311,6 +311,11 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
   // Extrato dynamic states
   const monthInputRef = useRef<HTMLInputElement>(null);
   const [currentPeriod, setCurrentPeriod] = useState<Date>(new Date());
+  // Filtro de competência da tela de Cartões: 'ALL' ou 'YYYY-MM' (padrão: mês vigente)
+  const [cardsPeriodFilter, setCardsPeriodFilter] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
   const [periodMode, setPeriodMode] = useState<'ALL' | 'THIS_MONTH' | 'LAST_MONTH' | 'CUSTOM' | 'LAST_30_DAYS'>('THIS_MONTH');
   const [visibleCount, setVisibleCount] = useState<number>(20);
   const [kpiFilter, setKpiFilter] = useState<string | null>(null);
@@ -1540,6 +1545,27 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
     // Sort periods in descending order (newest first)
     return Array.from(periodsMap.values()).sort((a, b) => b.getTime() - a.getTime());
+  };
+
+  // Filtro de competência da tela de Cartões
+  const periodToKey = (p: Date) => `${p.getFullYear()}-${String(p.getMonth() + 1).padStart(2, '0')}`;
+  const keyToPeriod = (key: string) => {
+    const [y, m] = key.split('-').map(n => parseInt(n, 10));
+    return new Date(y, m - 1, 1);
+  };
+  const formatPeriodLabel = (p: Date) => {
+    const month = p.toLocaleDateString('pt-BR', { month: 'long' });
+    return `${month.charAt(0).toUpperCase() + month.slice(1)} / ${p.getFullYear()}`;
+  };
+  const getCardsPeriodOptions = (cards: FinancialAccount[]): Date[] => {
+    const map = new Map<string, Date>();
+    cards.forEach(card => getCardCompetencies(card).forEach(p => map.set(periodToKey(p), p)));
+    const now = new Date();
+    const currentKey = periodToKey(now);
+    if (!map.has(currentKey)) map.set(currentKey, new Date(now.getFullYear(), now.getMonth(), 1));
+    if (cardsPeriodFilter !== 'ALL' && !map.has(cardsPeriodFilter)) map.set(cardsPeriodFilter, keyToPeriod(cardsPeriodFilter));
+    // Mais recente primeiro
+    return Array.from(map.values()).sort((a, b) => b.getTime() - a.getTime());
   };
 
   const handleOpenImportInvoiceModal = (card: FinancialAccount) => {
@@ -5086,6 +5112,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       return renderHistoricoCompleto(selectedCardForHistory);
     }
 
+    const selectedCardsPeriod = cardsPeriodFilter === 'ALL' ? null : keyToPeriod(cardsPeriodFilter);
+    const selectedCardsPeriodLabel = selectedCardsPeriod ? formatPeriodLabel(selectedCardsPeriod) : '';
+
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
@@ -5094,7 +5123,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             const openInvoices = Math.abs(getAccountLiveBalance(card));
             const available = limit - openInvoices;
             const progressPct = limit > 0 ? Math.round((openInvoices / limit) * 100) : 0;
-            const competencies = getCardCompetencies(card).slice(0, 5);
+            // Com filtro de mês: só a fatura do mês escolhido. Sem filtro: todas as faturas.
+            const competencies = selectedCardsPeriod ? [selectedCardsPeriod] : getCardCompetencies(card);
+            const selectedInvoiceTotal = selectedCardsPeriod ? getInvoiceTotalAmount(card.id, selectedCardsPeriod) : openInvoices;
+            const selectedInvoiceCount = selectedCardsPeriod ? getInvoiceTransactions(card.id, selectedCardsPeriod).length : 0;
 
             // Latest transaction for last update tracking
             const cardTxs = transactions.filter(t => t.account_id === card.id);
@@ -5164,8 +5196,10 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                     <span className="text-sm font-black text-emerald-600 font-mono">{formatCurrency(available)}</span>
                   </div>
                   <div className="flex justify-between items-center bg-slate-50/40 px-3 py-2 rounded-xl border border-slate-100/60">
-                    <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase">Fatura Atual</span>
-                    <span className="text-sm font-black text-rose-600 font-mono">{formatCurrency(openInvoices)}</span>
+                    <span className="text-[10px] font-black tracking-widest text-slate-400 uppercase">
+                      {selectedCardsPeriod ? `Fatura ${selectedCardsPeriodLabel}` : 'Total em Aberto'}
+                    </span>
+                    <span className="text-sm font-black text-rose-600 font-mono">{formatCurrency(selectedInvoiceTotal)}</span>
                   </div>
                 </div>
 
@@ -5215,15 +5249,18 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
                 <div className="flex-1 flex flex-col justify-between pt-1">
                   <div>
                     <h4 className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2 flex items-center gap-1.5">
-                      <Clock size={11} className="text-slate-400 shrink-0" /> Últimas Faturas com Lançamentos
+                      <Clock size={11} className="text-slate-400 shrink-0" />
+                      {selectedCardsPeriod ? `Fatura de ${selectedCardsPeriodLabel}` : 'Todas as Faturas'}
                     </h4>
 
-                    {competencies.length === 0 ? (
+                    {competencies.length === 0 || (selectedCardsPeriod && selectedInvoiceCount === 0) ? (
                       <div className="text-center py-6 text-slate-400 border border-dashed border-slate-100 rounded-2xl bg-slate-50/20">
-                        <p className="text-[9px] font-bold uppercase tracking-widest">Sem faturas com lançamentos</p>
+                        <p className="text-[9px] font-bold uppercase tracking-widest">
+                          {selectedCardsPeriod ? `Sem lançamentos em ${selectedCardsPeriodLabel}` : 'Sem faturas com lançamentos'}
+                        </p>
                       </div>
                     ) : (
-                      <div className="space-y-2">
+                      <div className={`space-y-2 ${selectedCardsPeriod ? '' : 'max-h-80 overflow-y-auto pr-1'}`}>
                         {competencies.map((period, pIdx) => {
                           const total = getInvoiceTotalAmount(card.id, period);
                           const count = getInvoiceTransactions(card.id, period).length;
@@ -7029,6 +7066,22 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
             </div>
 
             <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2 bg-slate-100 border border-slate-200 rounded-xl pl-3 pr-2 py-1.5 cursor-pointer">
+                <Calendar size={14} className="text-slate-500 shrink-0" />
+                <span className="sr-only">Competência da fatura</span>
+                <select
+                  value={cardsPeriodFilter}
+                  onChange={(e) => setCardsPeriodFilter(e.target.value)}
+                  className="bg-transparent text-xs font-black text-slate-700 outline-none cursor-pointer pr-1"
+                >
+                  <option value="ALL">Todas as Competências</option>
+                  {getCardsPeriodOptions(
+                    accounts.filter(a => a.type === 'credit_card' || a.type === 'CREDIT' || a.name.toLowerCase().includes('cartão'))
+                  ).map(p => (
+                    <option key={periodToKey(p)} value={periodToKey(p)}>{formatPeriodLabel(p)}</option>
+                  ))}
+                </select>
+              </label>
               <button
                 onClick={() => {
                   setModalType('card');
