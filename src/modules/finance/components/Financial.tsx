@@ -997,6 +997,40 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       }
     }
   }, [activeView, currentFileExternalIds]);
+  // Lançamentos de locação que passam pela conta do Imobia (aluguel recebido do
+  // inquilino, repasse ao proprietário, tarifas de cobrança, seguros, condomínio e
+  // manutenção do imóvel locado) são acompanhados em "Inquilino & Imóvel", não no
+  // Extrato. No Extrato ficam só os pagamentos próprios da imobiliária feitos por
+  // essa conta (assinaturas, contador, salários, transferências etc.).
+  const imobiaRentalTxIds = useMemo(() => {
+    const normalize = (s?: string | null) =>
+      (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+    const RENTAL_CATEGORY_NAMES = new Set([
+      'aluguel recebido',
+      'repasse de aluguel ao proprietario',
+      'taxas bancarias',
+      'taxa boleto imobia',
+      'seguro incendio locacoes',
+      'seguro fianca locacoes',
+      'condominio de locacao',
+      'manutencao de imovel locado',
+    ]);
+    const imobiaAccountIds = new Set(
+      accounts.filter(a => normalize(a.name).includes('imobia')).map(a => a.id)
+    );
+    const rentalCategoryIds = new Set(
+      categories.filter(c => RENTAL_CATEGORY_NAMES.has(normalize(c.name))).map(c => c.id)
+    );
+    const ids = new Set<string>();
+    if (imobiaAccountIds.size === 0 || rentalCategoryIds.size === 0) return ids;
+    transactions.forEach(t => {
+      if (t.account_id && imobiaAccountIds.has(t.account_id) && t.category_id && rentalCategoryIds.has(t.category_id)) {
+        ids.add(t.id);
+      }
+    });
+    return ids;
+  }, [transactions, accounts, categories]);
+
   // Compute stats dynamically for current period (selected month/year)
   const stats = useMemo(() => {
     const todayStr = getLocalTodayStr();
@@ -1004,6 +1038,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     const startOfMonth = currentPeriod.getMonth();
 
     const periodTxs = transactions.filter(t => {
+      if (imobiaRentalTxIds.has(t.id)) return false;
       const parts = t.due_date.split('-');
       const txYear = parseInt(parts[0], 10);
       const txMonth = parseInt(parts[1], 10) - 1;
@@ -1043,7 +1078,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
       .reduce((acc, curr) => acc + (curr.type === TransactionType.INCOME ? curr.amount : -curr.amount), 0);
 
     return { overdue, todays, pending, paid, totalPeriod };
-  }, [transactions, currentPeriod, categoryFilter, accountFilter]);
+  }, [transactions, currentPeriod, categoryFilter, accountFilter, imobiaRentalTxIds]);
 
   const calcDaysDiff = (d1Str: string, d2Str: string): number => {
     if (!d1Str || !d2Str) return 0;
@@ -1068,6 +1103,9 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
     };
 
     return transactions.filter(t => {
+      // 0. Locações do Imobia ficam em "Inquilino & Imóvel"
+      if (imobiaRentalTxIds.has(t.id)) return false;
+
       // 1. KPI Filter overrides month filter for global cards
       if (kpiFilter) {
         const normKpi = kpiFilter.toLowerCase();
@@ -1131,7 +1169,7 @@ export const Financial: React.FC<FinancialProps> = ({ currentUser, activeView = 
 
       return true;
     });
-  }, [transactions, searchTerm, typeFilter, currentPeriod, periodMode, kpiFilter, categoryFilter, accountFilter, statusFilter]);
+  }, [transactions, searchTerm, typeFilter, currentPeriod, periodMode, kpiFilter, categoryFilter, accountFilter, statusFilter, imobiaRentalTxIds]);
 
   // Aplica a ordenação por data de vencimento escolhida na coluna do Extrato
   const sortedFilteredTransactions = useMemo(() => {
