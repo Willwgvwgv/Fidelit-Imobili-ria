@@ -1081,6 +1081,211 @@ export const supabaseService = {
     }
   },
 
+  // Registrar UM pagamento que cobre várias parcelas do mesmo beneficiário na mesma venda.
+  // As parcelas são quitadas na ordem recebida em `allocations`; só a última pode ser parcial,
+  // e nesse caso o saldo dela continua pendente com o mesmo número de parcela e a mesma previsão.
+  // Gera (ou vincula) um único lançamento financeiro com o valor total pago.
+  async payCommissionSplitsCombined(params: {
+    allocations: { splitId: string; amount: number }[];
+    paidAmount: number;
+    paymentDate: string;
+    paymentMethod?: string;
+    notes?: string;
+    receiptData?: string;
+    userEmail?: string;
+    agencyId?: string;
+    skipFinancialLaunch?: boolean;
+    transactionId?: string;
+    newTransactionData?: { accountId?: string; categoryId?: string; description?: string };
+  }): Promise<{ success: boolean; message?: string; transactionId?: string | null; paidCount: number; remainderValue: number }> {
+    const fail = (message: string) => ({ success: false, message, paidCount: 0, remainderValue: 0 });
+    if (!supabase) return fail('Banco de dados não disponível');
+
+    const round2 = (v: number) => Math.round(v * 100) / 100;
+    const allocations = (params.allocations || []).filter(a => a && a.splitId && Number(a.amount) > 0);
+    if (allocations.length === 0) return fail('Nenhuma parcela selecionada para o pagamento.');
+
+    const paidVal = round2(Number(params.paidAmount) || 0);
+    const allocatedTotal = round2(allocations.reduce((s, a) => s + Number(a.amount), 0));
+    if (Math.abs(allocatedTotal - paidVal) > 0.009) {
+      return fail(`A soma das parcelas (R$ ${allocatedTotal.toFixed(2)}) não confere com o valor pago (R$ ${paidVal.toFixed(2)}).`);
+    }
+
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const authenticatedUserId = authUser?.id;
+      const authenticatedUserEmail = authUser?.email || params.userEmail || '';
+
+      const ids = allocations.map(a => a.splitId);
+      const { data: splitRows, error: fetchErr } = await supabase
+        .from('broker_splits')
+        .select('*')
+        .in('id', ids);
+      if (fetchErr || !splitRows || splitRows.length !== ids.length) {
+        return fail('Não foi possível carregar todas as parcelas selecionadas.');
+      }
+      const byId = new Map<string, any>(splitRows.map((s: any) => [String(s.id), s]));
+      const first = byId.get(ids[0]);
+      const sameOwner = (s: any) =>
+        s.sale_id === first.sale_id &&
+        String(s.role || '').trim().toUpperCase() === String(first.role || '').trim().toUpperCase() &&
+        ((s.broker_id && s.broker_id === first.broker_id) ||
+          (!s.broker_id && !first.broker_id && String(s.broker_name || '').trim() === String(first.broker_name || '').trim()));
+
+      for (let i = 0; i < allocations.length; i++) {
+        const s = byId.get(allocations[i].splitId);
+        if (!s) return fail('Parcela não encontrada.');
+        if (String(s.status).toUpperCase() === 'PAID') return fail('Uma das parcelas selecionadas já está paga. Atualize a tela e tente de novo.');
+        if (!sameOwner(s)) return fail('As parcelas precisam ser do mesmo beneficiário e da mesma venda.');
+        const value = round2(Number(s.calculated_value) || 0);
+        const amount = round2(Number(allocations[i].amount));
+        if (amount > value + 0.009) return fail('O valor distribuído em uma parcela é maior que o saldo dela.');
+        if (amount < value - 0.009 && i !== allocations.length - 1) return fail('Só a última parcela pode ficar com pagamento parcial.');
+      }
+
+      const rawRole = String(first.role || '').trim().toUpperCase();
+      const isAgencySplit = rawRole === 'AGENCY' || rawRole === 'AGÊNCIA' || rawRole === 'AGENCIA';
+      const installmentLabel = allocations
+        .map(a => {
+          const s = byId.get(a.splitId);
+          return `${s.installment_number ?? 1}/${s.total_installments ?? 1}`;
+        })
+        .join(', ');
+      const combinedNote = `Pagamento unificado de R$ ${paidVal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em ${params.paymentDate.split('-').reverse().join('/')} (parcelas ${installmentLabel})`;
+
+      // 1. Lançamento financeiro único (vinculado ou criado)
+      let resolvedTransactionId: string | null = null;
+      let createdTransactionId: string | null = null;
+      if (!params.skipFinancialLaunch) {
+        if (params.transactionId && String(params.transactionId).trim() !== '') {
+          resolvedTransactionId = String(params.transactionId).trim();
+        } else if (params.newTransactionData?.accountId && params.newTransactionData?.categoryId) {
+          const AGENCY_INCOME_CATEGORY = '899c0652-22d9-49c3-b869-fc3b4a9262c2'; // Comissões Recebidas
+          const description = params.newTransactionData.description?.trim()
+            || `Repasse Comissão - ${first.broker_name || 'Corretor'} (parcelas ${installmentLabel})`;
+          const { data: createdTx, error: createTxErr } = await supabase
+            .from('financial_transactions')
+            .insert({
+              agency_id: params.agencyId || first.agency_id,
+              description,
+              amount: paidVal,
+              type: isAgencySplit ? TransactionType.INCOME : TransactionType.EXPENSE,
+              category_id: isAgencySplit ? AGENCY_INCOME_CATEGORY : params.newTransactionData.categoryId,
+              account_id: params.newTransactionData.accountId,
+              status: TransactionStatus.PAID,
+              due_date: params.paymentDate,
+              payment_date: params.paymentDate,
+              notes: params.notes ? `${params.notes} | ${combinedNote}` : combinedNote,
+              contact_name: first.broker_name || null
+            })
+            .select('id')
+            .single();
+          if (createTxErr || !createdTx?.id) {
+            return fail(`Erro ao criar o lançamento financeiro: ${createTxErr?.message || 'Falha ao inserir transação'}`);
+          }
+          resolvedTransactionId = String(createdTx.id);
+          createdTransactionId = resolvedTransactionId;
+        }
+      }
+
+      // 2. Quita as parcelas na ordem; a última pode ser parcial
+      let paidCount = 0;
+      let remainderValue = 0;
+      for (const alloc of allocations) {
+        const s = byId.get(alloc.splitId);
+        const value = round2(Number(s.calculated_value) || 0);
+        const amount = round2(Number(alloc.amount));
+        const isPartial = amount < value - 0.009;
+        const splitNote = params.notes ? `${params.notes} | ${combinedNote}` : combinedNote;
+
+        const baseUpdate: any = {
+          status: 'PAID',
+          payment_date: params.paymentDate,
+          payment_method: params.paymentMethod || 'PIX',
+          receipt_data: params.receiptData || null,
+          settled_by_transaction_id: resolvedTransactionId,
+          notes: splitNote
+        };
+
+        let updateData: any = { ...baseUpdate, calculated_value: value };
+        let remainderPayload: any = null;
+        if (isPartial) {
+          const pct = Number(s.percentage) || 0;
+          const paidPct = value > 0 ? Number(((pct * amount) / value).toFixed(4)) : 0;
+          remainderValue = round2(value - amount);
+          updateData = { ...baseUpdate, calculated_value: amount, percentage: paidPct };
+          remainderPayload = {
+            sale_id: s.sale_id,
+            broker_id: s.broker_id || null,
+            broker_name: s.broker_name,
+            percentage: Number((pct - paidPct).toFixed(4)),
+            calculated_value: remainderValue,
+            status: 'PENDING',
+            role: s.role || 'BROKER',
+            forecast_date: s.forecast_date || null,
+            installment_number: s.installment_number ?? 1,
+            total_installments: s.total_installments ?? 1,
+            notes: `Saldo da parcela ${s.installment_number ?? 1}/${s.total_installments ?? 1} após pagamento unificado`
+          };
+        }
+
+        const { error: updateErr } = await supabase.from('broker_splits').update(updateData).eq('id', s.id);
+        if (updateErr) {
+          // Nada foi quitado ainda: desfaz o lançamento criado nesta operação
+          if (paidCount === 0 && createdTransactionId) {
+            await supabase.from('financial_transactions').delete().eq('id', createdTransactionId);
+          }
+          return {
+            success: false,
+            message: paidCount === 0
+              ? `Erro ao registrar o pagamento: ${updateErr.message}`
+              : `Pagamento registrado só em ${paidCount} parcela(s); erro na seguinte: ${updateErr.message}`,
+            transactionId: paidCount === 0 ? null : resolvedTransactionId,
+            paidCount,
+            remainderValue: 0
+          };
+        }
+        paidCount++;
+
+        if (remainderPayload) {
+          const { error: insertErr } = await supabase.from('broker_splits').insert(remainderPayload);
+          if (insertErr) {
+            return {
+              success: false,
+              message: `Parcelas pagas, mas houve erro ao manter o saldo de R$ ${remainderValue.toFixed(2)} da última parcela: ${insertErr.message}`,
+              transactionId: resolvedTransactionId,
+              paidCount,
+              remainderValue
+            };
+          }
+        }
+
+        await logAuditEvent({
+          action: isPartial ? 'PAYMENT_PARTIAL' : 'PAYMENT_FULL',
+          table_name: 'broker_splits',
+          record_id: String(s.id),
+          user_id: authenticatedUserId,
+          user_email: authenticatedUserEmail,
+          agency_id: params.agencyId || s.agency_id || null,
+          old_data: {
+            status: s.status,
+            calculated_value: s.calculated_value,
+            percentage: s.percentage,
+            payment_date: s.payment_date,
+            settled_by_transaction_id: s.settled_by_transaction_id,
+            notes: s.notes
+          },
+          new_data: { ...updateData, combined_payment_total: paidVal, remainder_value: isPartial ? remainderValue : 0 }
+        });
+      }
+
+      return { success: true, transactionId: resolvedTransactionId, paidCount, remainderValue };
+    } catch (err: any) {
+      console.error('Unexpected error in payCommissionSplitsCombined:', err);
+      return fail(err?.message || 'Erro ao processar pagamento.');
+    }
+  },
+
   // Financial Methods
   async getFinancialAccounts(): Promise<FinancialAccount[]> {
     if (!supabase) return [];

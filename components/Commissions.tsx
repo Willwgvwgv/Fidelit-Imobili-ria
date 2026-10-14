@@ -587,6 +587,53 @@ const Commissions: React.FC<CommissionsProps> = ({
     }
   };
 
+  // Lê o valor digitado aceitando o formato brasileiro ("4.494,60", "4494,60") e o ponto decimal ("4494.60").
+  const parseMoneyInput = (raw: any): number => {
+    let s = String(raw ?? '').replace(/[R$\s]/g, '');
+    if (!s) return 0;
+    if (s.includes(',')) {
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else if ((s.match(/\./g) || []).length > 1) {
+      s = s.replace(/\./g, '');
+    }
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+  };
+
+  // Parcelas em aberto do mesmo beneficiário (mesma venda e mesma função), na ordem das
+  // parcelas (a mais antiga primeiro). Usado quando o valor pago cobre mais de uma parcela.
+  const getOpenInstallmentsForPayment = (comm: any): any[] => {
+    if (!comm) return [];
+    const ownerKey = (c: any) => c.brokerId || String(c.brokerName || '').trim();
+    const roleKey = (c: any) => String(c.role || '').trim().toUpperCase();
+    const others = commissionList.filter(c =>
+      c.id !== comm.id &&
+      c.saleId === comm.saleId &&
+      ownerKey(c) === ownerKey(comm) &&
+      roleKey(c) === roleKey(comm) &&
+      c.status !== CommissionStatus.PAID
+    );
+    return [comm, ...others].sort((a, b) =>
+      (a.installment_number ?? 0) - (b.installment_number ?? 0) ||
+      String(a.forecastDate || '').localeCompare(String(b.forecastDate || ''))
+    );
+  };
+
+  // Distribui o valor pago nas parcelas, na ordem; a última pode ficar parcial.
+  const buildPaymentAllocation = (amount: number, items: any[]) => {
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    let rest = r2(amount);
+    const out: { comm: any; amount: number; full: boolean }[] = [];
+    for (const item of items) {
+      if (rest <= 0.009) break;
+      const value = r2(item.value || 0);
+      const pay = r2(Math.min(value, rest));
+      out.push({ comm: item, amount: pay, full: pay >= value - 0.009 });
+      rest = r2(rest - pay);
+    }
+    return out;
+  };
+
   const handleOpenPaymentModal = async (comm: any) => {
     setSelectedPayment(comm);
     const totalVal = comm.value || 0;
@@ -661,7 +708,7 @@ const Commissions: React.FC<CommissionsProps> = ({
   const handleConfirmPayment = async () => {
     if (!selectedPayment) return;
 
-    const numAmount = parseFloat(paymentAmount.toString().replace(',', '.')) || 0;
+    const numAmount = parseMoneyInput(paymentAmount);
     const totalVal = selectedPayment.value || 0;
 
     if (numAmount <= 0) {
@@ -669,9 +716,16 @@ const Commissions: React.FC<CommissionsProps> = ({
       return;
     }
 
+    // Valor maior que a parcela: distribui nas próximas parcelas em aberto do mesmo beneficiário
+    let allocation: { comm: any; amount: number; full: boolean }[] | null = null;
     if (numAmount > totalVal + 0.01) {
-      triggerToast(`O valor do pagamento (R$ ${numAmount.toFixed(2)}) não pode ser superior ao saldo a pagar (R$ ${totalVal.toFixed(2)}).`, "warning");
-      return;
+      const openItems = getOpenInstallmentsForPayment(selectedPayment);
+      const openTotal = openItems.reduce((sum, c) => sum + (c.value || 0), 0);
+      if (openItems.length <= 1 || numAmount > openTotal + 0.01) {
+        triggerToast(`O valor do pagamento (R$ ${numAmount.toFixed(2)}) é maior que o total em aberto deste beneficiário nesta venda (R$ ${openTotal.toFixed(2)}).`, "warning");
+        return;
+      }
+      allocation = buildPaymentAllocation(numAmount, openItems);
     }
 
     if (!paymentDate) {
@@ -679,7 +733,7 @@ const Commissions: React.FC<CommissionsProps> = ({
       return;
     }
 
-    const isPartial = numAmount < (totalVal - 0.009);
+    const isPartial = !allocation && numAmount < (totalVal - 0.009);
 
     if (isPartial && !remainingForecastDate) {
       triggerToast("Para pagamentos parciais, por favor informe a data de previsão do saldo restante.", "warning");
@@ -705,9 +759,32 @@ const Commissions: React.FC<CommissionsProps> = ({
       paymentNotes,
       paymentReceipt,
       isPartial,
-      remainingForecastDate
+      remainingForecastDate,
+      allocation
     });
     setIsFinancialLaunchPromptOpen(true);
+
+    // Pagamento de várias parcelas: procura no extrato um lançamento com o valor total pago
+    if (allocation) {
+      const parcelas = allocation
+        .map(a => `${a.comm.installment_number ?? 1}/${a.comm.total_installments ?? 1}`)
+        .join(', ');
+      setNewTxDescription(`Comissão Corretor - ${selectedPayment.brokerName || 'Corretor'} (${selectedPayment.property || 'Imóvel'}) - parcelas ${parcelas}`);
+      setIsLoadingCandidates(true);
+      try {
+        const candidates = await supabaseService.findCandidateFinancialTransactions({
+          targetAmount: numAmount,
+          paymentDate,
+          agencyId: currentUser?.agencyId
+        });
+        setCandidateTransactions(candidates || []);
+        setSelectedCandidateTxId(candidates && candidates.length > 0 ? candidates[0].id : '');
+      } catch (e) {
+        console.warn('Erro ao buscar lançamentos para o pagamento unificado:', e);
+      } finally {
+        setIsLoadingCandidates(false);
+      }
+    }
   };
 
   const handleExecutePaymentWithFinancialChoice = async (launchInFinance: boolean) => {
@@ -745,6 +822,52 @@ const Commissions: React.FC<CommissionsProps> = ({
 
     setIsSubmittingPayment(true);
     try {
+      const allocation = financialPromptData.allocation as { comm: any; amount: number; full: boolean }[] | null;
+      if (allocation && allocation.length > 0) {
+        const combinedPayload: any = {
+          allocations: allocation.map(a => ({ splitId: a.comm.id, amount: a.amount })),
+          paidAmount: numAmount,
+          paymentDate: pDate,
+          paymentMethod: pMethod,
+          notes: pNotes || undefined,
+          receiptData: pReceipt || undefined,
+          userEmail: currentUser?.email,
+          agencyId: currentUser?.agencyId,
+          skipFinancialLaunch: !launchInFinance
+        };
+        if (launchInFinance) {
+          if (reconciliationMode === 'link' && selectedCandidateTxId) {
+            combinedPayload.transactionId = selectedCandidateTxId;
+          } else {
+            combinedPayload.newTransactionData = {
+              accountId: newTxAccountId,
+              categoryId: newTxCategoryId,
+              description: newTxDescription || `Repasse ${payment.role || 'Comissão'} - ${payment.brokerName || ''}`
+            };
+          }
+        }
+
+        const result = await supabaseService.payCommissionSplitsCombined(combinedPayload);
+        if (result.success) {
+          setIsFinancialLaunchPromptOpen(false);
+          setFinancialPromptData(null);
+          setSelectedPayment(null);
+          setPaymentReceipt(null);
+          const quitadas = allocation.filter(a => a.full).length;
+          triggerToast(
+            `Pagamento de ${formatCurrency(numAmount)} registrado: ${quitadas} parcela(s) quitada(s)` +
+              (result.remainderValue > 0 ? ` e saldo de ${formatCurrency(result.remainderValue)} mantido na última parcela.` : '.') +
+              (launchInFinance ? ' Lançado no Financeiro.' : ''),
+            "success"
+          );
+          if (onRefresh) onRefresh();
+        } else {
+          triggerToast(result.message || "Erro ao registrar o pagamento.", "error");
+          if (result.paidCount > 0 && onRefresh) onRefresh();
+        }
+        return;
+      }
+
       if (payment.id) {
         const paymentPayload: any = {
           splitId: payment.id,
@@ -1946,12 +2069,19 @@ const Commissions: React.FC<CommissionsProps> = ({
 
       {/* Modal de Concretizar / Registrar Pagamento (Cheio ou Parcial) */}
       {isPaymentModalOpen && (() => {
-        const numAmount = parseFloat(paymentAmount.toString().replace(',', '.')) || 0;
+        const numAmount = parseMoneyInput(paymentAmount);
         const totalVal = selectedPayment?.value || 0;
         const isPartial = numAmount > 0 && numAmount < (totalVal - 0.009);
         const remainingVal = Math.max(0, totalVal - numAmount);
         const isFiftyPercent = Math.abs(numAmount - (totalVal * 0.5)) < 0.01;
         const isHundredPercent = Math.abs(numAmount - totalVal) < 0.01;
+        const openInstallments = getOpenInstallmentsForPayment(selectedPayment);
+        const openTotal = openInstallments.reduce((sum, c) => sum + (c.value || 0), 0);
+        const hasOtherInstallments = openInstallments.length > 1;
+        const isMulti = hasOtherInstallments && numAmount > totalVal + 0.009;
+        const exceedsOpenTotal = numAmount > openTotal + 0.009;
+        const isAllOpen = hasOtherInstallments && Math.abs(numAmount - openTotal) < 0.01;
+        const multiAllocation = isMulti && !exceedsOpenTotal ? buildPaymentAllocation(numAmount, openInstallments) : [];
 
         const setQuickRemainingDate = (days: number) => {
           const d = new Date();
@@ -2042,6 +2172,19 @@ const Commissions: React.FC<CommissionsProps> = ({
                     >
                       50% ({formatCurrency(totalVal * 0.5)})
                     </button>
+                    {hasOtherInstallments && (
+                      <button
+                        type="button"
+                        onClick={() => setPaymentAmount(openTotal.toFixed(2))}
+                        className={`px-3 py-1 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
+                          isAllOpen
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                        }`}
+                      >
+                        Todas as parcelas ({formatCurrency(openTotal)})
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -2057,6 +2200,10 @@ const Commissions: React.FC<CommissionsProps> = ({
                         <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 uppercase tracking-tight">
                           Parcial
                         </span>
+                      ) : isMulti ? (
+                        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 uppercase tracking-tight">
+                          Várias parcelas
+                        </span>
                       ) : (
                         <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 uppercase tracking-tight">
                           Total
@@ -2066,10 +2213,8 @@ const Commissions: React.FC<CommissionsProps> = ({
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">R$</span>
                       <input 
-                        type="number"
-                        step="0.01"
-                        min="0.01"
-                        max={totalVal}
+                        type="text"
+                        inputMode="decimal"
                         required
                         value={paymentAmount}
                         onChange={(e) => setPaymentAmount(e.target.value)}
@@ -2093,6 +2238,34 @@ const Commissions: React.FC<CommissionsProps> = ({
                     />
                   </div>
                 </div>
+
+                {/* Valor maior que a parcela: mostra como ele será distribuído nas parcelas seguintes */}
+                {numAmount > totalVal + 0.009 && (exceedsOpenTotal || !hasOtherInstallments) && (
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-xs font-semibold text-red-800">
+                    O valor é maior que o total em aberto deste beneficiário nesta venda ({formatCurrency(hasOtherInstallments ? openTotal : totalVal)}).
+                  </div>
+                )}
+                {multiAllocation.length > 0 && (
+                  <div className="bg-blue-50/90 border border-blue-200/90 rounded-xl p-3.5 space-y-2 animate-in fade-in duration-200">
+                    <div className="text-xs font-bold text-blue-900">
+                      O valor será distribuído nas parcelas em aberto deste beneficiário:
+                    </div>
+                    <div className="space-y-1">
+                      {multiAllocation.map(a => (
+                        <div key={a.comm.id} className="flex items-center justify-between text-xs text-blue-900">
+                          <span className="font-semibold">
+                            Parcela {a.comm.installment_number ?? 1}/{a.comm.total_installments ?? 1}
+                          </span>
+                          <span>
+                            {a.full
+                              ? <>{formatCurrency(a.amount)} <span className="font-bold text-emerald-700">quitada</span></>
+                              : <>{formatCurrency(a.amount)} de {formatCurrency(a.comm.value)} <span className="font-bold text-amber-700">(saldo de {formatCurrency((a.comm.value || 0) - a.amount)} continua em aberto)</span></>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Se for Pagamento Parcial, exibe bloco com restante e escolha da data do restante */}
                 {isPartial && (
@@ -2284,6 +2457,16 @@ const Commissions: React.FC<CommissionsProps> = ({
                     <span className="text-slate-500 font-medium">Data do Pagamento:</span>
                     <span className="font-semibold text-slate-700">{new Date(financialPromptData.paymentDate + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
                   </div>
+                  {Array.isArray(financialPromptData.allocation) && financialPromptData.allocation.length > 0 && (
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-slate-500 font-medium">Parcelas:</span>
+                      <span className="font-semibold text-slate-700">
+                        {financialPromptData.allocation
+                          .map((a: any) => `${a.comm.installment_number ?? 1}/${a.comm.total_installments ?? 1}${a.full ? '' : ' (parcial)'}`)
+                          .join(', ')}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {hasExistingTransaction ? (
