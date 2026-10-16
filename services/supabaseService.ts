@@ -787,6 +787,116 @@ export const supabaseService = {
     return true;
   },
 
+  // Edita valor e/ou previsão de várias parcelas de comissão de uma vez.
+  // Recusa parcelas já pagas ou conciliadas (status PAID, payment_date ou settled_by_transaction_id preenchidos):
+  // se qualquer parcela da lista estiver travada, nada é gravado.
+  async updateSplitInstallments(
+    changes: { id: string; calculatedValue?: number; forecastDate?: string | null }[]
+  ): Promise<{ success: boolean; updated: number; message?: string }> {
+    if (!supabase) return { success: false, updated: 0, message: 'Banco de dados não disponível' };
+
+    const validChanges = (changes || []).filter(
+      c => c && c.id && (c.calculatedValue !== undefined || c.forecastDate !== undefined)
+    );
+    if (validChanges.length === 0) return { success: true, updated: 0 };
+
+    for (const c of validChanges) {
+      if (c.calculatedValue !== undefined && (!Number.isFinite(c.calculatedValue) || c.calculatedValue < 0)) {
+        return { success: false, updated: 0, message: 'Valor de parcela inválido.' };
+      }
+    }
+
+    try {
+      const ids = validChanges.map(c => c.id);
+      const { data: currentSplits, error: fetchErr } = await supabase
+        .from('broker_splits')
+        .select('*')
+        .in('id', ids);
+
+      if (fetchErr) {
+        console.error('Error fetching splits in updateSplitInstallments:', fetchErr);
+        return { success: false, updated: 0, message: fetchErr.message };
+      }
+
+      const byId = new Map<string, any>((currentSplits || []).map((s: any) => [s.id, s]));
+      if (ids.some(id => !byId.has(id))) {
+        return { success: false, updated: 0, message: 'Parcela de comissão não encontrada.' };
+      }
+
+      const hasLocked = validChanges.some(c => {
+        const s = byId.get(c.id);
+        return s.status === CommissionStatus.PAID || Boolean(s.payment_date) || Boolean(s.settled_by_transaction_id);
+      });
+      if (hasLocked) {
+        return { success: false, updated: 0, message: 'Parcelas já pagas ou conciliadas não podem ser editadas.' };
+      }
+
+      let authUser: any = null;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        authUser = user;
+      } catch (e) {
+        console.warn('Could not retrieve authenticated user in updateSplitInstallments:', e);
+      }
+
+      let updated = 0;
+      for (const c of validChanges) {
+        const current = byId.get(c.id);
+        const updateData: any = { manually_adjusted: true };
+        if (c.calculatedValue !== undefined) updateData.calculated_value = Math.round(c.calculatedValue * 100) / 100;
+        if (c.forecastDate !== undefined) updateData.forecast_date = c.forecastDate || null;
+
+        // Repete a trava no próprio UPDATE para não sobrescrever uma parcela paga entre a leitura e a escrita.
+        const { data: updatedRows, error: updateErr } = await supabase
+          .from('broker_splits')
+          .update(updateData)
+          .eq('id', c.id)
+          .neq('status', CommissionStatus.PAID)
+          .is('payment_date', null)
+          .is('settled_by_transaction_id', null)
+          .select('id');
+
+        if (updateErr) {
+          console.error('Error updating split installment:', updateErr);
+          return { success: false, updated, message: updateErr.message };
+        }
+        if (!updatedRows || updatedRows.length === 0) {
+          return {
+            success: false,
+            updated,
+            message: 'Uma parcela foi paga ou conciliada durante a edição. Recarregue e tente novamente.'
+          };
+        }
+        updated++;
+
+        await logAuditEvent({
+          action: 'UPDATE',
+          table_name: 'broker_splits',
+          record_id: c.id,
+          user_id: authUser?.id || null,
+          user_email: authUser?.email || null,
+          agency_id: current.agency_id || null,
+          old_data: {
+            calculated_value: current.calculated_value,
+            forecast_date: current.forecast_date,
+            manually_adjusted: current.manually_adjusted
+          },
+          new_data: {
+            calculated_value: updateData.calculated_value ?? current.calculated_value,
+            forecast_date: 'forecast_date' in updateData ? updateData.forecast_date : current.forecast_date,
+            manually_adjusted: true
+          },
+          changed_fields: Object.keys(updateData)
+        });
+      }
+
+      return { success: true, updated };
+    } catch (err: any) {
+      console.error('Unexpected error in updateSplitInstallments:', err);
+      return { success: false, updated: 0, message: err?.message || 'Erro ao atualizar parcelas.' };
+    }
+  },
+
   // Registrar pagamento de comissão (cheio ou parcial) com vínculo OPCIONAL à transação financeira
   async payCommissionSplit(params: {
     splitId: string;
