@@ -30,7 +30,9 @@ import {
   AlertCircle,
   Lock,
   Link2,
-  PlusCircle
+  PlusCircle,
+  Pencil,
+  Shuffle
 } from 'lucide-react';
 import { Sale, User, UserRole, CommissionStatus, FinancialAccount, FinancialCategory, FinancialTransaction } from '../types';
 import BrokerStatement from './BrokerStatement';
@@ -43,11 +45,56 @@ interface CommissionsProps {
   team: User[];
   currentUser: User;
   onUpdateStatus: (saleId: string, brokerId: string, newStatus: CommissionStatus, receiptData?: string, paymentDate?: string) => void;
-  onUpdateForecast?: (saleId: string, brokerId: string, newForecastDate: string) => void;
+  onUpdateForecast?: (saleId: string, splitId: string, newForecastDate: string) => void;
   onDeleteSplit?: (splitId: string) => Promise<boolean | void> | void;
   onRefresh?: () => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'warning' | 'info') => void;
 }
+
+// Linha do modal "Editar parcelas": valor e previsão ficam como texto até salvar.
+interface InstallmentEditRow {
+  id: string;
+  label: string;
+  locked: boolean;
+  lockReason?: string;
+  originalValue: number;
+  originalForecastDate: string;
+  value: string;
+  forecastDate: string;
+}
+
+const toCents = (value: number) => Math.round((Number(value) || 0) * 100);
+
+// Zera as parcelas em aberto antes de startIndex e redistribui o total em aberto entre as parcelas em aberto
+// a partir de startIndex, proporcional aos valores atuais. A última parcela absorve o arredondamento.
+// Parcelas travadas (pagas/conciliadas) mantêm o valor. Retorna null quando não há parcela em aberto a partir de startIndex.
+const redistributeInstallments = (
+  rows: { value: number; locked: boolean }[],
+  startIndex: number
+): number[] | null => {
+  const targets = rows.map((r, i) => i).filter(i => i >= startIndex && !rows[i].locked);
+  if (targets.length === 0) return null;
+
+  const totalCents = rows.reduce((sum, r) => (r.locked ? sum : sum + toCents(r.value)), 0);
+  const baseCents = targets.reduce((sum, i) => sum + Math.max(0, toCents(rows[i].value)), 0);
+
+  const result = rows.map(r => (r.locked ? toCents(r.value) : 0));
+  let allocated = 0;
+  targets.forEach((i, pos) => {
+    if (pos === targets.length - 1) {
+      result[i] = totalCents - allocated;
+      return;
+    }
+    const share = baseCents > 0
+      ? Math.round((totalCents * Math.max(0, toCents(rows[i].value))) / baseCents)
+      : Math.round(totalCents / targets.length);
+    result[i] = share;
+    allocated += share;
+  });
+  return result.map(c => c / 100);
+};
+
+const formatMoneyInput = (value: number) => (Math.round((Number(value) || 0) * 100) / 100).toFixed(2).replace('.', ',');
 
 const Commissions: React.FC<CommissionsProps> = ({ 
   sales, 
@@ -81,8 +128,17 @@ const Commissions: React.FC<CommissionsProps> = ({
   
   // Estados para modal de previsão
   const [isForecastModalOpen, setIsForecastModalOpen] = useState(false);
-  const [selectedComm, setSelectedComm] = useState<{saleId: string, brokerId: string, property: string, forecastDate?: string} | null>(null);
+  const [selectedComm, setSelectedComm] = useState<{saleId: string, splitId: string, property: string, forecastDate?: string} | null>(null);
   const [tempForecastDate, setTempForecastDate] = useState('');
+
+  // Estados para modal de edição de parcelas
+  const [installmentsEditor, setInstallmentsEditor] = useState<{
+    property: string;
+    brokerName: string;
+    rows: InstallmentEditRow[];
+  } | null>(null);
+  const [startInstallment, setStartInstallment] = useState<string>('3');
+  const [isSavingInstallments, setIsSavingInstallments] = useState<boolean>(false);
 
   // Estados para modal de pagamento (quitação total e parcial)
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -199,7 +255,9 @@ const Commissions: React.FC<CommissionsProps> = ({
             receiptData: split.receiptData,
             role: split.role,
             installment_number: split.installment_number,
-            total_installments: split.total_installments
+            total_installments: split.total_installments,
+            settled_by_transaction_id: split.settled_by_transaction_id,
+            manually_adjusted: split.manually_adjusted
           });
         }
       });
@@ -571,7 +629,7 @@ const Commissions: React.FC<CommissionsProps> = ({
   const handleOpenForecastModal = (comm: any) => {
     setSelectedComm({
       saleId: comm.saleId,
-      brokerId: comm.brokerId,
+      splitId: comm.id,
       property: comm.property,
       forecastDate: comm.forecastDate
     });
@@ -580,8 +638,8 @@ const Commissions: React.FC<CommissionsProps> = ({
   };
 
   const handleSaveForecast = () => {
-    if (selectedComm && onUpdateForecast) {
-      onUpdateForecast(selectedComm.saleId, selectedComm.brokerId, tempForecastDate);
+    if (selectedComm?.splitId && onUpdateForecast) {
+      onUpdateForecast(selectedComm.saleId, selectedComm.splitId, tempForecastDate);
       setIsForecastModalOpen(false);
       setSelectedComm(null);
     }
@@ -598,6 +656,120 @@ const Commissions: React.FC<CommissionsProps> = ({
     }
     const n = parseFloat(s);
     return isNaN(n) ? 0 : n;
+  };
+
+  const getInstallmentLockReason = (comm: any): string | undefined => {
+    if (comm.status === CommissionStatus.PAID || comm.paymentDate) return 'Paga';
+    if (comm.settled_by_transaction_id) return 'Conciliada';
+    return undefined;
+  };
+
+  const handleOpenInstallmentsEditor = (group: any) => {
+    const sorted = [...group.installments]
+      .filter((c: any) => c.id)
+      .sort((a: any, b: any) => {
+        const na = a.installment_number ?? Number.MAX_SAFE_INTEGER;
+        const nb = b.installment_number ?? Number.MAX_SAFE_INTEGER;
+        if (na !== nb) return na - nb;
+        return String(a.forecastDate || '').localeCompare(String(b.forecastDate || ''));
+      });
+    if (sorted.length === 0) return;
+
+    const rows: InstallmentEditRow[] = sorted.map((comm: any, i: number) => {
+      const lockReason = getInstallmentLockReason(comm);
+      const forecastDate = comm.forecastDate ? String(comm.forecastDate).slice(0, 10) : '';
+      return {
+        id: comm.id,
+        label: `Parcela ${comm.installment_number ?? i + 1}/${comm.total_installments ?? sorted.length}`,
+        locked: Boolean(lockReason),
+        lockReason,
+        originalValue: Number(comm.value) || 0,
+        originalForecastDate: forecastDate,
+        value: formatMoneyInput(comm.value),
+        forecastDate
+      };
+    });
+
+    setInstallmentsEditor({ property: group.property, brokerName: group.brokerName, rows });
+    setStartInstallment(String(Math.min(3, rows.length)));
+  };
+
+  const updateInstallmentRow = (id: string, patch: Partial<Pick<InstallmentEditRow, 'value' | 'forecastDate'>>) => {
+    setInstallmentsEditor(prev => prev && {
+      ...prev,
+      rows: prev.rows.map(r => (r.id === id && !r.locked ? { ...r, ...patch } : r))
+    });
+  };
+
+  const installmentsSummary = (() => {
+    if (!installmentsEditor) return null;
+    const open = installmentsEditor.rows.filter(r => !r.locked);
+    const originalCents = open.reduce((sum, r) => sum + toCents(r.originalValue), 0);
+    const currentCents = open.reduce((sum, r) => sum + toCents(parseMoneyInput(r.value)), 0);
+    const startNumber = parseInt(startInstallment, 10);
+    const startIndex = Number.isInteger(startNumber) ? startNumber - 1 : -1;
+    const canRedistribute =
+      startIndex >= 0 &&
+      startIndex < installmentsEditor.rows.length &&
+      installmentsEditor.rows.some((r, i) => i >= startIndex && !r.locked);
+    return {
+      openCount: open.length,
+      originalTotal: originalCents / 100,
+      currentTotal: currentCents / 100,
+      totalChanged: originalCents !== currentCents,
+      startIndex,
+      canRedistribute
+    };
+  })();
+
+  const handleRedistributeInstallments = () => {
+    if (!installmentsEditor || !installmentsSummary?.canRedistribute) return;
+    const values = redistributeInstallments(
+      installmentsEditor.rows.map(r => ({ value: r.locked ? r.originalValue : parseMoneyInput(r.value), locked: r.locked })),
+      installmentsSummary.startIndex
+    );
+    if (!values) return;
+    setInstallmentsEditor({
+      ...installmentsEditor,
+      rows: installmentsEditor.rows.map((r, i) => (r.locked ? r : { ...r, value: formatMoneyInput(values[i]) }))
+    });
+  };
+
+  const handleSaveInstallments = async () => {
+    if (!installmentsEditor || isSavingInstallments) return;
+
+    const changes: { id: string; calculatedValue?: number; forecastDate?: string | null }[] = [];
+    for (const r of installmentsEditor.rows) {
+      if (r.locked) continue;
+      const value = parseMoneyInput(r.value);
+      if (value < 0) {
+        triggerToast(`${r.label}: o valor não pode ser negativo.`, 'error');
+        return;
+      }
+      const change: { id: string; calculatedValue?: number; forecastDate?: string | null } = { id: r.id };
+      if (toCents(value) !== toCents(r.originalValue)) change.calculatedValue = toCents(value) / 100;
+      if (r.forecastDate !== r.originalForecastDate) change.forecastDate = r.forecastDate || null;
+      if (change.calculatedValue !== undefined || change.forecastDate !== undefined) changes.push(change);
+    }
+
+    if (changes.length === 0) {
+      setInstallmentsEditor(null);
+      return;
+    }
+
+    setIsSavingInstallments(true);
+    try {
+      const result = await supabaseService.updateSplitInstallments(changes);
+      if (result.success) {
+        triggerToast(`${result.updated} parcela(s) atualizada(s).`, 'success');
+        setInstallmentsEditor(null);
+      } else {
+        triggerToast(result.message || 'Não foi possível salvar as parcelas.', 'error');
+      }
+      if (onRefresh && (result.success || result.updated > 0)) onRefresh();
+    } finally {
+      setIsSavingInstallments(false);
+    }
   };
 
   // Parcelas em aberto do mesmo beneficiário (mesma venda e mesma função), na ordem das
@@ -1927,10 +2099,22 @@ const Commissions: React.FC<CommissionsProps> = ({
                         })()}
                       </td>
                       <td className="px-5 py-4 text-right">
+                        {isMulti && isAdmin && (
+                          <button
+                            onClick={e => { e.stopPropagation(); handleOpenInstallmentsEditor(group); }}
+                            className="inline-flex items-center gap-1.5 px-2.5 h-[30px] text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-all"
+                            title="Editar valores e previsões das parcelas"
+                          >
+                            <Pencil size={13} /> Editar parcelas
+                          </button>
+                        )}
                         {!isMulti && (() => {
                           const comm = group.installments[0];
                           return (
                             <div className="flex items-center justify-end gap-1">
+                              {isAdmin && comm.id && (
+                                <button onClick={e => { e.stopPropagation(); handleOpenInstallmentsEditor(group); }} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all" title="Editar parcela"><Pencil size={15} /></button>
+                              )}
                               {isAdmin && comm.status !== CommissionStatus.PAID && (
                                 <button onClick={e => { e.stopPropagation(); handleOpenForecastModal(comm); }} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Editar Previsão"><Calendar size={15} /></button>
                               )}
@@ -2061,6 +2245,147 @@ const Commissions: React.FC<CommissionsProps> = ({
                 className="flex-1 h-[38px] bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold transition-all text-sm"
               >
                 Salvar Previsão
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Parcelas */}
+      {installmentsEditor && installmentsSummary && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-2xl max-h-[90vh] flex flex-col rounded-xl border border-gray-200 shadow-xl overflow-hidden animate-in zoom-in duration-200">
+            <div className="p-5 border-b border-gray-200 flex items-center justify-between">
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-gray-900">Editar parcelas</h3>
+                <p className="text-xs text-gray-500 truncate">
+                  {installmentsEditor.property} • {installmentsEditor.brokerName}
+                </p>
+              </div>
+              <button
+                onClick={() => !isSavingInstallments && setInstallmentsEditor(null)}
+                className="bg-gray-50 p-1.5 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
+                title="Fechar"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto">
+              {installmentsEditor.rows.length > 1 && (
+                <div className="bg-indigo-50/50 p-4 rounded-lg border border-indigo-100 flex flex-wrap items-end gap-3">
+                  <div className="space-y-1.5">
+                    <label htmlFor="start-installment" className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">
+                      Começar a receber na parcela
+                    </label>
+                    <input
+                      id="start-installment"
+                      type="number"
+                      min={1}
+                      max={installmentsEditor.rows.length}
+                      step={1}
+                      value={startInstallment}
+                      onChange={e => setStartInstallment(e.target.value)}
+                      className="w-24 px-3 h-[38px] bg-white border border-gray-200 rounded-lg outline-none text-sm font-semibold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                    />
+                  </div>
+                  <button
+                    onClick={handleRedistributeInstallments}
+                    disabled={!installmentsSummary.canRedistribute || isSavingInstallments}
+                    className="inline-flex items-center gap-1.5 px-3 h-[38px] bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-semibold text-sm transition-all"
+                  >
+                    <Shuffle size={14} /> Zerar anteriores e redistribuir
+                  </button>
+                  <p className="text-[11px] text-gray-500 w-full">
+                    Zera as parcelas em aberto antes da escolhida e divide o total em aberto entre as seguintes,
+                    proporcional aos valores atuais. Nada é gravado até clicar em "Salvar parcelas".
+                  </p>
+                  {!installmentsSummary.canRedistribute && (
+                    <p className="text-[11px] text-amber-600 font-medium w-full flex items-center gap-1">
+                      <AlertTriangle size={12} /> Escolha uma parcela entre 1 e {installmentsEditor.rows.length} que tenha parcelas em aberto a partir dela.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider">Parcela</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider">Valor (R$)</th>
+                      <th className="px-3 py-2 text-left text-[10px] font-bold text-gray-500 uppercase tracking-wider">Previsão</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {installmentsEditor.rows.map(row => (
+                      <tr key={row.id} className={row.locked ? 'bg-gray-50/70' : ''}>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-bold text-gray-800">{row.label}</span>
+                            {row.locked && (
+                              <span className="text-[10px] text-emerald-600 font-bold uppercase flex items-center gap-1">
+                                <Lock size={10} /> {row.lockReason} • somente leitura
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            aria-label={`Valor da ${row.label}`}
+                            value={row.value}
+                            disabled={row.locked || isSavingInstallments}
+                            onChange={e => updateInstallmentRow(row.id, { value: e.target.value })}
+                            className="w-full px-3 h-[34px] bg-white border border-gray-200 rounded-lg outline-none text-sm font-semibold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500 transition-all"
+                          />
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="date"
+                            aria-label={`Previsão da ${row.label}`}
+                            value={row.forecastDate}
+                            disabled={row.locked || isSavingInstallments}
+                            onChange={e => updateInstallmentRow(row.id, { forecastDate: e.target.value })}
+                            className="w-full px-3 h-[34px] bg-white border border-gray-200 rounded-lg outline-none text-sm font-semibold focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500 transition-all"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500 font-medium">Total em aberto ({installmentsSummary.openCount} parcela(s))</span>
+                  <span className="font-bold text-gray-900">{formatCurrency(installmentsSummary.currentTotal)}</span>
+                </div>
+                {installmentsSummary.totalChanged && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 flex items-center gap-1.5">
+                    <AlertTriangle size={13} />
+                    O total em aberto mudou: era {formatCurrency(installmentsSummary.originalTotal)}, agora é {formatCurrency(installmentsSummary.currentTotal)}.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-50 border-t border-gray-200 flex gap-3">
+              <button
+                onClick={() => setInstallmentsEditor(null)}
+                disabled={isSavingInstallments}
+                className="flex-1 h-[38px] text-gray-500 font-semibold hover:text-gray-700 disabled:opacity-50 transition-colors text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveInstallments}
+                disabled={isSavingInstallments || installmentsSummary.openCount === 0}
+                className="flex-1 h-[38px] bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg font-semibold transition-all text-sm inline-flex items-center justify-center gap-2"
+              >
+                {isSavingInstallments && <Loader2 size={14} className="animate-spin" />}
+                Salvar parcelas
               </button>
             </div>
           </div>

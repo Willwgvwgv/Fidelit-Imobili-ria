@@ -171,9 +171,10 @@ const App: React.FC = () => {
     }
   };
 
-  const handleUpdateForecast = async (saleId: string, brokerId: string, newForecastDate: string) => {
+  // Localiza a parcela pelo id: um corretor pode ter várias parcelas na mesma venda.
+  const handleUpdateForecast = async (saleId: string, splitId: string, newForecastDate: string) => {
     const sale = sales.find(s => s.id === saleId);
-    const split = sale?.splits.find(sp => sp.brokerId === brokerId);
+    const split = sale?.splits.find(sp => sp.id === splitId);
 
     if (split?.id) {
       // Optimistic update locally
@@ -182,7 +183,7 @@ const App: React.FC = () => {
         return {
           ...s,
           splits: s.splits.map(sp => {
-            if (sp.brokerId !== brokerId) return sp;
+            if (sp.id !== splitId) return sp;
             return {
               ...sp,
               forecastDate: newForecastDate
