@@ -19,6 +19,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { Sale, BrokerSplit, CommissionStatus, SplitRole, User, UserRole } from '../types';
+import { COMMISSION_PRESETS, CommissionPreset, describePreset } from '../src/utils/commissionPresets';
 
 interface SaleFormProps {
   agencyId: string;
@@ -524,6 +525,35 @@ export const SaleForm: React.FC<SaleFormProps> = ({
     }
   };
 
+  // Aplica uma repartição padrão (ver src/utils/commissionPresets.ts).
+  // Mantém a pessoa já escolhida para cada função; quem ainda não foi escolhido
+  // fica em branco para ser selecionado (o sistema não deixa salvar sem escolher).
+  const [selectedPresetId, setSelectedPresetId] = useState<string>('');
+  const applyCommissionPreset = (preset: CommissionPreset) => {
+    if (hasFinancialMovement) {
+      alert('Esta venda já tem comissões pagas/conciliadas. Por segurança, ajuste a distribuição manualmente.');
+      return;
+    }
+    const usados = new Set<number>();
+    const novos: TempSplit[] = preset.lines.map(line => {
+      if (line.role === SplitRole.AGENCY) {
+        return { brokerId: 'AGENCY', brokerName: 'Agência (Imobiliária)', percentage: line.percentage, role: SplitRole.AGENCY };
+      }
+      const idx = tempSplits.findIndex((s, i) =>
+        !usados.has(i) && s.role === line.role && s.brokerId && s.brokerId !== 'AGENCY'
+      );
+      if (idx >= 0) {
+        usados.add(idx);
+        const anterior = tempSplits[idx];
+        return { brokerId: anterior.brokerId, brokerName: anterior.brokerName, percentage: line.percentage, role: line.role };
+      }
+      return { brokerId: '', brokerName: '', percentage: line.percentage, role: line.role };
+    });
+    setFixedInputText({});
+    setTempSplits(novos);
+    setSelectedPresetId(preset.id);
+  };
+
   const handleAddBroker = () => {
     const defaultBroker = filteredBrokers[0] || { id: 'AGENCY', name: 'Agência (Imobiliária)' };
     const newSplit: TempSplit = {
@@ -567,8 +597,8 @@ export const SaleForm: React.FC<SaleFormProps> = ({
     
     if (fields.brokerId !== undefined) {
       const bId = fields.brokerId;
-      let bName = 'Agência (Imobiliária)';
-      if (bId !== 'AGENCY') {
+      let bName = bId === '' ? '' : 'Agência (Imobiliária)';
+      if (bId !== 'AGENCY' && bId !== '') {
         const found = team.find(b => b.id === bId);
         if (found) bName = found.name;
       }
@@ -672,6 +702,11 @@ export const SaleForm: React.FC<SaleFormProps> = ({
     }
     if (!isDraft && !isSplitsValid) {
       alert('Total precisa ser exatamente 100%');
+      return;
+    }
+    const semRecebedor = tempSplits.find(s => !s.brokerId);
+    if (semRecebedor) {
+      alert(`Escolha quem recebe a parte de ${semRecebedor.role} (${semRecebedor.percentage}%).`);
       return;
     }
 
@@ -1530,6 +1565,31 @@ export const SaleForm: React.FC<SaleFormProps> = ({
             </div>
           </div>
 
+          {/* Repartições padrão da Fidelité */}
+          <div className="bg-blue-50/60 border border-blue-100 rounded-2xl p-3 space-y-2">
+            <label htmlFor="preset-reparticao" className="block text-[9px] font-black text-[#1e3a5f] uppercase tracking-widest">
+              Repartição padrão
+            </label>
+            <select
+              id="preset-reparticao"
+              value={selectedPresetId}
+              onChange={(e) => {
+                const preset = COMMISSION_PRESETS.find(p => p.id === e.target.value);
+                if (preset) applyCommissionPreset(preset);
+                else setSelectedPresetId('');
+              }}
+              className="w-full px-3 py-2 bg-white border border-blue-200 rounded-xl text-xs font-semibold text-slate-800"
+            >
+              <option value="">Escolher um padrão…</option>
+              {COMMISSION_PRESETS.map(p => (
+                <option key={p.id} value={p.id}>{p.name} — {describePreset(p)}</option>
+              ))}
+            </select>
+            <p className="text-[10px] text-slate-500">
+              Preenche as porcentagens. Depois escolha o corretor, o gerente e o captador em cada linha abaixo.
+            </p>
+          </div>
+
           {/* Quick Distribution Templates */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mr-2">Configurações Rápidas:</span>
@@ -1621,8 +1681,11 @@ export const SaleForm: React.FC<SaleFormProps> = ({
                     <select
                       value={split.brokerId}
                       onChange={(e) => handleUpdateSplit(idx, { brokerId: e.target.value })}
-                      className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800"
+                      className={`w-full px-2.5 py-2 border rounded-xl text-xs font-semibold ${
+                        split.brokerId ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-amber-50 border-amber-300 text-amber-700'
+                      }`}
                     >
+                      {!split.brokerId && <option value="">Selecione quem recebe…</option>}
                       <option value="AGENCY">Fidelité Imobiliária (Agência)</option>
                       {filteredBrokers.map(b => (
                         <option key={b.id} value={b.id}>{b.name}</option>
